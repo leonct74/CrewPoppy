@@ -1,0 +1,12 @@
+node_modules/
+dist/
+build/
+release/
+backend/
+*.exe
+crewpoppy-sidecar*
+src/generated/
+.DS_Store
+*.log
+.env
+.env.*
