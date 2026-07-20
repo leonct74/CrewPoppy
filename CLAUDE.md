@@ -92,15 +92,26 @@ and phases P0–P4: `DESIGN.md`.
 - The founder decides product questions; implementation questions get decided here and recorded in
   DESIGN.md.
 
-## Commands (fill in as scaffolded — mirror vm-poppy's package.json)
+## Commands
 
-- `npm install` · `npm run typecheck` · `npm run test` · `npm run build:sidecar` (+ `--win32`) ·
-  `npm run validate-manifest` · `npm run install-dev` · `npm run certify`
+- `npm install` — workspaces: `infra` (typed CFN template) · `lambdas` (deployed handlers) ·
+  `backend` (sidecar) · `frontend` (Vite/React UI).
+- `npm run typecheck` · `npm run test` — all workspaces (50 tests at P0).
+- `npm run gen:backend` — infra + lambdas → `backend/src/generated/backend-bundle.ts`
+  (template JSON + content-addressed runner zip; runs automatically before typecheck/test/build).
+- `npm run build` = `build:frontend` + `build:sidecar` (SEA → `backend/crewpoppy-sidecar`;
+  add `-- --win32` for the Windows binary). **Rebuild + restart AgentsPoppy after any
+  infra/lambdas/backend change** (gotcha #1).
+- `npm run validate-manifest` — SDK structural check + the REAL `assessPermissionSet`; fails the
+  build unless the rating is amber/green with zero unscoped findings.
+- `npm run install-dev` — install into `~/.agentspoppy/extensions/com.crewpoppy.desktop`.
+- `npm run certify` — the leaves-no-trace harness (destructive; live account; founder gate).
+- Scripts locate the host checkout via `AGENTSPOPPY_REPO` (default `../agentspoppy`).
 
 ## Status
 
-Design complete + founder-locked (DESIGN §14, 2026-07-19). **Current phase: P0 — walking skeleton**
-(scaffold → manifest vs real assessor, watch packed-policy budget → empty stack (DynamoDB + S3 +
-empty runner Lambda + Bedrock permission) → teardown → certify green → dev-install in AgentsPoppy).
+**P0 built locally, 2026-07-20 (implementation decisions: DESIGN §2b; status: DESIGN §17).**
+Remote: `https://github.com/leonct74/CrewPoppy.git`. Remaining for P0: the live founder gate —
+deploy → verify rating/UI in AgentsPoppy → teardown → certify green → account clean.
 Before the repo ever goes public: the pre-public checklist in `agentspoppy/docs/ROADMAP.md`
 (history secret scan, FSL headers, no personal paths).

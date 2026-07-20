@@ -74,6 +74,42 @@ AgentsPoppy container (the dashboard)        Your AWS account (chosen region)
   the Bedrock permission + a Cognito plane for the dashboard/API (like MailPoppy's access API).
 - **The poppy screen IS Mission Control:** define agents, run them, watch cost, read transcripts.
 
+### 2b. P0 implementation decisions (implementation session, 2026-07-20)
+
+- **Identifiers:** app id `com.crewpoppy.desktop`; resource prefix **`CrewPoppy*`** everywhere
+  (stack `CrewPoppyStack`, table `CrewPoppyData`, Lambda `CrewPoppyRunner`, role
+  `CrewPoppyRunnerRole`) and lowercase `crewpoppy-*` for buckets (S3 constraint):
+  `crewpoppy-workspace-<account>-<region>` (in-stack), `crewpoppy-deploy-<account>-<region>`
+  (see below). `MissionControlAgents*` dropped — the product name is locked CrewPoppy (§14.1).
+  Accent: `poppyAccent("com.crewpoppy.desktop")` = `#8fd0c6`.
+- **Template authored as typed TypeScript, no cdk** (`infra/src/template.ts`, the TrafficPoppy
+  pattern): the P0 footprint is 5 resources — small enough to author directly, and it removes
+  the cdk dependency and the synth step. Same embedded-bundle contract as MailPoppy's generator.
+- **Single-table design:** agent defs, memory, transcripts and run checkpoints are all items in
+  `CrewPoppyData` (pk/sk). The TTL attribute (`expiresAt`) is declared from P0 so §5's expiring
+  checkpoints/questions work from the moment the table exists.
+- **Lambda code delivery = MailPoppy's content-addressed zip from day one.** The deterministic
+  (STORED, fixed-mtime) zip of the runner is embedded in the sidecar and uploaded at deploy time
+  to the **deploy bucket — the ONE resource outside the stack** — then injected via
+  `LambdaCodeBucket/Key` template parameters. The bucket is created tagged (all three attribution
+  tags, re-stamped on every deploy) and removed by the teardown hook. Chosen over an inline
+  `ZipFile` stub so the walking skeleton walks P1's actual path.
+- **In-stack log group** for the runner (`/aws/lambda/CrewPoppyRunner`): a Lambda-auto-created
+  log group would be untagged → invisible to the sweep → orphaned after teardown.
+- **Teardown hook order:** empty workspace bucket → delete stack + wait for `DELETE_COMPLETE` →
+  empty+delete deploy bucket. Idempotent; certification runs with host cleanup off, so the hook
+  does all of it itself. The **Crew-Pack-first offer (§3b) lands with the export itself (P1+)**
+  — the skeleton has no agent data to save; the placement is documented in `RemovePanel.tsx`.
+- **§8 packed-policy finding (good news):** the broker already splits an oversized session
+  policy into up to 10 content-addressed managed policies (~6 KB each) automatically when it
+  exceeds STS's ~2 KB inline budget (`packages/broker/src/aws/sts.ts`). Nothing to build on our
+  side; DR5 least-privilege still governs the *rating*. P0's manifest = 7 grants / 38 actions,
+  every scope a concrete `CrewPoppy*`/`crewpoppy-*` ARN pattern → the real `assessPermissionSet`
+  rates it **amber, zero unscoped findings**. The manifest carries **no bedrock grant until P1**
+  (the sidecar doesn't call Bedrock at P0; the runner's in-stack role holds `InvokeModel*`,
+  scoped to foundation-model/inference-profile ARNs); P1 adds `bedrock:ListFoundationModels`
+  for the model dropdown (manifest change ⇒ normal re-approval).
+
 ## 3. What an "agent" is (the data model)
 
 An agent is a stored definition (DynamoDB), not code:
@@ -482,7 +518,13 @@ Why "agents in your own AWS via Bedrock" beats agent-SaaS — the seven sellable
 ## 17. Status
 
 **Design COMPLETE and founder-locked (2026-07-19).** All §13 decisions resolved in §14.
-CLAUDE.md + README + LICENSE + .gitignore written; repo initialized. **Current phase: P0 —
-walking skeleton.** Implementation delegated to a SEPARATE Claude Code session (handoff prompt
-issued 2026-07-19) per the TrafficPoppy/VPN-Poppy model — this planning session does not
-implement; coordinate via this DESIGN.md + commits.
+Implementation delegated to a SEPARATE Claude Code session per the TrafficPoppy/VPN-Poppy
+model — coordinate via this DESIGN.md + commits.
+
+**P0 build complete locally (implementation session, 2026-07-20; decisions in §2b):**
+scaffold ✓ · template + embedded-artifact pipeline ✓ · sidecar (deploy/status/teardown on
+brokered creds) ✓ · manifest amber with zero unscoped findings against the REAL assessor ✓ ·
+design-kit frontend ✓ · SEA sidecar built + smoke-tested ✓ · 50 unit tests green ✓ ·
+dev-installed into AgentsPoppy ✓. **Awaiting the founder gate to finish P0:** live deploy →
+verify in AgentsPoppy (rating + UI) → teardown → `npm run certify` green → account verified
+clean. No Bedrock spend at P0 (nothing invokes the model).
