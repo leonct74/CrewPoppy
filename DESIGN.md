@@ -100,10 +100,15 @@ AgentsPoppy container (the dashboard)        Your AWS account (chosen region)
   empty+delete deploy bucket. Idempotent; certification runs with host cleanup off, so the hook
   does all of it itself. The **Crew-Pack-first offer (§3b) lands with the export itself (P1+)**
   — the skeleton has no agent data to save; the placement is documented in `RemovePanel.tsx`.
-- **§8 packed-policy finding (good news):** the broker already splits an oversized session
-  policy into up to 10 content-addressed managed policies (~6 KB each) automatically when it
-  exceeds STS's ~2 KB inline budget (`packages/broker/src/aws/sts.ts`). Nothing to build on our
-  side; DR5 least-privilege still governs the *rating*. P0's manifest = 7 grants / 38 actions,
+- **§8 packed-policy finding (LIVE-GATE LESSON, 2026-07-20):** the broker's managed-policy
+  splitting existed but only engaged when the session policy's PLAINTEXT exceeded ~2 KB. STS
+  additionally enforces an invisible **packed** (compressed) budget that grows with action
+  count — CrewPoppy's set (42 actions / 1690 plaintext chars) slipped under the plaintext
+  threshold, went inline, and the first live deploy died at credential time with "Packed policy
+  consumes 157% of allotted space". Fixed HOST-side (agentspoppy `b24a622`): the vend now
+  catches the packed rejection and retries through the managed-policy route; documented for
+  every future poppy in AGENTS.md §3. CrewPoppy's manifest needed no change — the set is
+  legitimate and DR5 least-privilege still governs the *rating*. P0's manifest = 7 grants / 38 actions,
   every scope a concrete `CrewPoppy*`/`crewpoppy-*` ARN pattern → the real `assessPermissionSet`
   rates it **amber, zero unscoped findings**. The manifest carries **no bedrock grant until P1**
   (the sidecar doesn't call Bedrock at P0; the runner's in-stack role holds `InvokeModel*`,
