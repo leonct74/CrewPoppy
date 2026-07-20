@@ -1,0 +1,31 @@
+{
+  "name": "crewpoppy",
+  "version": "0.1.0",
+  "private": true,
+  "description": "CrewPoppy — Mission Control for your AI crew. An AgentsPoppy extension: task-specific AI agents that run entirely in your own AWS.",
+  "type": "module",
+  "license": "SEE LICENSE IN LICENSE",
+  "workspaces": [
+    "infra",
+    "lambdas",
+    "backend",
+    "frontend"
+  ],
+  "scripts": {
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "test": "npm run test --workspaces --if-present",
+    "gen:backend": "node scripts/build-backend-bundle.mjs",
+    "build": "npm run build:frontend && npm run build:sidecar",
+    "build:frontend": "npm run build -w @crewpoppy/frontend",
+    "prebuild:sidecar": "npm run gen:backend",
+    "build:sidecar": "node scripts/build-sidecar.mjs",
+    "validate-manifest": "node scripts/validate-manifest.mjs",
+    "install-dev": "node ${AGENTSPOPPY_REPO:-../agentspoppy}/scripts/install-dev-extension.mjs --src . --frontend frontend/dist --backend backend/crewpoppy-sidecar",
+    "certify": "npm --prefix ${AGENTSPOPPY_REPO:-../agentspoppy} run certify -- --extension $PWD"
+  },
+  "devDependencies": {
+    "esbuild": "^0.24.0",
+    "postject": "^1.0.0-alpha.6",
+    "typescript": "^5.7.0"
+  }
+}
