@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { ModelsCard } from "./ModelsCard";
 import { api } from "./api";
@@ -59,6 +59,16 @@ describe("the model catalogue", () => {
     expect(screen.getByText(/Everything else above works right now without it/)).toBeInTheDocument();
   });
 
+  it("sets the expectation that AWS takes a while, instead of asking the user to confirm", async () => {
+    vi.spyOn(api, "models").mockResolvedValue(catalogue());
+    render(<ModelsCard />);
+    await screen.findByText(/1 ready now/);
+    // No "did you do it?" button — the wait is explained up front and resolves itself.
+    expect(screen.queryByRole("button", { name: /i've filled in the form/i })).not.toBeInTheDocument();
+    expect(screen.getByText(/takes a little while to switch these on/i)).toBeInTheDocument();
+    expect(screen.getByText(/checks on its own/i)).toBeInTheDocument();
+  });
+
   it("hides the setup instructions entirely when everything is ready", async () => {
     vi.spyOn(api, "models").mockResolvedValue(catalogue([{ ...claude, ready: true }, qwen]));
     render(<ModelsCard />);
@@ -75,41 +85,6 @@ describe("the model catalogue", () => {
 
     await userEvent.click(await screen.findByRole("button", { name: /open the aws page/i }));
     expect(openExternal).toHaveBeenCalledWith(catalogue().consoleUrl);
-  });
-
-  it("clears the setup section once AWS agrees the form landed", async () => {
-    vi.spyOn(api, "models")
-      .mockResolvedValueOnce(catalogue())
-      .mockResolvedValue(catalogue([{ ...claude, ready: true }, qwen]));
-    render(<ModelsCard />);
-
-    await screen.findByText(/1 ready now/);
-    await userEvent.click(screen.getByRole("button", { name: /i've filled in the form/i }));
-
-    await waitFor(() => expect(screen.getByText(/2 ready now/)).toBeInTheDocument());
-    expect(screen.queryByRole("button", { name: /open the aws page/i })).not.toBeInTheDocument();
-  });
-
-  it("answers the user when AWS hasn't registered the form yet", async () => {
-    vi.spyOn(api, "models").mockResolvedValue(catalogue());
-    render(<ModelsCard />);
-    await screen.findByText(/1 ready now/);
-
-    await userEvent.click(screen.getByRole("button", { name: /i've filled in the form/i }));
-
-    expect(await screen.findByText(/hasn't registered it yet/i)).toBeInTheDocument();
-    expect(screen.getByText(/15 minutes/i)).toBeInTheDocument();
-  });
-
-  it("does not blame the delay when the model's status simply couldn't be read", async () => {
-    vi.spyOn(api, "models").mockResolvedValue(catalogue([{ ...claude, unknown: true }, qwen]));
-    render(<ModelsCard />);
-    await screen.findByText(/1 ready now/);
-
-    await userEvent.click(screen.getByRole("button", { name: /i've filled in the form/i }));
-
-    expect(screen.queryByText(/hasn't registered it yet/i)).not.toBeInTheDocument();
-    expect(screen.getByText("Unknown")).toBeInTheDocument();
   });
 
   it("renders nothing while the first load is in flight", () => {

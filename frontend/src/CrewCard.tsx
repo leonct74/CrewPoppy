@@ -137,9 +137,16 @@ function NewAgentForm(props: { models: ModelChoice[]; onCancel: () => void; onCr
         <label className="field">
           <span>Which model does the thinking</span>
           <select className="select" value={modelId} onChange={(e) => setModelId(e.target.value)}>
+            {/* Deliberately NOT disabled. `ready` comes from the model-agreement status,
+                and that field can lag behind reality — a user who has completed the form
+                would otherwise find the model they want permanently unselectable, with no
+                way out. Selecting an unready model is free: AWS rejects it before any
+                inference, and the runner turns that rejection into a plain sentence
+                telling them exactly what's missing. Never build a dead end out of a
+                signal you don't fully trust. */}
             {props.models.map((m) => (
-              <option key={m.id} value={m.id} disabled={!m.ready}>
-                {m.label} ({m.cost}){m.ready ? "" : " — needs setup"}
+              <option key={m.id} value={m.id}>
+                {m.label} ({m.cost}){m.ready ? "" : " — may still be switching on"}
               </option>
             ))}
           </select>

@@ -23,8 +23,6 @@ const POLL_MS = 8_000;
 
 export function ModelsCard({ onModels }: { onModels?: (m: ModelCatalogue["models"]) => void } = {}) {
   const [data, setData] = useState<ModelCatalogue | null>(null);
-  /** Set when the owner says they finished the form but AWS hasn't caught up yet. */
-  const [confirmedButWaiting, setConfirmedButWaiting] = useState(false);
   const timer = useRef<number | null>(null);
 
   const load = useCallback(async () => {
@@ -136,24 +134,15 @@ export function ModelsCard({ onModels }: { onModels?: (m: ModelCatalogue["models
             >
               Open the AWS page
             </Button>
-            <Button
-              className="btn"
-              busyLabel="Checking…"
-              onClick={async () => {
-                const d = await load();
-                setConfirmedButWaiting(!!d && d.models.some((m) => !m.ready && !m.unknown && m.formLikely));
-              }}
-            >
-              I've filled in the form
-            </Button>
           </div>
-          {confirmedButWaiting && (
-            <div className="banner info">
-              <strong>Thanks — AWS hasn't registered it yet.</strong> That's normal: it can take up
-              to 15 minutes after you submit the form. You don't need to do anything else, and you
-              can leave this page — CrewPoppy keeps checking and will update by itself.
-            </div>
-          )}
+          {/* Set the expectation BEFORE the user wonders, rather than answering "not yet"
+              after they press something. Measured: the form registers immediately, but the
+              models can lag behind it. */}
+          <div className="banner info">
+            <strong>After you submit the form, AWS takes a little while to switch these on.</strong>{" "}
+            You don't need to do anything else — this page checks on its own and will update when
+            they're ready. You can close it and come back.
+          </div>
           <p className="muted" style={{ margin: 0, fontSize: 12 }}>
             Your answers go to AWS and Anthropic — not to us.
           </p>
