@@ -95,7 +95,18 @@ AgentsPoppy container (the dashboard)        Your AWS account (chosen region)
   tags, re-stamped on every deploy) and removed by the teardown hook. Chosen over an inline
   `ZipFile` stub so the walking skeleton walks P1's actual path.
 - **In-stack log group** for the runner (`/aws/lambda/CrewPoppyRunner`): a Lambda-auto-created
-  log group would be untagged → invisible to the sweep → orphaned after teardown.
+  log group would be untagged → invisible to the sweep → orphaned after teardown. Its ARN is
+  **constructed with `Fn::Sub`, never read back with `Fn::GetAtt`** — see the live-gate lesson
+  below.
+- **Collection-API trap (LIVE-GATE LESSON, 2026-07-26):** the first deploy that got past the
+  packed-policy wall rolled back at `RunnerRole` with *"Unable to retrieve Arn attribute for
+  AWS::Logs::LogGroup… Access denied for operation 'logs:DescribeLogGroups'"*. `Fn::GetAtt
+  [RunnerLogGroup, Arn]` makes CloudFormation call `logs:DescribeLogGroups`, a **collection API
+  that cannot be resource-scoped** — our least-privilege `/aws/lambda/CrewPoppy*` grant denied it.
+  Fixed by constructing the ARN from the constant log-group name (no API call, no extra grant),
+  and `logs:DescribeLogGroups` was **dropped from the manifest** (DR5 — the live run proved the
+  log group both creates and deletes without it). Guarded by a template unit test; documented for
+  every future poppy in AGENTS.md §3.
 - **Teardown hook order:** empty workspace bucket → delete stack + wait for `DELETE_COMPLETE` →
   empty+delete deploy bucket. Idempotent; certification runs with host cleanup off, so the hook
   does all of it itself. The **Crew-Pack-first offer (§3b) lands with the export itself (P1+)**

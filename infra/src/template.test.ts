@@ -82,6 +82,27 @@ describe("buildTemplate", () => {
     expect(actions.every((a) => /^(logs|dynamodb|s3|bedrock):/.test(a))).toBe(true);
   });
 
+  it("never reads back a log-group ARN with Fn::GetAtt (the collection-API trap)", () => {
+    // Live-deploy regression (2026-07-26): Fn::GetAtt [RunnerLogGroup, Arn] makes
+    // CloudFormation call logs:DescribeLogGroups, which cannot be resource-scoped —
+    // our least-privilege grant denied it and the whole stack rolled back. The ARN must
+    // stay constructed from the constant name. Any GetAtt against the log group brings
+    // the failure straight back.
+    const json = JSON.stringify(template);
+    expect(json).not.toContain('"Fn::GetAtt":["RunnerLogGroup"');
+    expect(json).not.toMatch(/GetAtt[^}]*RunnerLogGroup/);
+
+    const logs = (resources.RunnerRole!.Properties.Policies[0].PolicyDocument.Statement as Array<{
+      Sid: string;
+      Resource: unknown;
+    }>).find((s) => s.Sid === "Logs")!;
+    // Constructed, and ending in :* so the runner can write streams inside the group.
+    expect(logs.Resource).toEqual({
+      "Fn::Sub":
+        "arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/CrewPoppyRunner:*",
+    });
+  });
+
   it("receives Lambda code via content-addressed parameters, never inline", () => {
     expect(Object.keys(template.Parameters)).toEqual(["LambdaCodeBucket", "LambdaCodeKey"]);
     expect(resources.RunnerFunction!.Properties.Code).toEqual({

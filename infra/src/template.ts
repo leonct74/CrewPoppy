@@ -157,7 +157,19 @@ export function buildTemplate(): CfnTemplate {
                     Sid: "Logs",
                     Effect: "Allow",
                     Action: ["logs:CreateLogStream", "logs:PutLogEvents"],
-                    Resource: { "Fn::GetAtt": ["RunnerLogGroup", "Arn"] },
+                    // The ARN is CONSTRUCTED, not read back with
+                    // Fn::GetAtt [RunnerLogGroup, Arn]. CloudFormation resolves that
+                    // attribute by calling `logs:DescribeLogGroups`, which is a
+                    // COLLECTION api: it cannot be resource-scoped, so a least-privilege
+                    // grant on /aws/lambda/CrewPoppy* is denied and the whole stack rolls
+                    // back ("Unable to retrieve Arn attribute for AWS::Logs::LogGroup").
+                    // The log group name is a constant we choose, so building the ARN
+                    // costs nothing and keeps the permission set tight. The trailing
+                    // ":*" is what GetAtt would have returned, and is what lets the
+                    // runner write to streams INSIDE the group.
+                    Resource: {
+                      "Fn::Sub": `arn:\${AWS::Partition}:logs:\${AWS::Region}:\${AWS::AccountId}:log-group:/aws/lambda/${RUNNER_FUNCTION_NAME}:*`,
+                    },
                   },
                   {
                     Sid: "OwnTable",

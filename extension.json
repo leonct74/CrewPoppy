@@ -77,7 +77,6 @@
         "actions": [
           "CreateLogGroup",
           "DeleteLogGroup",
-          "DescribeLogGroups",
           "PutRetentionPolicy",
           "TagResource",
           "ListTagsForResource"
