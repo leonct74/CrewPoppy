@@ -201,6 +201,30 @@ export function App() {
               cap on every agent.
             </div>
           </div>
+          {/* Without this there is NO WAY to ship new engine code to an existing
+              deployment: the deploy button only shows when no stack exists, so a user
+              who set up once would run the original Lambda forever. That is exactly
+              how two runs ended up dispatched to the empty P0 stub. */}
+          {status?.updateAvailable && (
+            <div className="card stack">
+              <div className="spread">
+                <strong>An update is ready for your AWS account</strong>
+                <span className="badge warn">
+                  <span className="dot" /> Update available
+                </span>
+              </div>
+              <p className="muted" style={{ margin: 0 }}>
+                CrewPoppy's engine — the part that runs your agents inside your account — is newer
+                than the one deployed. Agents can't use new abilities until you apply it. It takes
+                about a minute and nothing your crew has learned is lost.
+              </p>
+              <div>
+                <Button className="btn btn-primary" busyLabel="Updating…" onClick={deploy}>
+                  Apply the update
+                </Button>
+              </div>
+            </div>
+          )}
           {/* Only meaningful once the stack exists — an agent needs both a home and a brain. */}
           <CrewCard models={models} />
           <ModelsCard onModels={setModels} />

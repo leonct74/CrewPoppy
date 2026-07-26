@@ -14,6 +14,7 @@ import { readBootstrap, brokerCredentialsProvider } from "./boot";
 import { deploy, getStatus, teardown, runnerFunctionName, tableName } from "./stack";
 import {
   deleteAgent, getAgent, getRun, getTranscript, listAgents, listRuns, saveAgent, startRun,
+  stopRun, withStaleness,
 } from "./agents";
 import { consoleUrl, getCatalogue, getModelAccess } from "./bedrock";
 
@@ -120,13 +121,27 @@ const server = createServer(async (req, res) => {
         return json(res, 200, run);
       }
       if (method === "GET" && parts.length === 3 && parts[2] === "runs") {
-        return json(res, 200, { runs: await listRuns(ddb, tableName, parts[1]!) });
+        const agent = await getAgent(ddb, tableName, parts[1]!);
+        const runs = (await listRuns(ddb, tableName, parts[1]!)).map((r) =>
+          withStaleness(r, agent?.caps, Date.now()),
+        );
+        return json(res, 200, { runs });
+      }
+      // The kill switch (DESIGN §7).
+      if (method === "POST" && parts.length === 5 && parts[2] === "runs" && parts[4] === "stop") {
+        const stopped = await stopRun(ddb, tableName, parts[1]!, parts[3]!, now);
+        if (!stopped) return json(res, 404, { error: "That run no longer exists." });
+        return json(res, 200, stopped);
       }
       // One run plus its transcript — what the run view polls.
       if (method === "GET" && parts.length === 4 && parts[2] === "runs") {
         const run = await getRun(ddb, tableName, parts[1]!, parts[3]!);
         if (!run) return json(res, 404, { error: "That run no longer exists." });
-        return json(res, 200, { run, transcript: await getTranscript(ddb, tableName, parts[3]!) });
+        const agent = await getAgent(ddb, tableName, parts[1]!);
+        return json(res, 200, {
+          run: withStaleness(run, agent?.caps, Date.now()),
+          transcript: await getTranscript(ddb, tableName, parts[3]!),
+        });
       }
     }
 

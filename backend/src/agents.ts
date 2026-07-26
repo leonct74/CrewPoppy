@@ -172,6 +172,28 @@ export async function startRun(
   return record;
 }
 
+/**
+ * A run whose Lambda never reported back must not spin forever.
+ *
+ * The runner enforces its own wall-clock cap, so a run still "running" well past that
+ * is not slow — it never got there: the function errored before writing, was the wrong
+ * version, or was never invoked. Derived on read rather than written, so this heals
+ * existing rows without a migration and without a background job.
+ */
+export function withStaleness(run: RunRecord, caps: AgentCaps | undefined, now: number): RunRecord {
+  if (run.status !== "running") return run;
+  const budgetMs = (caps?.maxWallClockMs ?? 120_000) + 90_000; // + Lambda cold start & margin
+  const age = now - Date.parse(run.startedAt);
+  if (!Number.isFinite(age) || age < budgetMs) return run;
+  return {
+    ...run,
+    status: "failed",
+    stopReason: "error",
+    message:
+      "This run never reported back. That usually means CrewPoppy's engine in your AWS account is out of date — check for an update above, then try again.",
+  };
+}
+
 /** Runs for one agent, newest first. */
 export async function listRuns(
   ddb: DynamoDBDocumentClient,
@@ -199,6 +221,38 @@ export async function getRun(
     new GetCommand({ TableName: table, Key: { pk: agentPk(agentId), sk: runSk(runId) } }),
   );
   return (r.Item as RunRecord | undefined) ?? null;
+}
+
+/**
+ * The kill switch (DESIGN §7). Marks the run stopped so the UI is truthful immediately
+ * and the record shows who ended it.
+ *
+ * HONEST LIMIT: a model call already in flight isn't torn out of the network — but the
+ * runner re-reads this status before every further step, so the loop cannot continue.
+ * At P1 that means at most the current call finishes; from P2, where a loop can run many
+ * steps and many tools, it stops the run dead.
+ */
+export async function stopRun(
+  ddb: DynamoDBDocumentClient,
+  table: string,
+  agentId: string,
+  runId: string,
+  now: string,
+): Promise<RunRecord | null> {
+  const run = await getRun(ddb, table, agentId, runId);
+  if (!run) return null;
+  if (run.status !== "running") return run; // already finished — nothing to stop
+  const stopped: RunRecord = {
+    ...run,
+    status: "stopped",
+    stopReason: "error",
+    finishedAt: now,
+    message: "You stopped this run.",
+  };
+  await ddb.send(
+    new PutCommand({ TableName: table, Item: { pk: agentPk(agentId), sk: runSk(runId), ...stopped } }),
+  );
+  return stopped;
 }
 
 /** The run's transcript, in order. */

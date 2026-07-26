@@ -40,6 +40,10 @@ export const api = {
   listRuns: (id: string): Promise<{ runs: RunRecord[] }> =>
     host.invokeBackend({ method: "GET", path: `/agents/${id}/runs` }),
 
+  /** The kill switch (DESIGN §7). */
+  stopRun: (id: string, runId: string): Promise<RunRecord> =>
+    host.invokeBackend({ method: "POST", path: `/agents/${id}/runs/${runId}/stop` }),
+
   getRun: (id: string, runId: string): Promise<{ run: RunRecord; transcript: TranscriptEntry[] }> =>
     host.invokeBackend({ method: "GET", path: `/agents/${id}/runs/${runId}` }),
 

@@ -281,9 +281,25 @@ function AgentRow(props: { agent: AgentSummary; onChanged: () => Promise<void> }
           Run
         </Button>
         {run?.status === "running" && (
-          <span className="row muted" style={{ gap: 6 }}>
-            <span className="spinner" /> Working… this keeps going if you leave.
-          </span>
+          <>
+            <span className="row muted" style={{ gap: 6 }}>
+              <span className="spinner" /> Working… this keeps going if you leave.
+            </span>
+            {/* The kill switch (DESIGN §7). Always reachable while a run is live. */}
+            <Button
+              className="btn btn-danger"
+              busyLabel="Stopping…"
+              onClick={async () => {
+                try {
+                  setRun(await api.stopRun(agent.id, run.runId));
+                } catch (e) {
+                  setErr((e as Error).message);
+                }
+              }}
+            >
+              Stop
+            </Button>
+          </>
         )}
       </div>
 

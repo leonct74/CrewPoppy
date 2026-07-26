@@ -231,6 +231,15 @@ export async function handler(event: RunnerEvent): Promise<{ ok: boolean; status
     // The loop. At P1 the model has no tools, so it answers and we're done — but the
     // guardrail checks sit exactly where P2's tool round-trips will slot in.
     for (;;) {
+      // The kill switch (DESIGN §7): the user may have stopped this run since the last
+      // step. Re-read the record rather than trusting anything cached in this process.
+      const current = await ddb.send(
+        new GetCommand({ TableName: table, Key: { pk: agentPk(agent.id), sk: runSk(event.runId) } }),
+      );
+      if ((current.Item as RunRecord | undefined)?.status === "stopped") {
+        return { ok: true, status: "stopped" }; // the record already says why
+      }
+
       const verdict = checkContinue(agent.caps, {
         iterations,
         usage,
