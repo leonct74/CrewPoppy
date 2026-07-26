@@ -11,7 +11,9 @@ import { DynamoDBDocumentClient } from "@aws-sdk/lib-dynamodb";
 import { LambdaClient } from "@aws-sdk/client-lambda";
 import { randomUUID } from "node:crypto";
 import { readBootstrap, brokerCredentialsProvider } from "./boot";
-import { deploy, getStatus, teardown, runnerFunctionName, tableName } from "./stack";
+import {
+  deploy, getStatus, teardown, runnerFunctionName, tableName, workspaceBucketName,
+} from "./stack";
 import {
   answerRun, deleteAgent, getAgent, getRun, getTranscript, listAgents, listRuns, saveAgent,
   startRun, stopRun, withStaleness,
@@ -113,9 +115,14 @@ const server = createServer(async (req, res) => {
         const id = typeof body.id === "string" && body.id ? body.id : randomUUID();
         return json(res, 200, await saveAgent(ddb, tableName, id, body as never, now));
       }
+      // Delete an agent and everything that was only ever its own. A live run is a
+      // refusal (409), not a failure — the UI shows the sentence and offers Stop.
       if (method === "DELETE" && parts.length === 2) {
-        await deleteAgent(ddb, tableName, parts[1]!);
-        return json(res, 200, { ok: true });
+        const outcome = await deleteAgent(
+          ddb, s3, tableName, workspaceBucketName(ctx.accountId, region), parts[1]!, Date.now(),
+        );
+        if (!outcome.ok) return json(res, 409, { error: outcome.reason });
+        return json(res, 200, outcome);
       }
       // Start a run. Returns immediately — the Lambda carries on in their account.
       if (method === "POST" && parts.length === 3 && parts[2] === "runs") {

@@ -239,6 +239,115 @@ function NewAgentForm(props: {
   );
 }
 
+/**
+ * Deleting one agent (AGENTS.md §4, the scoped destructive control).
+ *
+ * This is smaller than removing CrewPoppy, but it is the same KIND of act: what an agent
+ * has learned and every file it made go with it, and nothing brings them back. So it gets
+ * the same ceremony at a smaller scale — a second step, the blast radius named plainly,
+ * and type-the-name to arm the button. Typing the NAME rather than a fixed word does a
+ * second job: on a card among several, it's the answer to "which one am I deleting?".
+ *
+ * Cancel holds focus, and the danger button is never the easy default.
+ */
+function DeleteAgent(props: { agent: AgentSummary; onDeleted: () => Promise<void> }) {
+  const { agent } = props;
+  const [open, setOpen] = useState(false);
+  const [typed, setTyped] = useState("");
+  const [err, setErr] = useState<string | null>(null);
+  const cancelRef = useRef<HTMLButtonElement>(null);
+  const matches = typed.trim() === agent.name;
+
+  useEffect(() => {
+    if (open) cancelRef.current?.focus();
+  }, [open]);
+
+  const close = () => {
+    setOpen(false);
+    setTyped("");
+    setErr(null);
+  };
+
+  return (
+    <>
+      <button
+        className="btn btn-ghost"
+        onClick={() => setOpen(true)}
+        title={`Delete ${agent.name}`}
+        aria-label={`Delete ${agent.name}`}
+      >
+        Delete…
+      </button>
+
+      {open && (
+        <div className="scrim" role="dialog" aria-modal="true" aria-labelledby={`del-${agent.id}`}>
+          <div className="modal stack">
+            <h3 id={`del-${agent.id}`} style={{ margin: 0 }}>
+              Delete {agent.name}?
+            </h3>
+            <p style={{ margin: 0 }}>This permanently deletes:</p>
+            <ul className="muted" style={{ margin: 0, paddingLeft: 18 }}>
+              <li>everything {agent.name} has remembered</li>
+              <li>every file it saved in its workspace</li>
+              <li>the record of every run it did, and what each one cost</li>
+            </ul>
+            <p style={{ margin: 0 }}>
+              <strong>This can't be undone.</strong> You can make a new agent with the same name, but
+              it starts knowing nothing. The rest of your crew isn't touched.
+            </p>
+            <label className="field" style={{ margin: 0 }}>
+              <span>
+                To switch on the button below, type <strong>{agent.name}</strong> here:
+              </span>
+              <input
+                className="input"
+                value={typed}
+                onChange={(e) => setTyped(e.target.value)}
+                placeholder={agent.name}
+                autoComplete="off"
+                autoCapitalize="off"
+                spellCheck={false}
+                aria-label={`Type ${agent.name} to confirm`}
+              />
+              {typed.length > 0 && !matches && (
+                <small className="muted" style={{ fontSize: 12 }}>
+                  Doesn't match yet — type the name exactly as it's written above.
+                </small>
+              )}
+            </label>
+            {err && <div className="banner err">{err}</div>}
+            <div className="row" style={{ justifyContent: "flex-end" }}>
+              <button className="btn" ref={cancelRef} onClick={close}>
+                Cancel
+              </button>
+              <Button
+                className="btn btn-danger"
+                disabled={!matches}
+                busyLabel="Deleting…"
+                title={matches ? undefined : `Type ${agent.name} above to switch this on`}
+                onClick={async () => {
+                  setErr(null);
+                  try {
+                    await api.deleteAgent(agent.id);
+                    // Closing before the refresh would flash the card back for a beat.
+                    await props.onDeleted();
+                    close();
+                  } catch (e) {
+                    // A live run is refused here, in the plain sentence the backend wrote.
+                    setErr((e as Error).message);
+                  }
+                }}
+              >
+                Delete {agent.name} permanently
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
+
 function AgentRow(props: { agent: AgentSummary; models: ModelChoice[]; onChanged: () => Promise<void> }) {
   const { agent } = props;
   // Which brain this agent thinks with. Chosen once at creation and then invisible —
@@ -301,9 +410,12 @@ function AgentRow(props: { agent: AgentSummary; models: ModelChoice[]; onChanged
             {agent.caps.monthlySpendCapUsd.toFixed(2)} limit
           </p>
         </div>
-        <span className={`badge ${atCap ? "warn" : "ok"}`}>
-          <span className="dot" /> {atCap ? "At limit" : "Ready"}
-        </span>
+        <div className="row" style={{ gap: 8 }}>
+          <span className={`badge ${atCap ? "warn" : "ok"}`}>
+            <span className="dot" /> {atCap ? "At limit" : "Ready"}
+          </span>
+          <DeleteAgent agent={agent} onDeleted={props.onChanged} />
+        </div>
       </div>
 
       <label className="field" style={{ marginTop: 10, marginBottom: 0 }}>

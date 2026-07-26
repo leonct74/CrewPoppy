@@ -17,17 +17,26 @@ import {
 } from "@aws-sdk/lib-dynamodb";
 import { InvokeCommand, type LambdaClient } from "@aws-sdk/client-lambda";
 import {
+  DeleteObjectsCommand,
+  ListObjectsV2Command,
+  type S3Client,
+} from "@aws-sdk/client-s3";
+import {
   AGENTS_PK,
+  CHECKPOINT_SK,
   DEFAULT_CAPS,
   agentPk,
   agentSk,
+  checkpointPk,
   isToolName,
+  memoryPk,
   monthKeyOf,
   runSk,
   sanitiseCaps,
   spendPk,
   spendSk,
   transcriptPk,
+  workspacePrefixFor,
   type AgentCaps,
   type AgentDef,
   type RunRecord,
@@ -127,12 +136,117 @@ export async function listAgents(
   );
 }
 
-export async function deleteAgent(
+export interface DeleteAgentOutcome {
+  ok: boolean;
+  /** Present when we refused: one plain sentence the UI can show as-is. */
+  reason?: string;
+  /** What actually went, so the UI can say it rather than claim it. */
+  removed?: { runs: number; memories: number; files: number };
+}
+
+/** Every item in one partition, deleted one at a time (no BatchWriteItem grant needed). */
+async function deletePartition(
   ddb: DynamoDBDocumentClient,
   table: string,
+  pk: string,
+): Promise<number> {
+  let count = 0;
+  let startKey: Record<string, unknown> | undefined;
+  do {
+    const page = await ddb.send(
+      new QueryCommand({
+        TableName: table,
+        KeyConditionExpression: "pk = :pk",
+        ExpressionAttributeValues: { ":pk": pk },
+        ProjectionExpression: "pk, sk",
+        ExclusiveStartKey: startKey,
+      }),
+    );
+    for (const item of (page.Items ?? []) as { pk: string; sk: string }[]) {
+      await ddb.send(new DeleteCommand({ TableName: table, Key: { pk: item.pk, sk: item.sk } }));
+      count += 1;
+    }
+    startKey = page.LastEvaluatedKey;
+  } while (startKey);
+  return count;
+}
+
+/** Everything under one agent's workspace prefix. Already-gone bucket is success. */
+async function deleteWorkspace(s3: S3Client, bucket: string, agentId: string): Promise<number> {
+  const Prefix = workspacePrefixFor(agentId);
+  let count = 0;
+  try {
+    for (;;) {
+      const page = await s3.send(new ListObjectsV2Command({ Bucket: bucket, Prefix }));
+      const keys = (page.Contents ?? []).map((o) => ({ Key: o.Key! }));
+      if (keys.length === 0) break;
+      await s3.send(new DeleteObjectsCommand({ Bucket: bucket, Delete: { Objects: keys, Quiet: true } }));
+      count += keys.length;
+      if (!page.IsTruncated) break;
+    }
+  } catch (e) {
+    // The bucket only exists once the stack finished; nothing written means nothing to remove.
+    const name = (e as { name?: string })?.name ?? "";
+    if (name !== "NoSuchBucket" && name !== "NotFound") throw e;
+  }
+  return count;
+}
+
+/**
+ * Remove an agent and everything that was only ever its own (DESIGN §3b).
+ *
+ * "Delete" has to mean it. An agent's memory is the thing most likely to hold something
+ * the owner would rather not keep — a customer's details it was told to remember, a draft
+ * it was asked to hold — so removing the definition and leaving the memory behind would
+ * be the worst of both: gone from the screen, still in the account. This deletes the runs,
+ * their transcripts and checkpoints, the memory, the spend counters and the workspace
+ * files, then the definition LAST, so a failure part-way leaves the agent visible and
+ * retryable rather than turning its data into orphans nothing lists.
+ *
+ * A live run blocks it: deleting the definition underneath a running Lambda would leave a
+ * run that can neither finish nor be found. Stop it first — and say so, rather than doing
+ * something surprising.
+ *
+ * Idempotent: an agent that is already gone is a success, so a retried request is safe.
+ */
+export async function deleteAgent(
+  ddb: DynamoDBDocumentClient,
+  s3: S3Client,
+  table: string,
+  bucket: string,
   id: string,
-): Promise<void> {
+  now: number,
+): Promise<DeleteAgentOutcome> {
+  const agent = await getAgent(ddb, table, id);
+  if (!agent) return { ok: true, removed: { runs: 0, memories: 0, files: 0 } };
+
+  const runs = (await listRuns(ddb, table, id)).map((r) => withStaleness(r, agent.caps, now));
+  const live = runs.find((r) => r.status === "running" || r.status === "waiting");
+  if (live) {
+    return {
+      ok: false,
+      reason:
+        live.status === "waiting"
+          ? `${agent.name} is waiting for your answer. Answer or stop that run first, then delete.`
+          : `${agent.name} is working right now. Stop the run first, then delete.`,
+    };
+  }
+
+  // Transcripts and checkpoints hang off the RUN id, not the agent, so they need the run
+  // list — which is why this happens before the runs themselves go.
+  for (const r of runs) {
+    await deletePartition(ddb, table, transcriptPk(r.runId));
+    await ddb.send(
+      new DeleteCommand({ TableName: table, Key: { pk: checkpointPk(r.runId), sk: CHECKPOINT_SK } }),
+    );
+  }
+  const runCount = await deletePartition(ddb, table, agentPk(id));
+  const memories = await deletePartition(ddb, table, memoryPk(id));
+  await deletePartition(ddb, table, spendPk(id));
+  const files = await deleteWorkspace(s3, bucket, id);
+
   await ddb.send(new DeleteCommand({ TableName: table, Key: { pk: AGENTS_PK, sk: agentSk(id) } }));
+  return { ok: true, removed: { runs: runCount, memories, files } };
 }
 
 /**

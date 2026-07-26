@@ -113,6 +113,12 @@ export interface TranscriptEntry {
   text: string;
 }
 
+/** What deleting an agent actually removed — reported, not assumed. */
+export interface DeleteResult {
+  ok: boolean;
+  removed?: { runs: number; memories: number; files: number };
+}
+
 /** One switchable tool, with the plain-language note shown beside its checkbox. */
 export interface ToolOption {
   name: string;

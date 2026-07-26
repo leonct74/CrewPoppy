@@ -196,6 +196,30 @@ An agent is a stored definition (DynamoDB), not code:
 Agent defs are **just data in your account** → fully portable, no lock-in. "Create unlimited
 agents" is literal: they're rows, essentially free until run.
 
+### 3a. Deleting ONE agent (founder request, 2026-07-26 — shipped)
+
+The crew list needs a way to let an agent go, and "delete" has to mean it. The rule, mirroring the
+teardown contract at a smaller scale:
+
+- **Delete removes everything that was only ever that agent's:** its definition, its memory, its
+  workspace files, its runs, their transcripts and any suspended checkpoint, and its spend
+  counters. Removing the definition and leaving the memory would be the worst of both worlds —
+  gone from the screen, still in the account — and memory is exactly where a customer's details
+  or a held draft would sit.
+- **Order matters: the definition goes LAST.** A failure part-way then leaves the agent visible
+  and the delete retryable, rather than turning its data into orphans nothing lists.
+- **The rest of the crew is untouched** — every key is derived from that one agent id.
+- **A live run refuses the delete** ("Emma is working right now. Stop the run first"), because
+  deleting the definition under a running Lambda leaves a run that can neither finish nor be
+  found. A run that never reported back (§the staleness rule) does NOT block it, or a broken
+  Lambda would make an agent permanently undeletable.
+- **Ceremony:** two steps, the blast radius named in plain language, and type-the-agent's-name to
+  arm the button — which also answers "which one am I deleting?" on a card among several. Cancel
+  holds focus; the danger button is never the easy default.
+- **Idempotent:** an agent already gone is a success, so a retry is safe.
+- **Open (P3):** offer that agent's Crew Pack export in the dialog, the same way teardown will —
+  today the dialog is honest that nothing comes back.
+
 ### 3b. Portability — the "Crew Pack" (knowledge survives teardown)
 
 First, a precise mental model: an agent doesn't "learn" the way a model is trained — **its weights
