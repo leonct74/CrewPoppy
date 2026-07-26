@@ -235,6 +235,20 @@ export function buildTemplate(): CfnTemplate {
                       "arn:aws:bedrock:*:*:inference-profile/*",
                     ],
                   },
+                  {
+                    // Email (DESIGN §4c). Sending is scoped to identities the owner has
+                    // ALREADY verified in their own account — this grant creates no new
+                    // ability to prove an address, only to use one that is proven.
+                    //
+                    // What stops an agent emailing a stranger is NOT this policy: it's
+                    // the dispatcher, which never sends to a non-owner address without
+                    // the owner approving that exact message. The policy is the outer
+                    // bound; the gate is the control.
+                    Sid: "SendMail",
+                    Effect: "Allow",
+                    Action: ["ses:SendEmail"],
+                    Resource: "arn:aws:ses:*:*:identity/*",
+                  },
                 ],
               },
             },

@@ -27,14 +27,21 @@ import {
   PutObjectCommand,
   type S3Client,
 } from "@aws-sdk/client-s3";
-import { GetCommand, PutCommand, type DynamoDBDocumentClient } from "@aws-sdk/lib-dynamodb";
+import { GetCommand, PutCommand, UpdateCommand, type DynamoDBDocumentClient } from "@aws-sdk/lib-dynamodb";
+import { SendEmailCommand, type SESv2Client } from "@aws-sdk/client-sesv2";
 import {
+  dayKeyOf,
+  isEmailAddress,
   isSafeRelativePath,
   isToolName,
   memoryPk,
   memorySk,
+  normaliseEmail,
+  sendCountPk,
+  sendCountSk,
   workspaceKeyFor,
   workspacePrefixFor,
+  type PendingSend,
   type ToolName,
 } from "@crewpoppy/shared";
 
@@ -42,12 +49,23 @@ import {
 export interface DispatchContext {
   ddb: DynamoDBDocumentClient;
   s3: S3Client;
+  ses: SESv2Client;
   table: string;
   bucket: string;
   /** From the stored agent definition — the root of every scoping decision. */
   agentId: string;
+  /** Shown as the sender's display name, never used to build a key. */
+  agentName: string;
   /** The tools this agent's definition enables. */
   enabled: readonly string[];
+  /** Where `email_owner` goes. Install configuration — never a tool argument. */
+  ownerEmail?: string;
+  /** The verified identity this agent sends FROM. Defaults to the owner's address. */
+  fromAddress?: string;
+  /** Hard ceiling on messages per agent per day. */
+  maxEmailsPerDay: number;
+  /** Injected so tests don't depend on the wall clock. */
+  now?: () => number;
 }
 
 export interface ToolResult {
@@ -56,10 +74,16 @@ export interface ToolResult {
   /** True when the tool refused or failed. The model sees this and can adapt. */
   isError?: boolean;
   /**
-   * Set by `ask_user` only. Tells the runner to checkpoint and stop — the run resumes in
-   * a fresh invocation once the owner answers (DESIGN §5).
+   * Tells the runner to checkpoint and stop — the run resumes in a fresh invocation once
+   * the owner answers (DESIGN §5). Set by `ask_user`, and by `send_email` for any
+   * recipient who isn't the owner.
    */
-  suspend?: { question: string; draft?: string };
+  suspend?: {
+    question: string;
+    draft?: string;
+    /** The exact action awaiting approval, stored so it is what actually happens. */
+    pending?: PendingSend;
+  };
 }
 
 const MAX_MEMORY_VALUE = 100_000;
@@ -163,6 +187,49 @@ async function run(ctx: DispatchContext, name: ToolName, args: Record<string, un
       return { content: `Saved ${path}.` };
     }
 
+    case "email_owner": {
+      const subject = asShortString(args.subject);
+      const body = asLongString(args.body);
+      if (!subject) return { content: "email_owner needs a 'subject'.", isError: true };
+      if (!body) return { content: "email_owner needs a 'body'.", isError: true };
+      if (!ctx.ownerEmail) return { content: NO_OWNER_ADDRESS, isError: true };
+      return sendMail(ctx, ctx.ownerEmail, subject, body);
+    }
+
+    case "send_email": {
+      const subject = asShortString(args.subject);
+      const body = asLongString(args.body);
+      const to = typeof args.to === "string" ? args.to.trim() : "";
+      if (!isEmailAddress(to)) {
+        return { content: "send_email needs a single valid 'to' address.", isError: true };
+      }
+      if (!subject) return { content: "send_email needs a 'subject'.", isError: true };
+      if (!body) return { content: "send_email needs a 'body'.", isError: true };
+      if (!ctx.ownerEmail) return { content: NO_OWNER_ADDRESS, isError: true };
+
+      // Writing to your owner is not "reaching the outside world" — it's the same inbox
+      // `email_owner` uses, so it doesn't need approving.
+      if (normaliseEmail(to) === normaliseEmail(ctx.ownerEmail)) {
+        return sendMail(ctx, ctx.ownerEmail, subject, body);
+      }
+
+      // THE GATE (DESIGN §4c). Nothing is sent here. The message is handed to the runner
+      // to store and show the owner, and it is sent — if at all — from that stored copy.
+      //
+      // This is deliberately NOT left to the agent's instructions. A prompt that says
+      // "always ask before emailing" is text, and text is what an attacker gets to write.
+      // The refusal to send has to be structural, so it holds for an agent that has been
+      // argued into anything at all.
+      return {
+        content: "Waiting for your owner to approve this message. It has not been sent.",
+        suspend: {
+          question: `${ctx.agentName} wants to email ${to}.`,
+          draft: `To: ${to}\nSubject: ${subject}\n\n${body}`,
+          pending: { kind: "send_email", to, subject, body },
+        },
+      };
+    }
+
     case "ask_user": {
       const question = asLongString(args.question);
       if (!question) return { content: "ask_user needs a 'question'.", isError: true };
@@ -175,6 +242,77 @@ async function run(ctx: DispatchContext, name: ToolName, args: Record<string, un
       };
     }
   }
+}
+
+const NO_OWNER_ADDRESS =
+  "No email address is set up for your owner yet, so you cannot send mail. Tell them that in your answer.";
+
+/**
+ * Actually put a message on the wire.
+ *
+ * Called for the owner's own address, and by the RUNNER for a message the owner approved
+ * — never straight from a model's request to a stranger. The daily ceiling is claimed
+ * BEFORE the send: a counter incremented after the fact is not a limit, it's a tally.
+ */
+export async function sendMail(
+  ctx: DispatchContext,
+  to: string,
+  subject: string,
+  body: string,
+): Promise<ToolResult> {
+  const from = ctx.fromAddress || ctx.ownerEmail;
+  if (!from) return { content: NO_OWNER_ADDRESS, isError: true };
+  if (!(await claimDailySend(ctx))) {
+    return {
+      content: `You have reached your limit of ${ctx.maxEmailsPerDay} emails today. Say so in your answer rather than trying again.`,
+      isError: true,
+    };
+  }
+  await ctx.ses.send(
+    new SendEmailCommand({
+      // The display name is the agent's, the address is the owner's verified identity —
+      // warm, and still traceable to a real mailbox someone can reply to.
+      FromEmailAddress: `${sanitiseDisplayName(ctx.agentName)} <${from}>`,
+      Destination: { ToAddresses: [to] },
+      Content: { Simple: { Subject: { Data: subject }, Body: { Text: { Data: body } } } },
+    }),
+  );
+  return { content: `Sent to ${to}.` };
+}
+
+/**
+ * Take one from today's allowance, atomically. Returns false when the ceiling is already
+ * reached — the condition is what makes this safe against two runs at once, where a
+ * read-then-write would let both through.
+ */
+async function claimDailySend(ctx: DispatchContext): Promise<boolean> {
+  const nowMs = (ctx.now ?? Date.now)();
+  const day = dayKeyOf(new Date(nowMs).toISOString());
+  try {
+    await ctx.ddb.send(
+      new UpdateCommand({
+        TableName: ctx.table,
+        Key: { pk: sendCountPk(ctx.agentId), sk: sendCountSk(day) },
+        UpdateExpression: "ADD n :one SET expiresAt = :exp",
+        ConditionExpression: "attribute_not_exists(n) OR n < :max",
+        ExpressionAttributeValues: {
+          ":one": 1,
+          ":max": ctx.maxEmailsPerDay,
+          // Yesterday's counter is of no interest to anyone; let DynamoDB clear it.
+          ":exp": Math.floor(nowMs / 1000) + 14 * 24 * 60 * 60,
+        },
+      }),
+    );
+    return true;
+  } catch (e) {
+    if ((e as { name?: string })?.name === "ConditionalCheckFailedException") return false;
+    throw e;
+  }
+}
+
+/** A display name can't be allowed to smuggle a second address into the From header. */
+function sanitiseDisplayName(name: string): string {
+  return name.replace(/[<>@",;:\\\r\n]/g, "").trim().slice(0, 60) || "CrewPoppy";
 }
 
 /** Deliberately identical for every rejection, so probing reveals nothing about layout. */

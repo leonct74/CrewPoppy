@@ -3,6 +3,7 @@ import { api } from "./api";
 import { Button } from "./Button";
 import { host, type AccessState } from "./host";
 import { CrewCard } from "./CrewCard";
+import { EmailCard } from "./EmailCard";
 import { ModelsCard } from "./ModelsCard";
 import { RemovePanel } from "./RemovePanel";
 import type { DeploymentStatus, Meta, ModelChoice } from "./types";
@@ -227,6 +228,7 @@ export function App() {
           )}
           {/* Only meaningful once the stack exists — an agent needs both a home and a brain. */}
           <CrewCard models={models} />
+          <EmailCard />
           <ModelsCard onModels={setModels} />
         </>
       )}

@@ -11,6 +11,13 @@ export const DEFAULT_CAPS: AgentCaps = {
 };
 
 /**
+ * The hard ceiling on messages one agent can send in a day (DESIGN §4c). A cap, not a
+ * quota to plan around: an approved workflow that misfires stops here rather than
+ * emptying itself into someone's inbox.
+ */
+export const MAX_EMAILS_PER_DAY = 50;
+
+/**
  * The hard limits the runner enforces IN the loop (DESIGN §7). These are mechanisms,
  * not advice: a run that would breach one refuses to start, and a run that breaches one
  * mid-flight stops cleanly and records why.
@@ -46,6 +53,13 @@ export interface AgentDef {
    * safe default for a new agent.
    */
   tools: string[];
+  /**
+   * The address this agent sends FROM, when it has one of its own ("does Emma have an
+   * email?"). Must already be verified in the owner's account — CrewPoppy never creates
+   * mail identities, that's MailPoppy's job. Unset means it sends from the install's
+   * own address.
+   */
+  emailFrom?: string;
   caps: AgentCaps;
   createdAt: string;
   updatedAt: string;
@@ -89,11 +103,28 @@ export interface TranscriptEntry {
  * and nothing else. The checkpoint is the entire truth — which is what makes resuming
  * safe: earlier tool calls are never replayed, they are already in `messages`.
  */
+/**
+ * An action the agent PROPOSED and the owner has not yet approved (DESIGN §4c).
+ *
+ * Stored on the checkpoint verbatim, and executed from HERE — never from whatever the
+ * model says after the owner answers. That is the whole point: you approve a specific
+ * message to a specific person, so that is the only thing that can be sent. A model that
+ * changes the address or the words after approval has changed nothing that matters.
+ */
+export interface PendingSend {
+  kind: "send_email";
+  to: string;
+  subject: string;
+  body: string;
+}
+
 export interface RunCheckpoint {
   runId: string;
   agentId: string;
   question: string;
   draft?: string;
+  /** Set when the run paused on a proposed send rather than a plain question. */
+  pending?: PendingSend;
   /** The full Anthropic-format conversation so far. */
   messages: unknown[];
   usage: TokenUsage;
@@ -134,6 +165,12 @@ export interface RunnerEvent {
    * from its checkpoint with this appended — it never re-executes what already happened.
    */
   answer?: string;
+  /**
+   * True ONLY when the owner pressed Approve on a proposed action. Never inferred from
+   * the words they typed: "yes, but change the greeting" is a new message that needs
+   * approving in its own right, not consent to the one on screen.
+   */
+  approved?: boolean;
 }
 
 /** How long a phone-approval link, and the waiting run behind it, stay valid. */

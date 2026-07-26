@@ -325,6 +325,54 @@ the agent DRAFTS (model knowledge), routes drafts through `ask_user` for approva
 via the allowlisted `http_request` webhook to the owner's Buffer/Zapier/Make — real publishing on
 day one without waiting for native connectors.
 
+### 4c. Email, and approving capabilities as a SET (founder decisions, 2026-07-26 — shipped)
+
+**The founder's framing:** *"an agent must send approval requests to a specific email address, but
+it can send approved emails to other emails too"*, and *"when an agent is created, the user needs to
+approve all capabilities allowed to an agent."*
+
+**Two channels, because they carry different risk.**
+
+| | Tool | Where it goes | Gate |
+|---|---|---|---|
+| To you | `email_owner` | The one address set for the install | none — it's your inbox |
+| To anyone else | `send_email` | Wherever the agent proposes | **per-message approval** |
+
+- **`email_owner` HAS NO RECIPIENT PARAMETER.** The schema itself is the control: the model cannot
+  name an address, so "it can only ever reach you" is structural, not a promise. The address is
+  install-level configuration (`config`/`owner-email`), stored only after SES confirms the account
+  will actually send from it — address or its verified domain, because MailPoppy users verify domains.
+- **`send_email` to a non-owner address never sends.** The dispatcher suspends the run and hands the
+  exact message to the runner to store. **This is deliberately not left to the agent's instructions:**
+  a prompt saying "always ask first" is text, and text is what an attacker gets to write. The refusal
+  has to be structural so it holds for an agent that has been argued into anything.
+- **Approval binds to the exact message.** The owner sees recipient, subject and body verbatim; the
+  runner sends the STORED copy. A model that changes the address or the wording after the owner has
+  stopped reading changes nothing that matters.
+- **Approval is a button, never a sentiment.** `approved` is set only by pressing Approve. Typed
+  words are never parsed for consent — "yes, but change the greeting" describes a *different*
+  message, which is proposed and approved on its own. The UI says so, and disables Send-it while
+  there's text in the reply box.
+- **Hard ceiling:** `MAX_EMAILS_PER_DAY` per agent, claimed with a conditional atomic ADD *before*
+  the send — a counter incremented afterwards is a tally, not a limit.
+- **From-address:** an agent may have one of its own (`emailFrom`), checked against SES as it's
+  typed; otherwise it sends from the owner's address. The display name is stripped of anything that
+  could smuggle a second address into the From header. **CrewPoppy never creates mail identities** —
+  that's MailPoppy's job (repo boundary).
+- **IAM:** the runner's in-stack role gains `ses:SendEmail` on `identity/*` — send only, never
+  `Create*`/`Verify*`, so it can use an address the owner proved but can never prove a new one. The
+  manifest gains read-only `ses:GetEmailIdentity`. Rating unchanged: medium, no findings.
+- **Sandbox note:** a fresh AWS account can only email verified recipients until AWS grants
+  production access. The founder's account (675546221165) was granted it on 2026-06-04 via MailPoppy,
+  so external send works there today — but a NEW user may hit the sandbox, and the UI should say so
+  when a send fails for that reason.
+
+**Capabilities are approved as a set.** The create/edit form groups tools the way an owner asks
+(Memory · Files · Working with you · Reaching the outside world), and ends with "*Emma will be able
+to: …*" immediately above the button that grants it. Nothing is on by default. Grouping is
+presentation only — **enforcement stays per-tool in the dispatcher**; a group is never something an
+agent holds. The same panel edits an existing agent, because a grant you can't revoke isn't a grant.
+
 ### 4b. Knowledge vs. ability — "how does the agent know what to do without training?"
 
 The single most common misconception. Two different things hide inside "does the agent know what

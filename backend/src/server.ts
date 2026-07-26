@@ -9,17 +9,19 @@ import { BedrockClient } from "@aws-sdk/client-bedrock";
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
 import { DynamoDBDocumentClient } from "@aws-sdk/lib-dynamodb";
 import { LambdaClient } from "@aws-sdk/client-lambda";
+import { SESv2Client } from "@aws-sdk/client-sesv2";
 import { randomUUID } from "node:crypto";
 import { readBootstrap, brokerCredentialsProvider } from "./boot";
 import {
   deploy, getStatus, teardown, runnerFunctionName, tableName, workspaceBucketName,
 } from "./stack";
 import {
-  answerRun, deleteAgent, getAgent, getRun, getTranscript, listAgents, listRuns, saveAgent,
-  startRun, stopRun, withStaleness,
+  answerRun, deleteAgent, getAgent, getPending, getRun, getTranscript, listAgents, listRuns,
+  saveAgent, startRun, stopRun, withStaleness,
 } from "./agents";
+import { getOwnerEmail, isVerifiedSender, setOwnerEmail } from "./email";
 import { consoleUrl, getCatalogue, getModelAccess } from "./bedrock";
-import { TOOL_NAMES, TOOL_NOTES } from "@crewpoppy/shared";
+import { EMAIL_TOOLS, TOOL_GROUPS, TOOL_NAMES, TOOL_NOTES } from "@crewpoppy/shared";
 
 const boot = readBootstrap();
 const credentials = brokerCredentialsProvider(boot);
@@ -29,6 +31,7 @@ const s3 = new S3Client({ region, credentials });
 const bedrock = new BedrockClient({ region, credentials });
 const ddb = DynamoDBDocumentClient.from(new DynamoDBClient({ region, credentials }));
 const lambda = new LambdaClient({ region, credentials });
+const ses = new SESv2Client({ region, credentials });
 const ctx = { accountId: boot.account.accountId, connectionId: boot.connectionId };
 
 /** Read a JSON request body. An empty or malformed body is an empty object, not a crash. */
@@ -84,10 +87,29 @@ const server = createServer(async (req, res) => {
       return json(res, 200, { models: await getCatalogue(bedrock, ddb, tableName), consoleUrl: consoleUrl(region) });
     }
 
+    // The address agents email you at (DESIGN §4c). Read re-checks it against SES, so a
+    // setting can't quietly rot into one that bounces.
+    if (method === "GET" && parts[0] === "owner-email" && parts.length === 1) {
+      return json(res, 200, await getOwnerEmail(ddb, ses, tableName));
+    }
+    if (method === "PUT" && parts[0] === "owner-email" && parts.length === 1) {
+      const body = await readJson(req);
+      return json(res, 200, await setOwnerEmail(ddb, ses, tableName, body.email));
+    }
+    // Is this address one AWS will actually send from? Used by the agent editor before
+    // it lets you give an agent an address of its own.
+    if (method === "GET" && parts[0] === "verify-sender" && parts.length === 1) {
+      const address = url.searchParams.get("email") ?? "";
+      return json(res, 200, { email: address, verified: await isVerifiedSender(ses, address) });
+    }
+
     // The tool catalogue, with the plain-language note shown beside each checkbox.
     if (method === "GET" && parts[0] === "tools" && parts.length === 1) {
       return json(res, 200, {
         tools: TOOL_NAMES.map((name) => ({ name, ...TOOL_NOTES[name] })),
+        // Grouped the way an owner actually asks: "can it email? only me? other people?"
+        groups: TOOL_GROUPS,
+        needsEmail: EMAIL_TOOLS,
       });
     }
 
@@ -142,11 +164,14 @@ const server = createServer(async (req, res) => {
         );
         return json(res, 200, { runs });
       }
-      // Answer a run waiting on ask_user, and let it continue (DESIGN §5).
+      // Answer a run waiting on ask_user, and let it continue (DESIGN §5). `approved` is
+      // the Approve BUTTON — never inferred from the words, so a proposed email is sent
+      // only when the owner said yes to that exact message (DESIGN §4c).
       if (method === "POST" && parts.length === 5 && parts[2] === "runs" && parts[4] === "answer") {
         const body = await readJson(req);
         const answered = await answerRun(
           ddb, lambda, tableName, runnerFunctionName, parts[1]!, parts[3]!, String(body.answer ?? ""), now,
+          body.approved === true,
         );
         if (!answered) return json(res, 404, { error: "That run no longer exists." });
         return json(res, 200, answered);
@@ -157,14 +182,18 @@ const server = createServer(async (req, res) => {
         if (!stopped) return json(res, 404, { error: "That run no longer exists." });
         return json(res, 200, stopped);
       }
-      // One run plus its transcript — what the run view polls.
+      // One run plus its transcript — what the run view polls. A waiting run also carries
+      // the action awaiting approval, so the UI shows the real recipient and the real
+      // words rather than the agent's account of them.
       if (method === "GET" && parts.length === 4 && parts[2] === "runs") {
         const run = await getRun(ddb, tableName, parts[1]!, parts[3]!);
         if (!run) return json(res, 404, { error: "That run no longer exists." });
         const agent = await getAgent(ddb, tableName, parts[1]!);
+        const pending = run.status === "waiting" ? await getPending(ddb, tableName, parts[3]!) : undefined;
         return json(res, 200, {
           run: withStaleness(run, agent?.caps, Date.now()),
           transcript: await getTranscript(ddb, tableName, parts[3]!),
+          ...(pending ? { pending } : {}),
         });
       }
     }

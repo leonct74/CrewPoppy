@@ -4,8 +4,8 @@
 
 import { host, type BackendInvoke } from "./host";
 import type {
-  AgentSummary, DeleteResult, DeploymentStatus, Meta, ModelAccess, ModelCatalogue, RunRecord,
-  ToolOption, TranscriptEntry,
+  AgentSummary, DeleteResult, DeploymentStatus, Meta, ModelAccess, ModelCatalogue, OwnerEmail,
+  RunRecord, RunView, ToolCatalogue,
 } from "./types";
 
 /**
@@ -46,8 +46,19 @@ export const api = {
   deploy: (): Promise<{ operation: string; stackName: string }> =>
     invoke({ method: "POST", path: "/deploy" }),
 
-  /** The switchable tools, with the note shown beside each checkbox. */
-  listTools: (): Promise<{ tools: ToolOption[] }> => invoke({ method: "GET", path: "/tools" }),
+  /** The switchable capabilities, grouped as the create form asks them. */
+  listTools: (): Promise<ToolCatalogue> => invoke({ method: "GET", path: "/tools" }),
+
+  /** The one address agents email you at. Re-checked against SES on every read. */
+  ownerEmail: (): Promise<OwnerEmail> => invoke({ method: "GET", path: "/owner-email" }),
+
+  /** Save it — refused unless AWS will actually send from it. "" clears it. */
+  setOwnerEmail: (email: string): Promise<OwnerEmail> =>
+    invoke({ method: "PUT", path: "/owner-email", body: { email } }),
+
+  /** Will AWS send from this address? Asked before an agent is given one of its own. */
+  verifySender: (email: string): Promise<{ email: string; verified: boolean }> =>
+    invoke({ method: "GET", path: `/verify-sender?email=${encodeURIComponent(email)}` }),
 
   // ---- agents (P1) --------------------------------------------------------
   listAgents: (): Promise<{ agents: AgentSummary[] }> =>
@@ -67,15 +78,23 @@ export const api = {
   listRuns: (id: string): Promise<{ runs: RunRecord[] }> =>
     invoke({ method: "GET", path: `/agents/${id}/runs` }),
 
-  /** Answer a run waiting on ask_user, so it carries on (DESIGN §5). */
-  answerRun: (id: string, runId: string, answer: string): Promise<RunRecord> =>
-    invoke({ method: "POST", path: `/agents/${id}/runs/${runId}/answer`, body: { answer } }),
+  /**
+   * Answer a waiting run (DESIGN §5). `approved` is the Approve BUTTON and nothing else:
+   * a proposed email is sent only when the owner said yes to that exact message, never
+   * because their typed words sounded like agreement (DESIGN §4c).
+   */
+  answerRun: (id: string, runId: string, answer: string, approved?: boolean): Promise<RunRecord> =>
+    invoke({
+      method: "POST",
+      path: `/agents/${id}/runs/${runId}/answer`,
+      body: { answer, ...(approved ? { approved: true } : {}) },
+    }),
 
   /** The kill switch (DESIGN §7). */
   stopRun: (id: string, runId: string): Promise<RunRecord> =>
     invoke({ method: "POST", path: `/agents/${id}/runs/${runId}/stop` }),
 
-  getRun: (id: string, runId: string): Promise<{ run: RunRecord; transcript: TranscriptEntry[] }> =>
+  getRun: (id: string, runId: string): Promise<RunView> =>
     invoke({ method: "GET", path: `/agents/${id}/runs/${runId}` }),
 
   /** Removes everything CrewPoppy created. Waits for AWS to finish. */

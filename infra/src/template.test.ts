@@ -81,8 +81,24 @@ describe("buildTemplate", () => {
     const actions = statements.flatMap((s) => s.Action);
     // aws-marketplace is the one non-CrewPoppy service, and only to let Bedrock finish
     // its own first-use subscription — never to reach account resources.
-    expect(actions.every((a) => /^(logs|dynamodb|s3|bedrock|aws-marketplace):/.test(a))).toBe(true);
+    expect(actions.every((a) => /^(logs|dynamodb|s3|bedrock|aws-marketplace|ses):/.test(a))).toBe(true);
     expect(actions.some((a) => /^(iam|sts):/.test(a))).toBe(false);
+  });
+
+  it("can send mail, but can never verify a new sender (DESIGN §4c)", () => {
+    const statements = resources.RunnerRole!.Properties.Policies[0].PolicyDocument.Statement as Array<{
+      Sid: string;
+      Action: string[];
+      Resource: unknown;
+    }>;
+    const mail = statements.find((s) => s.Sid === "SendMail")!;
+    // Sending only, and only from identities the owner already proved they own. Anything
+    // that could CREATE an identity would let an agent's mail come from an address the
+    // owner never authorised — a different product with a different risk.
+    expect(mail.Action).toEqual(["ses:SendEmail"]);
+    expect(mail.Resource).toBe("arn:aws:ses:*:*:identity/*");
+    const ses = statements.flatMap((s) => s.Action).filter((a) => a.startsWith("ses:"));
+    expect(ses).toEqual(["ses:SendEmail"]);
   });
 
   it("never reads back a log-group ARN with Fn::GetAtt (the collection-API trap)", () => {

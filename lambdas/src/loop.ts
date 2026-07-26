@@ -19,6 +19,7 @@ import {
   specsFor,
   type AgentCaps,
   type AgentDef,
+  type PendingSend,
   type StopReason,
   type TokenUsage,
 } from "@crewpoppy/shared";
@@ -63,8 +64,8 @@ export interface LoopOutcome {
   message?: string;
   usage: TokenUsage;
   iterations: number;
-  /** Present when ask_user suspended the run: what to checkpoint. */
-  suspend?: { question: string; draft?: string; messages: unknown[] };
+  /** Present when the run suspended for the owner: what to checkpoint. */
+  suspend?: { question: string; draft?: string; messages: unknown[]; pending?: PendingSend };
 }
 
 const MAX_OUTPUT_TOKENS = 4096;
@@ -158,7 +159,12 @@ export async function runLoop(
           message: result.suspend.question,
           usage,
           iterations,
-          suspend: { ...result.suspend, messages },
+          suspend: {
+            question: result.suspend.question,
+            ...(result.suspend.draft ? { draft: result.suspend.draft } : {}),
+            ...(result.suspend.pending ? { pending: result.suspend.pending } : {}),
+            messages,
+          },
         };
       }
 

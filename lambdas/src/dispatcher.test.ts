@@ -4,7 +4,13 @@
 // refusal message can be reworded; a key that reaches another agent's data is a breach.
 
 import { describe, expect, it, vi } from "vitest";
-import { GetCommand, PutCommand, type DynamoDBDocumentClient } from "@aws-sdk/lib-dynamodb";
+import {
+  GetCommand,
+  PutCommand,
+  UpdateCommand,
+  type DynamoDBDocumentClient,
+} from "@aws-sdk/lib-dynamodb";
+import { SendEmailCommand, type SESv2Client } from "@aws-sdk/client-sesv2";
 import {
   GetObjectCommand,
   ListObjectsV2Command,
@@ -12,19 +18,45 @@ import {
   type S3Client,
 } from "@aws-sdk/client-s3";
 import { dispatch, type DispatchContext } from "./dispatcher";
-import { TOOL_NAMES } from "@crewpoppy/shared";
+import { TOOL_NAMES, TOOL_SPECS } from "@crewpoppy/shared";
 
 /** Records every command so we can inspect the keys the dispatcher constructed. */
-function harness(opts: { agentId?: string; enabled?: readonly string[]; item?: unknown } = {}) {
+function harness(
+  opts: {
+    agentId?: string;
+    enabled?: readonly string[];
+    item?: unknown;
+    ownerEmail?: string | null;
+    fromAddress?: string;
+    maxEmailsPerDay?: number;
+    /** Make the daily-cap condition fail, as DynamoDB does when the ceiling is reached. */
+    atSendLimit?: boolean;
+  } = {},
+) {
   const ddb: unknown[] = [];
   const s3: unknown[] = [];
+  const ses: unknown[] = [];
   const ctx: DispatchContext = {
     ddb: {
       send: vi.fn(async (c: unknown) => {
         ddb.push(c);
+        if (c instanceof UpdateCommand && opts.atSendLimit) {
+          throw Object.assign(new Error("nope"), { name: "ConditionalCheckFailedException" });
+        }
         return c instanceof GetCommand ? { Item: opts.item } : {};
       }),
     } as unknown as DynamoDBDocumentClient,
+    ses: {
+      send: vi.fn(async (c: unknown) => {
+        ses.push(c);
+        return {};
+      }),
+    } as unknown as SESv2Client,
+    agentName: "Emma",
+    ownerEmail: opts.ownerEmail === null ? undefined : (opts.ownerEmail ?? "marco@example.com"),
+    fromAddress: opts.fromAddress,
+    maxEmailsPerDay: opts.maxEmailsPerDay ?? 50,
+    now: () => Date.parse("2026-07-26T12:00:00.000Z"),
     s3: {
       send: vi.fn(async (c: unknown) => {
         s3.push(c);
@@ -38,7 +70,7 @@ function harness(opts: { agentId?: string; enabled?: readonly string[]; item?: u
     agentId: opts.agentId ?? "a1",
     enabled: opts.enabled ?? [...TOOL_NAMES],
   };
-  return { ctx, ddb, s3 };
+  return { ctx, ddb, s3, ses };
 }
 
 /** The PARTITION each command targeted — the thing that decides whose data it is. */
@@ -189,5 +221,138 @@ describe("tool output is data, never instructions", () => {
     expect(r.isError).toBeUndefined();
     // It is returned as content and nothing else — no field here can grant a capability.
     expect(Object.keys(r).sort()).toEqual(["content"]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Email (DESIGN §4c). The founder's rule: an agent may email THEM freely, and may email
+// anyone else only with per-message approval. These tests are written against the thing
+// that enforces it — the dispatcher — precisely because the prompt is not enforcement.
+
+const sentTo = (cmds: unknown[]) =>
+  cmds.filter((c) => c instanceof SendEmailCommand).map((c) => (c as SendEmailCommand).input);
+
+describe("emailing the owner", () => {
+  it("goes to the configured address, which the model never names", async () => {
+    const { ctx, ses } = harness();
+    const r = await dispatch(ctx, "email_owner", { subject: "Done", body: "All finished." });
+
+    expect(r.isError).toBeFalsy();
+    expect(sentTo(ses)[0]?.Destination?.ToAddresses).toEqual(["marco@example.com"]);
+    // The schema has no recipient field at all — that IS the control.
+    expect(Object.keys(TOOL_SPECS.email_owner.input_schema.properties as object)).toEqual([
+      "subject",
+      "body",
+    ]);
+  });
+
+  it("sends from the agent's own address when it has one", async () => {
+    const { ctx, ses } = harness({ fromAddress: "emma@ollydigital.com" });
+    await dispatch(ctx, "email_owner", { subject: "Hi", body: "there" });
+    expect(sentTo(ses)[0]?.FromEmailAddress).toBe("Emma <emma@ollydigital.com>");
+  });
+
+  it("can't smuggle a second address through the display name", async () => {
+    const { ctx, ses } = harness({ agentId: "a1" });
+    ctx.agentName = 'Emma <evil@attacker.test>, "x"';
+    await dispatch(ctx, "email_owner", { subject: "Hi", body: "there" });
+    const from = sentTo(ses)[0]?.FromEmailAddress ?? "";
+    // Exactly one address, and it's the owner's — the injected one is stripped of every
+    // character that could make it parse as an address.
+    expect(from.match(/[<>@]/g)).toEqual(["<", "@", ">"]);
+    expect(from.endsWith("<marco@example.com>")).toBe(true);
+  });
+
+  it("says so plainly when no address is set up yet", async () => {
+    const { ctx, ses } = harness({ ownerEmail: null });
+    const r = await dispatch(ctx, "email_owner", { subject: "Hi", body: "there" });
+    expect(r.isError).toBe(true);
+    expect(r.content).toMatch(/no email address is set up/i);
+    expect(ses).toHaveLength(0);
+  });
+});
+
+describe("emailing anyone else", () => {
+  it("does NOT send — it suspends with the exact message for the owner to read", async () => {
+    const { ctx, ses } = harness();
+    const r = await dispatch(ctx, "send_email", {
+      to: "jane@customer.test",
+      subject: "Your enquiry",
+      body: "Hello Jane, thanks for getting in touch.",
+    });
+
+    expect(ses).toHaveLength(0); // nothing left the account
+    expect(r.suspend?.pending).toEqual({
+      kind: "send_email",
+      to: "jane@customer.test",
+      subject: "Your enquiry",
+      body: "Hello Jane, thanks for getting in touch.",
+    });
+    // The owner sees address, subject and body — not a summary of them.
+    expect(r.suspend?.draft).toContain("jane@customer.test");
+    expect(r.suspend?.draft).toContain("Hello Jane, thanks for getting in touch.");
+    expect(r.content).toMatch(/has not been sent/i);
+  });
+
+  it("suspends even when the agent also holds every other tool", async () => {
+    const { ctx, ses } = harness({ enabled: [...TOOL_NAMES] });
+    const r = await dispatch(ctx, "send_email", { to: "a@b.test", subject: "s", body: "b" });
+    expect(r.suspend).toBeTruthy();
+    expect(ses).toHaveLength(0);
+  });
+
+  it("treats a message to the owner as the owner channel, not an external send", async () => {
+    const { ctx, ses } = harness();
+    const r = await dispatch(ctx, "send_email", {
+      to: "  MARCO@Example.com ", // same inbox, shouted
+      subject: "s",
+      body: "b",
+    });
+    expect(r.suspend).toBeFalsy();
+    expect(sentTo(ses)[0]?.Destination?.ToAddresses).toEqual(["marco@example.com"]);
+  });
+
+  it("refuses anything that isn't one plain address", async () => {
+    const { ctx, ses } = harness();
+    for (const to of [
+      "jane@a.test, evil@b.test", // a second recipient
+      "jane@a.test\nbcc: evil@b.test", // header injection
+      "Jane <jane@a.test>", // display-name form
+      "not-an-address",
+      "",
+      42,
+    ]) {
+      const r = await dispatch(ctx, "send_email", { to, subject: "s", body: "b" });
+      expect(r.isError).toBe(true);
+      expect(r.suspend).toBeFalsy();
+    }
+    expect(ses).toHaveLength(0);
+  });
+
+  it("is refused outright when the owner never granted it", async () => {
+    const { ctx, ses } = harness({ enabled: ["email_owner"] });
+    const r = await dispatch(ctx, "send_email", { to: "jane@a.test", subject: "s", body: "b" });
+    expect(r.isError).toBe(true);
+    expect(r.content).toMatch(/do not have/i);
+    expect(ses).toHaveLength(0);
+  });
+});
+
+describe("the daily send ceiling", () => {
+  it("claims its allowance BEFORE sending, atomically", async () => {
+    const { ctx, ddb } = harness();
+    await dispatch(ctx, "email_owner", { subject: "s", body: "b" });
+    const claim = ddb.find((c) => c instanceof UpdateCommand) as UpdateCommand;
+    expect(claim.input.Key).toEqual({ pk: "sends#a1", sk: "day#2026-07-26" });
+    // A condition, not a read-then-write: two runs at once can't both slip past.
+    expect(claim.input.ConditionExpression).toMatch(/n < :max/);
+  });
+
+  it("stops sending once the ceiling is reached, and says why", async () => {
+    const { ctx, ses } = harness({ atSendLimit: true, maxEmailsPerDay: 50 });
+    const r = await dispatch(ctx, "email_owner", { subject: "s", body: "b" });
+    expect(r.isError).toBe(true);
+    expect(r.content).toMatch(/limit of 50 emails today/i);
+    expect(ses).toHaveLength(0);
   });
 });

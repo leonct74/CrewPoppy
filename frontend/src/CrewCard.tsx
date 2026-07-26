@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "./api";
 import { Button } from "./Button";
-import type { AgentSummary, ModelChoice, RunRecord, ToolOption, TranscriptEntry } from "./types";
+import type {
+  AgentSummary, ModelChoice, OwnerEmail, PendingSend, RunRecord, ToolCatalogue, TranscriptEntry,
+} from "./types";
 
 /**
  * The crew: define an agent, give it a job, read its answer, see what it cost.
@@ -24,7 +26,8 @@ function money(usd: number | undefined): string {
 
 export function CrewCard(props: { models: ModelChoice[] }) {
   const [agents, setAgents] = useState<AgentSummary[] | null>(null);
-  const [tools, setTools] = useState<ToolOption[]>([]);
+  const [catalogue, setCatalogue] = useState<ToolCatalogue | null>(null);
+  const [owner, setOwner] = useState<OwnerEmail>({});
   const [creating, setCreating] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
@@ -37,10 +40,19 @@ export function CrewCard(props: { models: ModelChoice[] }) {
     }
   }, []);
 
+  const refreshOwner = useCallback(async () => {
+    try {
+      setOwner(await api.ownerEmail());
+    } catch {
+      /* the email card shows its own state; the crew list still works */
+    }
+  }, []);
+
   useEffect(() => {
     void refresh();
-    void api.listTools().then((t) => setTools(t.tools)).catch(() => {});
-  }, [refresh]);
+    void refreshOwner();
+    void api.listTools().then(setCatalogue).catch(() => {});
+  }, [refresh, refreshOwner]);
 
   if (!agents) return null;
 
@@ -71,15 +83,23 @@ export function CrewCard(props: { models: ModelChoice[] }) {
       )}
 
       {agents.map((a) => (
-        <AgentRow key={a.id} agent={a} models={props.models} onChanged={refresh} />
+        <AgentRow
+          key={a.id}
+          agent={a}
+          models={props.models}
+          catalogue={catalogue}
+          owner={owner}
+          onChanged={refresh}
+        />
       ))}
 
       {creating ? (
-        <NewAgentForm
+        <AgentForm
           models={props.models}
-          tools={tools}
+          catalogue={catalogue}
+          owner={owner}
           onCancel={() => setCreating(false)}
-          onCreated={async () => {
+          onSaved={async () => {
             setCreating(false);
             await refresh();
           }}
@@ -95,27 +115,64 @@ export function CrewCard(props: { models: ModelChoice[] }) {
   );
 }
 
-function NewAgentForm(props: {
+/**
+ * Create or edit one agent — and, at the bottom, the SET of capabilities the owner is
+ * approving (founder decision, 2026-07-26).
+ *
+ * The founder's framing: "the user needs to approve all capabilities allowed to an
+ * agent." So this doesn't scatter switches through the form and hope they're read. It
+ * groups them the way an owner actually asks — can it email? only me? other people? —
+ * and ends with a plain sentence of everything the agent will be able to do, right above
+ * the button that grants it. Nothing is on by default, and nothing is granted quietly.
+ */
+function AgentForm(props: {
   models: ModelChoice[];
-  tools: ToolOption[];
+  catalogue: ToolCatalogue | null;
+  owner: OwnerEmail;
+  /** Absent when creating. */
+  agent?: AgentSummary;
   onCancel: () => void;
-  onCreated: () => Promise<void>;
+  onSaved: () => Promise<void>;
 }) {
+  const editing = !!props.agent;
   const usable = props.models.filter((m) => m.ready);
-  const [name, setName] = useState("");
-  const [role, setRole] = useState("");
-  const [instructions, setInstructions] = useState("");
-  const [modelId, setModelId] = useState(usable[0]?.id ?? props.models[0]?.id ?? "");
-  const [cap, setCap] = useState(10);
+  const [name, setName] = useState(props.agent?.name ?? "");
+  const [role, setRole] = useState(props.agent?.role ?? "");
+  const [instructions, setInstructions] = useState(props.agent?.instructions ?? "");
+  const [modelId, setModelId] = useState(
+    props.agent?.modelId ?? usable[0]?.id ?? props.models[0]?.id ?? "",
+  );
+  const [cap, setCap] = useState(props.agent?.caps.monthlySpendCapUsd ?? 10);
   // Nothing is on by default. An agent starts able only to read its task and answer —
   // every ability is something the owner deliberately grants (DESIGN §1b).
-  const [chosen, setChosen] = useState<string[]>([]);
+  const [chosen, setChosen] = useState<string[]>(props.agent?.tools ?? []);
+  const [emailFrom, setEmailFrom] = useState(props.agent?.emailFrom ?? "");
+  const [senderState, setSenderState] = useState<"unknown" | "checking" | "ok" | "bad">("unknown");
   const [err, setErr] = useState<string | null>(null);
   const ready = name.trim() && role.trim() && instructions.trim() && modelId;
 
+  const notes = new Map((props.catalogue?.tools ?? []).map((t) => [t.name, t]));
+  const wantsEmail = (props.catalogue?.needsEmail ?? []).some((t) => chosen.includes(t));
+  const granted = chosen.map((t) => notes.get(t)?.label ?? t);
+
+  // An address of its own must be one AWS will really send from. Checked as it's typed,
+  // so the answer arrives before the save rather than as a bounce days later.
+  useEffect(() => {
+    const value = emailFrom.trim();
+    if (!value) return setSenderState("unknown");
+    setSenderState("checking");
+    const t = window.setTimeout(() => {
+      void api
+        .verifySender(value)
+        .then((r) => setSenderState(r.verified ? "ok" : "bad"))
+        .catch(() => setSenderState("unknown"));
+    }, 500);
+    return () => window.clearTimeout(t);
+  }, [emailFrom]);
+
   return (
     <div className="card card-2" style={{ margin: 0 }}>
-      <h3 className="section-title">New agent</h3>
+      <h3 className="section-title">{editing ? `Edit ${props.agent!.name}` : "New agent"}</h3>
       <div className="grid-2">
         <label className="field">
           <span>Name — what you'll call them</span>
@@ -139,9 +196,8 @@ function NewAgentForm(props: {
             a TOOL. Saying so here prevents the disappointment instead of explaining it
             after a run that quietly did nothing. */}
         <small className="muted" style={{ fontSize: 12 }}>
-          Describe the job and the judgement, not the plumbing. Right now this agent can only read
-          the task you type and reply in writing — it can't reach your email, files or the web.
-          Those arrive as <strong>tools</strong> you switch on, one at a time.
+          Describe the job and the judgement, not the plumbing. What this agent can actually
+          reach is decided below — instructions never grant an ability.
         </small>
       </label>
       <div className="grid-2">
@@ -177,40 +233,102 @@ function NewAgentForm(props: {
           </small>
         </label>
       </div>
-      {props.tools.length > 0 && (
-        <label className="field">
-          <span>What this agent is allowed to do</span>
-          <div className="stack" style={{ marginTop: 4 }}>
-            {props.tools.map((t) => (
-              <label key={t.name} className="row" style={{ alignItems: "flex-start", gap: 8 }}>
-                <input
-                  type="checkbox"
-                  checked={chosen.includes(t.name)}
-                  onChange={(e) =>
-                    setChosen((c) => (e.target.checked ? [...c, t.name] : c.filter((x) => x !== t.name)))
-                  }
-                  style={{ marginTop: 3 }}
-                />
-                <span style={{ flex: 1 }}>
-                  <strong style={{ fontSize: 13 }}>{t.label}</strong>
-                  <span className="muted" style={{ display: "block", fontSize: 12 }}>
-                    {t.what}
-                  </span>
-                  {t.risk && (
-                    <span className="muted-2" style={{ display: "block", fontSize: 12 }}>
-                      ⚠ {t.risk}
+
+      {props.catalogue && (
+        <div className="field">
+          <span>What {name.trim() || "this agent"} is allowed to do</span>
+          <p className="muted" style={{ margin: "2px 0 8px", fontSize: 12 }}>
+            Everything starts off. Give it only what its job needs — don't give it anything you
+            wouldn't want a stranger triggering.
+          </p>
+          {props.catalogue.groups.map((g) => (
+            <div key={g.key} className="card" style={{ margin: "0 0 8px", padding: 10 }}>
+              <div className="row" style={{ gap: 8, marginBottom: 2 }}>
+                <strong style={{ fontSize: 13 }}>{g.label}</strong>
+                <span className="muted-2" style={{ fontSize: 12 }}>{g.what}</span>
+              </div>
+              {g.tools.map((t) => {
+                const note = notes.get(t);
+                if (!note) return null;
+                return (
+                  <label key={t} className="row" style={{ alignItems: "flex-start", gap: 8, marginTop: 6 }}>
+                    <input
+                      type="checkbox"
+                      checked={chosen.includes(t)}
+                      onChange={(e) =>
+                        setChosen((c) => (e.target.checked ? [...c, t] : c.filter((x) => x !== t)))
+                      }
+                      style={{ marginTop: 3 }}
+                    />
+                    <span style={{ flex: 1 }}>
+                      <strong style={{ fontSize: 13 }}>{note.label}</strong>
+                      <span className="muted" style={{ display: "block", fontSize: 12 }}>{note.what}</span>
+                      {note.risk && (
+                        <span className="muted-2" style={{ display: "block", fontSize: 12 }}>
+                          ⚠ {note.risk}
+                        </span>
+                      )}
                     </span>
-                  )}
-                </span>
+                  </label>
+                );
+              })}
+            </div>
+          ))}
+
+          {/* Only asked once email is actually wanted — an address field on an agent that
+              never emails is a question with no purpose. */}
+          {wantsEmail && (
+            <div className="card" style={{ margin: "0 0 8px", padding: 10 }}>
+              <label className="field" style={{ margin: 0 }}>
+                <span>Does {name.trim() || "this agent"} have an email address of its own?</span>
+                <input
+                  className="input"
+                  value={emailFrom}
+                  onChange={(e) => setEmailFrom(e.target.value)}
+                  placeholder={props.owner.email ? `Leave empty to send from ${props.owner.email}` : "emma@yourdomain.com"}
+                  autoComplete="off"
+                  spellCheck={false}
+                />
+                <small className="muted" style={{ fontSize: 12 }}>
+                  {senderState === "checking" && "Checking your AWS account…"}
+                  {senderState === "ok" && "✓ Your AWS account can send from this address."}
+                  {senderState === "bad" &&
+                    "Your AWS account hasn't verified this address, so mail from it would bounce. Verify it (or its domain) in SES first — MailPoppy addresses already are."}
+                  {senderState === "unknown" &&
+                    "Optional. Leave it empty and it sends from your own address instead."}
+                </small>
               </label>
-            ))}
+            </div>
+          )}
+
+          {!props.owner.email && wantsEmail && (
+            <div className="banner warn">
+              No address is set for CrewPoppy yet, so the email abilities won't do anything. Set one
+              under "Email" above the crew list first — you can still save this agent now.
+            </div>
+          )}
+
+          {/* The grant, in one sentence, immediately above the button that grants it. */}
+          <div className="card" style={{ margin: 0, padding: 10 }}>
+            <strong style={{ fontSize: 13 }}>
+              {editing ? `${props.agent!.name} will be able to:` : `${name.trim() || "This agent"} will be able to:`}
+            </strong>
+            {granted.length === 0 ? (
+              <p className="muted" style={{ margin: "4px 0 0", fontSize: 12 }}>
+                Nothing beyond reading the task you type and replying in writing. That's a safe
+                place to start.
+              </p>
+            ) : (
+              <ul className="muted" style={{ margin: "4px 0 0", paddingLeft: 18, fontSize: 12 }}>
+                {granted.map((g) => (
+                  <li key={g}>{g}</li>
+                ))}
+              </ul>
+            )}
           </div>
-          <small className="muted" style={{ fontSize: 12 }}>
-            Everything is off to begin with. Give an agent only what its job needs — don't give it
-            anything you wouldn't want a stranger triggering.
-          </small>
-        </label>
+        </div>
       )}
+
       {err && <div className="banner err">{err}</div>}
       <div className="row" style={{ justifyContent: "flex-end" }}>
         <button className="btn" onClick={props.onCancel}>
@@ -219,20 +337,27 @@ function NewAgentForm(props: {
         <Button
           className="btn btn-primary"
           disabled={!ready}
-          busyLabel="Creating…"
+          busyLabel={editing ? "Saving…" : "Creating…"}
           onClick={async () => {
             setErr(null);
             try {
               await api.saveAgent({
-                name, role, instructions, modelId, tools: chosen, caps: { monthlySpendCapUsd: cap },
+                ...(props.agent ? { id: props.agent.id } : {}),
+                name,
+                role,
+                instructions,
+                modelId,
+                tools: chosen,
+                emailFrom: emailFrom.trim(),
+                caps: { ...(props.agent?.caps ?? {}), monthlySpendCapUsd: cap },
               });
-              await props.onCreated();
+              await props.onSaved();
             } catch (e) {
               setErr((e as Error).message);
             }
           }}
         >
-          Create agent
+          {editing ? "Save changes" : "Create agent"}
         </Button>
       </div>
     </div>
@@ -348,8 +473,15 @@ function DeleteAgent(props: { agent: AgentSummary; onDeleted: () => Promise<void
   );
 }
 
-function AgentRow(props: { agent: AgentSummary; models: ModelChoice[]; onChanged: () => Promise<void> }) {
+function AgentRow(props: {
+  agent: AgentSummary;
+  models: ModelChoice[];
+  catalogue: ToolCatalogue | null;
+  owner: OwnerEmail;
+  onChanged: () => Promise<void>;
+}) {
   const { agent } = props;
+  const [editing, setEditing] = useState(false);
   // Which brain this agent thinks with. Chosen once at creation and then invisible —
   // nobody remembers weeks later, and it drives both quality and cost, so it belongs on
   // the card. Fall back to the raw id if the catalogue has moved on.
@@ -358,6 +490,8 @@ function AgentRow(props: { agent: AgentSummary; models: ModelChoice[]; onChanged
   const [answer, setAnswer] = useState("");
   const [run, setRun] = useState<RunRecord | null>(null);
   const [transcript, setTranscript] = useState<TranscriptEntry[]>([]);
+  /** The exact message waiting on approval, read from the run's checkpoint. */
+  const [pending, setPending] = useState<PendingSend | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const timer = useRef<number | null>(null);
 
@@ -367,6 +501,7 @@ function AgentRow(props: { agent: AgentSummary; models: ModelChoice[]; onChanged
         const r = await api.getRun(agent.id, runId);
         setRun(r.run);
         setTranscript(r.transcript);
+        setPending(r.pending ?? null);
         if (r.run.status !== "running") void props.onChanged(); // spend may have moved
       } catch {
         /* transient — the poller tries again */
@@ -414,9 +549,30 @@ function AgentRow(props: { agent: AgentSummary; models: ModelChoice[]; onChanged
           <span className={`badge ${atCap ? "warn" : "ok"}`}>
             <span className="dot" /> {atCap ? "At limit" : "Ready"}
           </span>
+          {/* Capabilities can be taken back as well as given — a grant you can't revoke
+              isn't really a grant. */}
+          <button className="btn btn-ghost" onClick={() => setEditing(true)}>
+            Edit…
+          </button>
           <DeleteAgent agent={agent} onDeleted={props.onChanged} />
         </div>
       </div>
+
+      {editing && (
+        <div style={{ marginTop: 10 }}>
+          <AgentForm
+            models={props.models}
+            catalogue={props.catalogue}
+            owner={props.owner}
+            agent={agent}
+            onCancel={() => setEditing(false)}
+            onSaved={async () => {
+              setEditing(false);
+              await props.onChanged();
+            }}
+          />
+        </div>
+      )}
 
       <label className="field" style={{ marginTop: 10, marginBottom: 0 }}>
         <span>Give {agent.name} something to do</span>
@@ -479,52 +635,123 @@ function AgentRow(props: { agent: AgentSummary; models: ModelChoice[]; onChanged
             </span>
           </div>
           <p style={{ margin: 0 }}>{run.message}</p>
-          {/* The draft is shown verbatim: approving something you haven't read is not
-              approval. It appears as the last thing the agent said. */}
-          {transcript.filter((t) => t.role === "assistant").slice(-1).map((t) => (
-            <div key={t.seq} className="card" style={{ margin: 0, whiteSpace: "pre-wrap" }}>
-              {t.text}
+
+          {pending ? (
+            /* An email it wants to send. Shown as the message itself — address, subject,
+               words — because approving a summary is not approving an email. What is on
+               this screen is what gets sent: the runner sends the stored copy, so the
+               agent cannot change the address or the wording after you've said yes. */
+            <div className="card stack" style={{ margin: 0 }}>
+              <div className="row" style={{ gap: 8 }}>
+                <span className="muted" style={{ fontSize: 12, minWidth: 56 }}>To</span>
+                <strong className="mono" style={{ fontSize: 13 }}>{pending.to}</strong>
+              </div>
+              <div className="row" style={{ gap: 8 }}>
+                <span className="muted" style={{ fontSize: 12, minWidth: 56 }}>Subject</span>
+                <strong style={{ fontSize: 13 }}>{pending.subject}</strong>
+              </div>
+              <div style={{ whiteSpace: "pre-wrap", borderTop: "1px solid var(--poppy-border)", paddingTop: 8 }}>
+                {pending.body}
+              </div>
             </div>
-          ))}
+          ) : (
+            /* A plain question. The draft is shown verbatim: approving something you
+               haven't read is not approval. */
+            transcript.filter((t) => t.role === "assistant").slice(-1).map((t) => (
+              <div key={t.seq} className="card" style={{ margin: 0, whiteSpace: "pre-wrap" }}>
+                {t.text}
+              </div>
+            ))
+          )}
+
           <label className="field" style={{ margin: 0 }}>
-            <span>Your answer</span>
+            <span>{pending ? "Or reply with changes instead" : "Your answer"}</span>
             <textarea
               className="input"
               value={answer}
               onChange={(e) => setAnswer(e.target.value)}
-              placeholder="Yes, send it — but change the greeting to 'Hi Sam'."
+              placeholder={
+                pending
+                  ? "Make it shorter, and use 'Hi Sam' as the greeting."
+                  : "Yes, send it — but change the greeting to 'Hi Sam'."
+              }
             />
+            {pending && (
+              <small className="muted" style={{ fontSize: 12 }}>
+                Anything you type here is a change, not a yes — {agent.name} rewrites the message
+                and asks you again. Only <strong>Send it</strong> sends the email above.
+              </small>
+            )}
           </label>
           <div className="row">
+            {/* Approve is the ONLY thing that sends. It carries an explicit flag; the
+                words in the box are never read as consent (DESIGN §4c). */}
             <Button
               className="btn btn-primary"
+              disabled={!!pending && !!answer.trim()}
+              title={pending && answer.trim() ? "Clear your reply to send the message as written" : undefined}
               busyLabel="Sending…"
               onClick={async () => {
                 setErr(null);
                 try {
-                  setRun(await api.answerRun(agent.id, run.runId, answer.trim() || "Yes, go ahead."));
+                  setRun(
+                    await api.answerRun(
+                      agent.id,
+                      run.runId,
+                      pending ? "Approved — send it exactly as written." : answer.trim() || "Yes, go ahead.",
+                      true,
+                    ),
+                  );
                   setAnswer("");
+                  setPending(null);
                 } catch (e) {
                   setErr((e as Error).message);
                 }
               }}
             >
-              {answer.trim() ? "Send answer" : "Approve"}
+              {pending ? "Send it" : answer.trim() ? "Send answer" : "Approve"}
             </Button>
+            {pending && answer.trim() && (
+              <Button
+                className="btn"
+                busyLabel="Sending…"
+                onClick={async () => {
+                  setErr(null);
+                  try {
+                    setRun(await api.answerRun(agent.id, run.runId, answer.trim()));
+                    setAnswer("");
+                    setPending(null);
+                  } catch (e) {
+                    setErr((e as Error).message);
+                  }
+                }}
+              >
+                Send my changes back
+              </Button>
+            )}
             <Button
               className="btn"
               busyLabel="Sending…"
               onClick={async () => {
                 setErr(null);
                 try {
-                  setRun(await api.answerRun(agent.id, run.runId, "No — do not do that. Stop and explain why you asked."));
+                  setRun(
+                    await api.answerRun(
+                      agent.id,
+                      run.runId,
+                      pending
+                        ? "No — do not send that email. Stop and explain why you wanted to."
+                        : "No — do not do that. Stop and explain why you asked.",
+                    ),
+                  );
                   setAnswer("");
+                  setPending(null);
                 } catch (e) {
                   setErr((e as Error).message);
                 }
               }}
             >
-              Deny
+              {pending ? "Don't send" : "Deny"}
             </Button>
           </div>
           <p className="muted" style={{ margin: 0, fontSize: 12 }}>

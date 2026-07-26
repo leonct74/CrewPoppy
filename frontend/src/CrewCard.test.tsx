@@ -31,7 +31,8 @@ const model: ModelChoice = {
 
 function mountWithOneAgent() {
   vi.spyOn(api, "listAgents").mockResolvedValue({ agents: [emma] });
-  vi.spyOn(api, "listTools").mockResolvedValue({ tools: [] });
+  vi.spyOn(api, "listTools").mockResolvedValue({ tools: [], groups: [], needsEmail: [] });
+  vi.spyOn(api, "ownerEmail").mockResolvedValue({});
   return render(<CrewCard models={[model]} />);
 }
 

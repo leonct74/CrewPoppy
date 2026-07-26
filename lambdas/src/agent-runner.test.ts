@@ -79,7 +79,7 @@ vi.mock("@aws-sdk/client-bedrock-runtime", () => {
   };
 });
 
-const { handler } = await import("./agent-runner");
+const { handler, settlePending } = await import("./agent-runner");
 
 const TABLE = "CrewPoppyData";
 const agent: AgentDef = {
@@ -217,5 +217,94 @@ describe("failures are recorded, never swallowed", () => {
     const r = await handler({ runId: "r1", agentId: "gone", input: "Hi", tableName: TABLE });
     expect(r.status).toBe("failed");
     expect(runOf("gone").message).toMatch(/no longer exists/i);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// What happens to a message the owner was shown (DESIGN §4c). The UI promises "approving
+// sends exactly what you read" — these are the tests that make that true.
+
+describe("settling a message that was waiting for approval", () => {
+  const pending = {
+    kind: "send_email" as const,
+    to: "jane@customer.test",
+    subject: "Your enquiry",
+    body: "Hello Jane, thanks for getting in touch.",
+  };
+  const event = (extra: Record<string, unknown>) =>
+    ({ runId: "r1", agentId: "a1", input: "x", tableName: "T", ...extra }) as never;
+
+  function ctxWith(sent: Record<string, any>[], fail?: boolean) {
+    return {
+      ddb: { send: async () => ({}) },
+      ses: {
+        send: async (c: { input: Record<string, unknown> }) => {
+          if (fail) throw new Error("MessageRejected");
+          sent.push(c.input);
+          return {};
+        },
+      },
+      table: "T",
+      agentId: "a1",
+      agentName: "Emma",
+      enabled: ["send_email"],
+      ownerEmail: "marco@example.com",
+      maxEmailsPerDay: 50,
+      now: () => Date.parse("2026-07-26T12:00:00.000Z"),
+    } as never;
+  }
+
+  it("sends the STORED message when the owner approved it", async () => {
+    const sent: Record<string, any>[] = [];
+    const log: string[] = [];
+    const text = await settlePending(
+      event({ answer: "Yes", approved: true }),
+      pending,
+      ctxWith(sent),
+      async (_r, t) => void log.push(t),
+    );
+    expect(sent).toHaveLength(1);
+    expect(sent[0]!.Destination.ToAddresses).toEqual(["jane@customer.test"]);
+    expect(sent[0]!.Content.Simple.Body.Text.Data).toBe(pending.body);
+    expect(text).toMatch(/has been sent to jane@customer.test/i);
+    expect(text).toMatch(/do not send it again/i);
+    expect(log[0]).toMatch(/^Sent to jane@customer.test/);
+  });
+
+  it("sends NOTHING when the owner typed changes instead of approving", async () => {
+    const sent: Record<string, any>[] = [];
+    const log: string[] = [];
+    const text = await settlePending(
+      event({ answer: "Yes, but change the greeting to 'Hi Sam'." }),
+      pending,
+      ctxWith(sent),
+      async (_r, t) => void log.push(t),
+    );
+    expect(sent).toHaveLength(0);
+    expect(text).toMatch(/did NOT approve/);
+    // Their words still reach the agent, so it can revise and propose again.
+    expect(text).toMatch(/Hi Sam/);
+    expect(log[0]).toMatch(/not sent/i);
+  });
+
+  it("tells the agent plainly when an approved send failed at AWS", async () => {
+    const text = await settlePending(
+      event({ answer: "Yes", approved: true }),
+      pending,
+      ctxWith([], true),
+      async () => {},
+    );
+    expect(text).toMatch(/sending it failed/i);
+    expect(text).toMatch(/do not try again/i);
+  });
+
+  it("passes an ordinary answer straight through when nothing was pending", async () => {
+    const text = await settlePending(
+      event({ answer: "Use the shorter one." }),
+      undefined,
+      ctxWith([]),
+      async () => {},
+    );
+    expect(text).toBe("Use the shorter one.");
   });
 });

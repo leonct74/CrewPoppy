@@ -24,6 +24,8 @@ export const TOOL_NAMES = [
   "workspace_read",
   "workspace_write",
   "ask_user",
+  "email_owner",
+  "send_email",
 ] as const;
 
 export type ToolName = (typeof TOOL_NAMES)[number];
@@ -79,7 +81,83 @@ export const TOOL_NOTES: Record<ToolName, ToolNote> = {
     what: "Lets this agent pause and ask you a question, or get your approval, before doing something consequential.",
     risk: "Strongly recommended for anything irreversible, public, or that spends money.",
   },
+  email_owner: {
+    label: "Email you",
+    what: "Lets this agent email you — progress, questions, something it wants approved. It can only reach the address you set in CrewPoppy.",
+    risk: "It has no way to name a recipient, so this can only ever reach your inbox.",
+  },
+  send_email: {
+    label: "Email other people",
+    what: "Lets this agent email customers, colleagues, anyone — a reply to an enquiry, a follow-up you asked for.",
+    risk: "Every message to anyone but you pauses for your approval: you see the address and the exact words before it goes.",
+  },
 };
+
+/**
+ * How the OWNER is asked (founder decision, 2026-07-26). Capabilities are approved as a
+ * SET at creation, in the shape of the questions an owner actually asks — "can it email?
+ * only me? other people?" — rather than as a flat list of switches whose consequences
+ * only become clear later.
+ *
+ * The grouping is presentation. Enforcement is unchanged and stays per-TOOL in the
+ * dispatcher: a group is never a thing an agent holds.
+ */
+export interface ToolGroup {
+  key: string;
+  label: string;
+  /** One line on what this whole area is, above the individual answers. */
+  what: string;
+  tools: ToolName[];
+}
+
+export const TOOL_GROUPS: ToolGroup[] = [
+  {
+    key: "memory",
+    label: "Memory",
+    what: "Whether it carries anything from one run to the next.",
+    tools: ["memory_read", "memory_write"],
+  },
+  {
+    key: "files",
+    label: "Files",
+    what: "Its own private folder. No agent can reach another's.",
+    tools: ["workspace_list", "workspace_read", "workspace_write"],
+  },
+  {
+    key: "you",
+    label: "Working with you",
+    what: "How it checks in before doing something it shouldn't decide alone.",
+    tools: ["ask_user", "email_owner"],
+  },
+  {
+    key: "world",
+    label: "Reaching the outside world",
+    what: "Anything that leaves your account. Grant this deliberately.",
+    tools: ["send_email"],
+  },
+];
+
+/** Tools that do nothing until an email address is set for this install. */
+export const EMAIL_TOOLS: readonly ToolName[] = ["email_owner", "send_email"];
+
+/**
+ * Good enough to reject nonsense and anything that could smuggle a second recipient
+ * (a newline, a comma, a bare angle bracket). Deliberately NOT a full RFC 5322 parser:
+ * the address is checked here, checked again by SES, and every external send is read by
+ * a human before it goes.
+ */
+export function isEmailAddress(v: unknown): v is string {
+  if (typeof v !== "string") return false;
+  const s = v.trim();
+  if (!s || s.length > 254) return false;
+  if (/[\s,;<>"']/.test(s)) return false;
+  return /^[^@]+@[^@.]+(\.[^@.]+)+$/.test(s);
+}
+
+/** Same address, whatever the casing or stray spaces — for comparing to the owner's. */
+export function normaliseEmail(v: string): string {
+  return v.trim().toLowerCase();
+}
 
 /**
  * What each tool looks like to the model. Descriptions are written FOR the model: they
@@ -150,6 +228,36 @@ export const TOOL_SPECS: Record<ToolName, ToolSpec> = {
         },
       },
       required: ["question"],
+    },
+  },
+  email_owner: {
+    name: "email_owner",
+    // NOTE THE ABSENT PARAMETER. There is no `to`, because the address is configuration
+    // the owner set — not something the model chooses, mistakes or is talked into. The
+    // schema IS the security property here, so don't "improve" this by adding a recipient.
+    description:
+      "Email the person who owns you. You cannot choose the address — it always goes to them. Use this to report something, or to send them a draft to look at. This does NOT pause the run; use ask_user if you need an answer before continuing.",
+    input_schema: {
+      type: "object",
+      properties: {
+        subject: { type: "string", description: "The subject line." },
+        body: { type: "string", description: "The message, in plain text." },
+      },
+      required: ["subject", "body"],
+    },
+  },
+  send_email: {
+    name: "send_email",
+    description:
+      "Send an email to someone other than your owner. The run PAUSES and your owner sees the recipient, subject and body exactly as you wrote them; it is sent only if they approve, and exactly as approved. Write the finished message — not a description of it.",
+    input_schema: {
+      type: "object",
+      properties: {
+        to: { type: "string", description: "One recipient address." },
+        subject: { type: "string", description: "The subject line." },
+        body: { type: "string", description: "The full message, ready to send, in plain text." },
+      },
+      required: ["to", "subject", "body"],
     },
   },
 };

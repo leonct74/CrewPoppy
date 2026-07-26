@@ -38,3 +38,18 @@ export const CHECKPOINT_SK = "state";
 /** Per-agent, per-month spend counter — an atomic ADD target, not read-modify-write. */
 export const spendPk = (agentId: string) => `spend#${agentId}`;
 export const spendSk = (monthKey: string) => `month#${monthKey}`;
+
+/**
+ * Install-level settings the RUNNER must read at execution time — not baked into the
+ * Lambda's environment, so changing where approval mail goes doesn't need a redeploy.
+ */
+export const CONFIG_PK = "config";
+export const OWNER_EMAIL_SK = "owner-email";
+
+/**
+ * Per-agent, per-DAY email counter. The same atomic-ADD shape as spend, for the same
+ * reason: an approved workflow that goes wrong must hit a hard ceiling rather than a
+ * polite intention (DESIGN §7 — caps are mechanisms, never advice).
+ */
+export const sendCountPk = (agentId: string) => `sends#${agentId}`;
+export const sendCountSk = (dayKey: string) => `day#${dayKey}`;

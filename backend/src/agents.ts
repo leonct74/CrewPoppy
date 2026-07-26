@@ -28,9 +28,11 @@ import {
   agentPk,
   agentSk,
   checkpointPk,
+  isEmailAddress,
   isToolName,
   memoryPk,
   monthKeyOf,
+  normaliseEmail,
   runSk,
   sanitiseCaps,
   spendPk,
@@ -39,6 +41,7 @@ import {
   workspacePrefixFor,
   type AgentCaps,
   type AgentDef,
+  type PendingSend,
   type RunRecord,
   type TranscriptEntry,
 } from "@crewpoppy/shared";
@@ -49,6 +52,8 @@ export interface AgentInput {
   instructions: string;
   modelId: string;
   tools?: unknown;
+  /** An address the owner verified, "" to clear it, or absent to leave it as it was. */
+  emailFrom?: unknown;
   caps?: Partial<AgentCaps>;
 }
 
@@ -84,6 +89,16 @@ export async function saveAgent(
     // Only names from the fixed catalogue survive; anything else the client sends is
     // dropped rather than stored, so a bad request can't widen an agent's reach.
     tools: Array.isArray(input.tools) ? input.tools.filter(isToolName) : (existing?.tools ?? []),
+    // "Does Emma have an email?" — an address the owner already verified, or nothing.
+    // Anything else is dropped rather than stored: an unverified sender is a bounce
+    // waiting to happen, and a malformed one is a header-injection attempt.
+    ...(isEmailAddress(input.emailFrom)
+      ? { emailFrom: normaliseEmail(input.emailFrom) }
+      : input.emailFrom === null || input.emailFrom === ""
+        ? {}
+        : existing?.emailFrom
+          ? { emailFrom: existing.emailFrom }
+          : {}),
     // Caps are never taken raw from the client: a missing or absurd value falls back to
     // the safe default, so an agent can't be created without limits (DESIGN §7).
     caps: sanitiseCaps(input.caps ?? {}, DEFAULT_CAPS),
@@ -359,6 +374,12 @@ export async function answerRun(
   runId: string,
   answer: string,
   now: string,
+  /**
+   * True ONLY when the owner pressed Approve on the exact action shown. Never derived
+   * from their words — "yes, but change the greeting" is a different message, and it has
+   * to be proposed and approved on its own (DESIGN §4c).
+   */
+  approved?: boolean,
 ): Promise<RunRecord | null> {
   const run = await getRun(ddb, table, agentId, runId);
   if (!run) return null;
@@ -376,7 +397,14 @@ export async function answerRun(
       FunctionName: functionName,
       InvocationType: "Event",
       Payload: Buffer.from(
-        JSON.stringify({ runId, agentId, input: run.input, tableName: table, answer: text }),
+        JSON.stringify({
+          runId,
+          agentId,
+          input: run.input,
+          tableName: table,
+          answer: text,
+          ...(approved ? { approved: true } : {}),
+        }),
       ),
     }),
   );
@@ -414,6 +442,23 @@ export async function stopRun(
     new PutCommand({ TableName: table, Item: { pk: agentPk(agentId), sk: runSk(runId), ...stopped } }),
   );
   return stopped;
+}
+
+/**
+ * The action a waiting run proposed, read from its checkpoint.
+ *
+ * Read from the SAME row the runner will send from, so what the owner approves and what
+ * goes out cannot drift apart (DESIGN §4c).
+ */
+export async function getPending(
+  ddb: DynamoDBDocumentClient,
+  table: string,
+  runId: string,
+): Promise<PendingSend | undefined> {
+  const r = await ddb.send(
+    new GetCommand({ TableName: table, Key: { pk: checkpointPk(runId), sk: CHECKPOINT_SK } }),
+  );
+  return (r.Item as { pending?: PendingSend } | undefined)?.pending;
 }
 
 /** The run's transcript, in order. */

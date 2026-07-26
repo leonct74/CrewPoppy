@@ -16,10 +16,14 @@ import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
 import { DynamoDBDocumentClient, GetCommand, PutCommand, UpdateCommand } from "@aws-sdk/lib-dynamodb";
 import { S3Client } from "@aws-sdk/client-s3";
 import { BedrockRuntimeClient, InvokeModelCommand } from "@aws-sdk/client-bedrock-runtime";
+import { SESv2Client } from "@aws-sdk/client-sesv2";
 import {
   AGENTS_PK,
   CHECKPOINT_SK,
   CHECKPOINT_TTL_SECONDS,
+  CONFIG_PK,
+  MAX_EMAILS_PER_DAY,
+  OWNER_EMAIL_SK,
   PROVEN_SK,
   agentPk,
   agentSk,
@@ -36,19 +40,21 @@ import {
   transcriptPk,
   transcriptSk,
   type AgentDef,
+  type PendingSend,
   type RunCheckpoint,
   type RunRecord,
   type RunnerEvent,
   type StopReason,
   type TokenUsage,
 } from "@crewpoppy/shared";
-import { dispatch, type DispatchContext } from "./dispatcher";
+import { dispatch, sendMail, type DispatchContext } from "./dispatcher";
 import { runLoop, type ModelReply } from "./loop";
 
 const REGION = process.env.AWS_REGION ?? "eu-west-1";
 const ddb = DynamoDBDocumentClient.from(new DynamoDBClient({ region: REGION }));
 const s3 = new S3Client({ region: REGION });
 const bedrock = new BedrockRuntimeClient({ region: REGION });
+const ses = new SESv2Client({ region: REGION });
 
 /**
  * Call the model through the REGIONAL INFERENCE PROFILE.
@@ -168,6 +174,18 @@ export async function handler(event: RunnerEvent): Promise<{ ok: boolean; status
   const carriedUsage: TokenUsage = checkpoint?.usage ?? { inputTokens: 0, outputTokens: 0 };
   let seq = checkpoint?.nextSeq ?? 0;
 
+  /** Append to the visible transcript. Shared, so a resumed run keeps counting up. */
+  const record = async (role: "user" | "assistant" | "tool", text: string): Promise<void> => {
+    await ddb.send(
+      new PutCommand({
+        TableName: table,
+        // Deterministic key: a replayed seq overwrites rather than duplicating.
+        Item: { pk: transcriptPk(event.runId), sk: transcriptSk(seq), seq, role, text },
+      }),
+    );
+    seq += 1;
+  };
+
   const finish = async (
     status: RunRecord["status"],
     usage: TokenUsage,
@@ -208,35 +226,42 @@ export async function handler(event: RunnerEvent): Promise<{ ok: boolean; status
       }
     }
 
+    const ownerEmail = (
+      (await get(table, CONFIG_PK, OWNER_EMAIL_SK)) as { email?: string } | undefined
+    )?.email;
+
     const dispatchCtx: DispatchContext = {
       ddb,
       s3,
+      ses,
       table,
       bucket,
       agentId: agent.id,
+      agentName: agent.name,
       enabled: agent.tools ?? [],
+      ownerEmail,
+      fromAddress: agent.emailFrom || ownerEmail,
+      maxEmailsPerDay: MAX_EMAILS_PER_DAY,
     };
+
+    // A message the owner approved is sent HERE, from the stored copy, before the model
+    // gets another turn (DESIGN §4c). The model is then TOLD what happened — it never
+    // gets the chance to re-issue the send with a different address or different words.
+    const resumeText = isResume
+      ? await settlePending(event, checkpoint?.pending, dispatchCtx, record)
+      : event.input;
 
     const outcome = await runLoop(
       agent,
       systemPrompt(agent),
       // On resume the "task" is the owner's answer, appended to the stored conversation.
-      isResume ? event.answer! : event.input,
+      resumeText,
       spentBefore,
       startMs,
       {
         callModel,
         dispatch: (name, input) => dispatch(dispatchCtx, name, input),
-        record: async (role, text) => {
-          await ddb.send(
-            new PutCommand({
-              TableName: table,
-              // Deterministic key: a replayed seq overwrites rather than duplicating.
-              Item: { pk: transcriptPk(event.runId), sk: transcriptSk(seq), seq, role, text },
-            }),
-          );
-          seq += 1;
-        },
+        record,
         isStopped: async () => {
           const r = (await get(table, agentPk(agent.id), runSk(event.runId))) as RunRecord | undefined;
           return r?.status === "stopped";
@@ -258,6 +283,8 @@ export async function handler(event: RunnerEvent): Promise<{ ok: boolean; status
         agentId: agent.id,
         question: outcome.suspend.question,
         ...(outcome.suspend.draft ? { draft: outcome.suspend.draft } : {}),
+        // The proposed message, stored verbatim. What the owner reads is what gets sent.
+        ...(outcome.suspend.pending ? { pending: outcome.suspend.pending } : {}),
         messages: outcome.suspend.messages,
         usage,
         iterations,
@@ -308,6 +335,51 @@ export async function handler(event: RunnerEvent): Promise<{ ok: boolean; status
     await finish("failed", carriedUsage, checkpoint?.iterations ?? 0, "error", message);
     return { ok: false, status: "failed" };
   }
+}
+
+/**
+ * Turn "the owner answered" into what actually happens to a proposed message, and into
+ * the sentence the model is told (DESIGN §4c).
+ *
+ * Two rules, both deliberate:
+ *
+ *  - APPROVAL IS A BUTTON, NOT A SENTIMENT. `approved` is set only when the owner pressed
+ *    Approve on this exact message. Typed words are never parsed for consent: "yes, but
+ *    change the greeting" describes a DIFFERENT message, which has to be proposed and
+ *    approved on its own.
+ *  - THE STORED COPY IS WHAT GOES. Not the model's next suggestion, which arrives after
+ *    the owner has stopped reading.
+ */
+export async function settlePending(
+  event: RunnerEvent,
+  pending: PendingSend | undefined,
+  ctx: DispatchContext,
+  record: (role: "user" | "assistant" | "tool", text: string) => Promise<void>,
+): Promise<string> {
+  const answer = event.answer ?? "";
+  if (!pending) return answer;
+
+  if (!event.approved) {
+    await record("tool", `Not sent — you didn't approve the message to ${pending.to}.`);
+    return `Your owner did NOT approve that email, and it has not been sent. They said: ${answer}`;
+  }
+
+  // A send that fails at AWS must not kill the run: the agent may still have work to do,
+  // and the owner needs to be told what happened rather than shown a stack trace.
+  let failure: string | undefined;
+  try {
+    const result = await sendMail(ctx, pending.to, pending.subject, pending.body);
+    if (result.isError) failure = result.content;
+  } catch (e) {
+    failure = (e as Error)?.message ?? "AWS refused the message.";
+  }
+
+  // The raw reason goes in the TRANSCRIPT, which only the owner reads. The agent gets a
+  // plain sentence: AWS errors name identities and accounts, which is not its business.
+  await record("tool", failure ? `Approved, but not sent: ${failure}` : `Sent to ${pending.to}.`);
+  return failure
+    ? `Your owner approved that email, but sending it failed. Do not try again — tell them in your answer.`
+    : `Your owner approved that email and it has been sent to ${pending.to}, exactly as written. Do not send it again.`;
 }
 
 async function saveRun(table: string, run: RunRecord): Promise<void> {

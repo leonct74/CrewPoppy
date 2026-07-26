@@ -92,3 +92,8 @@ export function formatUsd(usd: number): string {
 export function monthKeyOf(iso: string): string {
   return iso.slice(0, 7);
 }
+
+/** The day an agent's email count belongs to, e.g. "2026-07-26". */
+export function dayKeyOf(iso: string): string {
+  return iso.slice(0, 10);
+}

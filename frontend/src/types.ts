@@ -85,6 +85,8 @@ export interface AgentSummary {
   instructions: string;
   modelId: string;
   tools: string[];
+  /** The verified address this agent sends from, if it has one of its own. */
+  emailFrom?: string;
   caps: AgentCaps;
   createdAt: string;
   updatedAt: string;
@@ -107,6 +109,13 @@ export interface RunRecord {
   modelId: string;
 }
 
+export interface RunView {
+  run: RunRecord;
+  transcript: TranscriptEntry[];
+  /** Present when the run is waiting on a proposed action rather than a question. */
+  pending?: PendingSend;
+}
+
 export interface TranscriptEntry {
   seq: number;
   role: "user" | "assistant" | "system" | "tool";
@@ -125,4 +134,34 @@ export interface ToolOption {
   label: string;
   what: string;
   risk?: string;
+}
+
+/** Capabilities are approved as a SET at creation, grouped the way owners ask. */
+export interface ToolGroup {
+  key: string;
+  label: string;
+  what: string;
+  tools: string[];
+}
+
+export interface ToolCatalogue {
+  tools: ToolOption[];
+  groups: ToolGroup[];
+  /** Tools that do nothing until an email address is set for this install. */
+  needsEmail: string[];
+}
+
+/** The one address agents email you at (DESIGN §4c). */
+export interface OwnerEmail {
+  email?: string;
+  verified?: boolean;
+  message?: string;
+}
+
+/** An email an agent has proposed and is waiting for you to approve. */
+export interface PendingSend {
+  kind: "send_email";
+  to: string;
+  subject: string;
+  body: string;
 }
