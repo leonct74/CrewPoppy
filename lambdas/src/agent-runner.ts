@@ -28,6 +28,7 @@ import {
   agentSk,
   checkContinue,
   checkStart,
+  capCostFor,
   costFor,
   inferenceProfileFor,
   monthKeyOf,
@@ -198,7 +199,11 @@ export async function handler(event: RunnerEvent): Promise<{ ok: boolean; status
 
   const finish = async (status: RunRecord["status"]) => {
     const cost = costFor(agent.modelId, usage);
-    await addSpend(table, agent.id, monthKey, cost.usd ?? 0);
+    // Charge the CAP-accounting figure, not the display figure. A model with no
+    // published rate must still count against the monthly ceiling, or the cap silently
+    // stops being a cap (measured: Claude runs accumulated $0 and the limit could never
+    // fire). Over-estimating is the safe direction.
+    await addSpend(table, agent.id, monthKey, capCostFor(agent.modelId, usage));
     await saveRun(table, {
       runId: event.runId,
       agentId: agent.id,
@@ -244,7 +249,7 @@ export async function handler(event: RunnerEvent): Promise<{ ok: boolean; status
         iterations,
         usage,
         elapsedMs: Date.now() - startMs,
-        monthSpendUsd: spentBefore + (costFor(agent.modelId, usage).usd ?? 0),
+        monthSpendUsd: spentBefore + capCostFor(agent.modelId, usage),
       });
       if (!verdict.ok) {
         stopReason = verdict.reason ?? "error";
@@ -284,7 +289,9 @@ export async function handler(event: RunnerEvent): Promise<{ ok: boolean; status
     stopReason = "error";
     const raw = (e as Error)?.message ?? String(e);
     // One calm sentence, with the specific case the user can actually act on.
-    message = /use case details have not been submitted/i.test(raw)
+    message = /aws-marketplace/i.test(raw)
+      ? "Your AWS account is still applying the permissions CrewPoppy just set up. This usually clears within a minute — try running again shortly."
+      : /use case details have not been submitted/i.test(raw)
       ? "This model needs the one-time Anthropic form for your AWS account before it can run. Open CrewPoppy's model list to finish that step."
       : `The run couldn't finish: ${raw.slice(0, 200)}`;
     await finish("failed");

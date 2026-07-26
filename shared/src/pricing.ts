@@ -36,6 +36,37 @@ export const TOKEN_RATES: Record<string, TokenRate> = {
 };
 
 /**
+ * A deliberately EXPENSIVE per-token rate, used ONLY to keep the spend cap working for
+ * models whose real price we don't have.
+ *
+ * WHY THIS EXISTS: displaying an invented price would be dishonest, so `costFor` returns
+ * undefined and the UI says "unavailable". But feeding that undefined into the spend
+ * counter meant nothing accumulated — and a monthly cap that can never be reached is not
+ * a cap. Measured live: a Claude Sonnet run recorded 175/288 tokens and $0 spend.
+ *
+ * So the two questions are answered separately. What we SHOW the user admits ignorance;
+ * what we ASSUME for safety errs upward. This rate is set above every model in the
+ * catalogue, so cap accounting over-estimates rather than under-estimates: the worst
+ * case is an agent that stops sooner than strictly necessary, never one that runs past
+ * its ceiling. Never use it for display.
+ */
+export const CAP_CEILING_RATE: TokenRate = { inPer1K: 0.005, outPer1K: 0.02 };
+
+/**
+ * What to charge against the monthly cap. ALWAYS a number: an unknown rate falls back to
+ * {@link CAP_CEILING_RATE} so the guardrail keeps working for every model.
+ */
+export function capCostFor(modelId: string, usage: TokenUsage): number {
+  const rate = TOKEN_RATES[modelId] ?? CAP_CEILING_RATE;
+  return (usage.inputTokens / 1000) * rate.inPer1K + (usage.outputTokens / 1000) * rate.outPer1K;
+}
+
+/** True when the spend charged for this model is an upper-bound guess, not its real price. */
+export function isEstimatedForCap(modelId: string): boolean {
+  return !TOKEN_RATES[modelId];
+}
+
+/**
  * Cost for a run's token usage. Returns `usd: undefined` when we have no verified rate
  * — the caller must then show tokens only, and say why.
  */

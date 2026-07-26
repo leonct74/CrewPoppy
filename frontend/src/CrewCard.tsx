@@ -69,7 +69,7 @@ export function CrewCard(props: { models: ModelChoice[] }) {
       )}
 
       {agents.map((a) => (
-        <AgentRow key={a.id} agent={a} onChanged={refresh} />
+        <AgentRow key={a.id} agent={a} models={props.models} onChanged={refresh} />
       ))}
 
       {creating ? (
@@ -192,8 +192,12 @@ function NewAgentForm(props: { models: ModelChoice[]; onCancel: () => void; onCr
   );
 }
 
-function AgentRow(props: { agent: AgentSummary; onChanged: () => Promise<void> }) {
+function AgentRow(props: { agent: AgentSummary; models: ModelChoice[]; onChanged: () => Promise<void> }) {
   const { agent } = props;
+  // Which brain this agent thinks with. Chosen once at creation and then invisible —
+  // nobody remembers weeks later, and it drives both quality and cost, so it belongs on
+  // the card. Fall back to the raw id if the catalogue has moved on.
+  const model = props.models.find((m) => m.id === agent.modelId);
   const [task, setTask] = useState("");
   const [run, setRun] = useState<RunRecord | null>(null);
   const [transcript, setTranscript] = useState<TranscriptEntry[]>([]);
@@ -243,7 +247,9 @@ function AgentRow(props: { agent: AgentSummary; onChanged: () => Promise<void> }
             </span>
           </div>
           <p className="muted-2" style={{ margin: "4px 0 0", fontSize: 12 }}>
-            This month: {money(spent)} of ${agent.caps.monthlySpendCapUsd.toFixed(2)} limit
+            Thinks with <strong>{model?.label ?? agent.modelId}</strong>
+            {model ? ` (${model.cost})` : ""} · this month: {money(spent)} of $
+            {agent.caps.monthlySpendCapUsd.toFixed(2)} limit
           </p>
         </div>
         <span className={`badge ${atCap ? "warn" : "ok"}`}>
@@ -313,7 +319,9 @@ function AgentRow(props: { agent: AgentSummary; onChanged: () => Promise<void> }
               {run.cost.usage.inputTokens.toLocaleString()} in / {run.cost.usage.outputTokens.toLocaleString()} out
               {" · "}
               {run.cost.usd === undefined ? (
-                <span title="No published per-token price for this model yet">cost unavailable</span>
+                <span title="AWS publishes no per-token price for this model yet. Your spending limit still applies — CrewPoppy counts it using a deliberately high estimate, so the limit stops you early rather than late.">
+                  cost not published — limit still enforced
+                </span>
               ) : (
                 <strong>
                   ≈ {money(run.cost.usd)}

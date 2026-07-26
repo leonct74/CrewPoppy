@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { checkContinue, checkStart, remainingOutputBudget, sanitiseCaps } from "./guardrails";
-import { costFor, formatUsd, monthKeyOf } from "./pricing";
+import { TOKEN_RATES, capCostFor, costFor, formatUsd, isEstimatedForCap, monthKeyOf } from "./pricing";
 import { DEFAULT_CAPS, type AgentCaps } from "./types";
 
 const caps: AgentCaps = {
@@ -129,5 +129,30 @@ describe("cost is only ever shown when we actually know the rate", () => {
 
   it("buckets spend by calendar month", () => {
     expect(monthKeyOf("2026-07-26T10:00:00.000Z")).toBe("2026-07");
+  });
+});
+
+// Regression from a live run: a Claude run recorded 175/288 tokens and $0 spend,
+// because no per-token rate is published for it. A monthly cap that can never be
+// reached is not a cap — so cap accounting must never depend on knowing the price.
+describe("the spend cap works even for models with no published price", () => {
+  it("charges an unpriced model against the cap instead of nothing", () => {
+    const usage = { inputTokens: 175, outputTokens: 288 };
+    expect(costFor("anthropic.claude-sonnet-4-5-20250929-v1:0", usage).usd).toBeUndefined();
+    expect(capCostFor("anthropic.claude-sonnet-4-5-20250929-v1:0", usage)).toBeGreaterThan(0);
+  });
+
+  it("errs upward: the assumed rate is at least as high as any model we do price", () => {
+    const usage = { inputTokens: 1000, outputTokens: 1000 };
+    for (const modelId of Object.keys(TOKEN_RATES)) {
+      expect(capCostFor("some.unpriced-model", usage)).toBeGreaterThanOrEqual(capCostFor(modelId, usage));
+    }
+  });
+
+  it("uses the real rate when we have one, rather than the ceiling", () => {
+    const usage = { inputTokens: 1000, outputTokens: 1000 };
+    expect(capCostFor("qwen.qwen3-32b-v1:0", usage)).toBeCloseTo(0.00009 + 0.00035, 8);
+    expect(isEstimatedForCap("qwen.qwen3-32b-v1:0")).toBe(false);
+    expect(isEstimatedForCap("anthropic.claude-sonnet-4-5-20250929-v1:0")).toBe(true);
   });
 });
