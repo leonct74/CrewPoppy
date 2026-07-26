@@ -27,6 +27,27 @@ export interface Meta {
   connectionId: string;
 }
 
+/** One curated model, answered against this account (DESIGN §2c). */
+export interface ModelChoice {
+  id: string;
+  label: string;
+  provider: string;
+  goodAt: string;
+  toolUse: boolean;
+  vision: boolean;
+  /** Relative running cost against the others here — not an absolute price. */
+  cost: "$" | "$$" | "$$$";
+  /** Hint only; `ready` is the authoritative answer. */
+  formLikely: boolean;
+  ready: boolean;
+  unknown?: boolean;
+}
+
+export interface ModelCatalogue {
+  models: ModelChoice[];
+  consoleUrl?: string;
+}
+
 /** Whether this AWS account may actually invoke Claude yet (DESIGN §2c). */
 export interface ModelAccess {
   ready: boolean;

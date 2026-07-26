@@ -8,7 +8,7 @@ import { S3Client } from "@aws-sdk/client-s3";
 import { BedrockClient } from "@aws-sdk/client-bedrock";
 import { readBootstrap, brokerCredentialsProvider } from "./boot";
 import { deploy, getStatus, teardown } from "./stack";
-import { consoleUrl, getModelAccess } from "./bedrock";
+import { consoleUrl, getCatalogue, getModelAccess } from "./bedrock";
 
 const boot = readBootstrap();
 const credentials = brokerCredentialsProvider(boot);
@@ -51,6 +51,12 @@ const server = createServer(async (req, res) => {
     // and token-free — deliberately NOT a probe invocation (see bedrock.ts).
     if (method === "GET" && parts[0] === "model-access" && parts.length === 1) {
       return json(res, 200, { ...(await getModelAccess(bedrock)), consoleUrl: consoleUrl(region) });
+    }
+
+    // The curated model shortlist, each answered against this account: which are ready
+    // now, which need the one-time provider form, what each is good at, relative cost.
+    if (method === "GET" && parts[0] === "models" && parts.length === 1) {
+      return json(res, 200, { models: await getCatalogue(bedrock), consoleUrl: consoleUrl(region) });
     }
 
     // Start (or update) the deploy. Returns as soon as AWS accepts it — the work

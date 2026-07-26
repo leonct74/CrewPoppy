@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "./api";
 import { Button } from "./Button";
 import { host, type AccessState } from "./host";
-import { ModelAccessCard } from "./ModelAccessCard";
+import { ModelsCard } from "./ModelsCard";
 import { RemovePanel } from "./RemovePanel";
 import type { DeploymentStatus, Meta } from "./types";
 
@@ -199,8 +199,8 @@ export function App() {
               cap on every agent.
             </div>
           </div>
-          {/* Only meaningful once the stack exists — an agent can't run without both. */}
-          <ModelAccessCard />
+          {/* Only meaningful once the stack exists — an agent needs both a home and a brain. */}
+          <ModelsCard />
         </>
       )}
 

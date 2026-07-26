@@ -3,13 +3,16 @@
 // goes through the bridge.
 
 import { host } from "./host";
-import type { DeploymentStatus, Meta, ModelAccess } from "./types";
+import type { DeploymentStatus, Meta, ModelAccess, ModelCatalogue } from "./types";
 
 export const api = {
   meta: (): Promise<Meta> => host.invokeBackend({ method: "GET", path: "/meta" }),
 
   /** Can this account run Claude yet? Read-only and token-free. */
   modelAccess: (): Promise<ModelAccess> => host.invokeBackend({ method: "GET", path: "/model-access" }),
+
+  /** The curated model shortlist with each one's live status for this account. */
+  models: (): Promise<ModelCatalogue> => host.invokeBackend({ method: "GET", path: "/models" }),
 
   /** The live deployment state, read from CloudFormation on every call. */
   status: (): Promise<DeploymentStatus> => host.invokeBackend({ method: "GET", path: "/status" }),

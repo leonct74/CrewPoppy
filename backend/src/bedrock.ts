@@ -22,7 +22,7 @@ import {
   GetFoundationModelAvailabilityCommand,
   type BedrockClient,
 } from "@aws-sdk/client-bedrock";
-import { DEFAULT_MODEL_ID } from "./models";
+import { DEFAULT_MODEL_ID, MODEL_CATALOGUE, type ModelOption } from "./models";
 
 export interface ModelAccess {
   /** True when agents can actually run. */
@@ -37,6 +37,35 @@ export interface ModelAccess {
   message?: string;
   /** Set when we genuinely couldn't tell (a permissions gap, AWS erroring). */
   unknown?: boolean;
+}
+
+/** A catalogue entry plus this account's live answer for it. */
+export interface ModelChoice extends ModelOption {
+  /** True when this model can be used right now, with no further setup. */
+  ready: boolean;
+  /** We couldn't determine it — say so rather than guess either way. */
+  unknown?: boolean;
+}
+
+/**
+ * The curated shortlist, each entry answered against THIS account (DESIGN §2c).
+ *
+ * The "needs setup" badge comes from the live check, never from the `formLikely` hint —
+ * so the moment the owner completes Anthropic's form, the Claude rows flip to ready by
+ * themselves. Checks run in parallel; one model failing must not hide the rest, so a
+ * failed lookup degrades that row to `unknown` instead of rejecting the whole list.
+ */
+export async function getCatalogue(bedrock: BedrockClient): Promise<ModelChoice[]> {
+  return Promise.all(
+    MODEL_CATALOGUE.map(async (option) => {
+      const access = await getModelAccess(bedrock, option.id);
+      return {
+        ...option,
+        ready: access.ready,
+        ...(access.unknown ? { unknown: true } : {}),
+      };
+    }),
+  );
 }
 
 /** The console page where the owner completes the one-time form. */

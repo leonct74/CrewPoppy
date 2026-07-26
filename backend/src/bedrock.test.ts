@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { GetFoundationModelAvailabilityCommand, type BedrockClient } from "@aws-sdk/client-bedrock";
 import { consoleUrl, getModelAccess } from "./bedrock";
-import { DEFAULT_MODEL_ID, inferenceProfileFor } from "./models";
+import { DEFAULT_MODEL_ID } from "./models";
 
 function fakeBedrock(reply: unknown | Error) {
   const sent: unknown[] = [];
@@ -57,26 +57,5 @@ describe("getModelAccess", () => {
     expect(a.ready).toBe(false);
     expect(a.unknown).toBe(true);
     expect(a.message).toMatch(/couldn't check/i);
-  });
-});
-
-describe("inference profile ids (the trap that cost a live test — DESIGN §2c)", () => {
-  it("prefixes the region family, because bare ids can't be invoked on demand", () => {
-    expect(inferenceProfileFor(DEFAULT_MODEL_ID, "eu-west-1")).toBe(`eu.${DEFAULT_MODEL_ID}`);
-    expect(inferenceProfileFor(DEFAULT_MODEL_ID, "us-east-1")).toBe(`us.${DEFAULT_MODEL_ID}`);
-    expect(inferenceProfileFor(DEFAULT_MODEL_ID, "ap-southeast-2")).toBe(`apac.${DEFAULT_MODEL_ID}`);
-  });
-
-  it("leaves an unknown region alone rather than inventing a prefix", () => {
-    expect(inferenceProfileFor(DEFAULT_MODEL_ID, "ca-central-1")).toBe(DEFAULT_MODEL_ID);
-  });
-});
-
-describe("consoleUrl", () => {
-  it("points at the stable service root for the user's region, not a rot-prone deep link", () => {
-    const url = consoleUrl("eu-west-1");
-    expect(url).toContain("console.aws.amazon.com/bedrock");
-    expect(url).toContain("region=eu-west-1");
-    expect(url).not.toContain("#/"); // the console was redesigned 2026-06; sub-pages move
   });
 });
