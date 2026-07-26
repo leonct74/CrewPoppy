@@ -602,6 +602,43 @@ Decomposed, because the three things sound like one feature and cost wildly diff
 minus the email *reply*, with no cross-poppy work and no new blockers. Revisit (2) only if
 replying from the inbox proves to be the thing people actually miss.
 
+**UI requirement (founder, 2026-07-26) — MailPoppy is required for READING mail, and only
+that.** The two features must never be conflated in the interface:
+- **Mobile approval needs nothing else.** SES sends the request, the phone approves via the
+  §15e link. Do NOT gate it behind installing another poppy.
+- **Agents reading incoming mail requires MailPoppy**, so the tool's entry in the agent editor
+  is disabled with a plain line — *"Reading email needs MailPoppy, which gives this account its
+  own mail domain"* — and a link to install it (`host:openExternal`, or the host's own poppy
+  catalogue if it exposes one).
+- ⚠️ **Necessary, not sufficient.** Installing MailPoppy alone does not make reading work: the
+  bodies are sealed at rest (§15c), so the handoff has to happen inside MailPoppy's
+  `inbound-processor` before sealing. Until that bridge exists the UI must say the feature is
+  coming, never imply that installing MailPoppy switches it on — promising a capability that
+  then silently does nothing is the §4b failure this product is supposed to avoid.
+
+### 15e. Approving from a phone (founder decision, 2026-07-26)
+
+Free, and no mobile app required. `ask_user` emails the owner; the email carries a link to a
+**Lambda Function URL** in their own account (TrafficPoppy's mechanism, so a small template
+addition rather than new architecture).
+
+- **Auth is a capability, not a session.** A high-entropy single-use token, unique path per
+  request (`/a/<token>` — the hostname is necessarily fixed; minting one per approval would mean
+  creating AWS resources per request). No valid token ⇒ the endpoint reveals nothing: no draft,
+  no agent name, no confirmation that anything exists.
+- **🪤 GET must only RENDER; approval is a POST from that page.** Mail scanners and clients
+  prefetch links — approving on GET would let Outlook's safe-links or a Gmail proxy approve
+  every request before the owner ever saw it. The two-step also satisfies AGENTS.md §4.
+- **Two clocks.** The LINK expires after **24 h**; the REQUEST keeps waiting in the dashboard
+  until approved there, or until the run expires gracefully (§5). Missing the window costs the
+  convenience, never the work. ⚠️ Check the timestamp in code — DynamoDB TTL deletion can lag
+  up to 48 h, so it is housekeeping, never the security control.
+- Never log the token path; compare tokens in constant time.
+- **Honest limit:** anyone who can read that mailbox can approve — the password-reset trust
+  model. A stronger login arrives later via the MailPoppy client / CrewPoppy Mobile.
+- Does not undercut the §15 premium: mobile still owns push immediacy, conversation, live run
+  status and the kill switch.
+
 ### 15b. Marketing notes — the Bedrock story (bank these for the listing/site)
 
 Why "agents in your own AWS via Bedrock" beats agent-SaaS — the seven sellable points:
