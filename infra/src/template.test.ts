@@ -79,7 +79,10 @@ describe("buildTemplate", () => {
     // runner's own table/bucket/logs/model-invocation — in particular, no iam, no sts,
     // and nothing that could mint or broaden credentials.
     const actions = statements.flatMap((s) => s.Action);
-    expect(actions.every((a) => /^(logs|dynamodb|s3|bedrock):/.test(a))).toBe(true);
+    // aws-marketplace is the one non-CrewPoppy service, and only to let Bedrock finish
+    // its own first-use subscription — never to reach account resources.
+    expect(actions.every((a) => /^(logs|dynamodb|s3|bedrock|aws-marketplace):/.test(a))).toBe(true);
+    expect(actions.some((a) => /^(iam|sts):/.test(a))).toBe(false);
   });
 
   it("never reads back a log-group ARN with Fn::GetAtt (the collection-API trap)", () => {
@@ -101,6 +104,20 @@ describe("buildTemplate", () => {
       "Fn::Sub":
         "arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/CrewPoppyRunner:*",
     });
+  });
+
+  it("can complete Bedrock's first-use Marketplace subscription, but never cancel one", () => {
+    // Without Subscribe/ViewSubscriptions, Bedrock's auto-enablement fails and model
+    // calls start returning AccessDenied after the provisional window (live failure).
+    const statements = resources.RunnerRole!.Properties.Policies[0].PolicyDocument.Statement as Array<{
+      Sid: string;
+      Action: string[];
+    }>;
+    const mk = statements.find((s) => s.Sid === "BedrockModelSubscription")!;
+    expect(mk.Action).toContain("aws-marketplace:Subscribe");
+    expect(mk.Action).toContain("aws-marketplace:ViewSubscriptions");
+    // Cancelling a subscription is never something CrewPoppy should be able to do.
+    expect(mk.Action).not.toContain("aws-marketplace:Unsubscribe");
   });
 
   it("receives Lambda code via content-addressed parameters, never inline", () => {

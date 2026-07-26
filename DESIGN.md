@@ -149,7 +149,20 @@ them counter to the documentation:
    mantle authenticated fine over SigV4 but returned `403 permission_error — not available for
    this account`. Mantle stays a P2+ option (server-side tool use, Workspaces) — it costs
    Guardrails and cross-region inference, and does not dodge model access.
-4. **The blocked state is precisely detectable with ZERO extra permissions.** The runner's own
+4. **Bedrock's auto-subscription needs Marketplace permissions ON THE CALLER — and this is
+   what made Claude answer once and then stop.** A live run failed with *"Model access is
+   denied due to IAM user or service role is not authorized to perform the required AWS
+   Marketplace actions (aws-marketplace:ViewSubscriptions, aws-marketplace:Subscribe)"*.
+   Bedrock auto-subscribes a third-party model on first use **using the caller's own
+   permissions**; without them the subscription never completes, calls pass only during
+   the ~15-minute provisional window, and then fail. So the Anthropic form was one
+   prerequisite and this is the other — finding #2 above was a symptom of this, not of
+   propagation. Granted on the runner's **in-stack** role (`Subscribe` +
+   `ViewSubscriptions`, deliberately NOT `Unsubscribe`), so the poppy's manifest and its
+   rating are untouched. Marketplace actions take no resource scope; the only narrowing
+   available is an `aws-marketplace:ProductId` condition, and those ids aren't knowable
+   at build time.
+5. **The blocked state is precisely detectable with ZERO extra permissions.** The runner's own
    `InvokeModel` returns `ResourceNotFoundException` with *"Model use case details have not been
    submitted"*. That string drives the setup card (§6) — no wildcard grant, no rating cost.
    `bedrock:GetFoundationModelAvailability` is *also* usable as a pre-check and **does** scope

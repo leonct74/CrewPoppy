@@ -193,6 +193,32 @@ export function buildTemplate(): CfnTemplate {
                     ],
                   },
                   {
+                    // 🪤 THE MISSING PREREQUISITE (live failure, 2026-07-26):
+                    //   "Model access is denied due to IAM user or service role is not
+                    //    authorized to perform the required AWS Marketplace actions
+                    //    (aws-marketplace:ViewSubscriptions, aws-marketplace:Subscribe)"
+                    //
+                    // Bedrock auto-subscribes a third-party model on first use, using the
+                    // CALLER's permissions. Without these, the subscription attempt fails
+                    // silently — and this also explains the earlier mystery where Claude
+                    // answered once and then stopped: calls pass PROVISIONALLY during the
+                    // ~15-minute settling window, then fail once the subscription can't be
+                    // completed. The Anthropic form was one prerequisite; this is the other.
+                    //
+                    // Needed only for the FIRST use of a model in an account, but it must
+                    // be held by whoever makes that call — here, the runner. Deliberately
+                    // NOT granting Unsubscribe: nothing we do should ever cancel a
+                    // subscription. Marketplace actions take no resource scope (the only
+                    // narrowing available is an aws-marketplace:ProductId condition, and
+                    // the product ids for the model catalogue aren't knowable at build
+                    // time). This lives in the runner's IN-STACK role, so it does not
+                    // touch the poppy's manifest or its rating.
+                    Sid: "BedrockModelSubscription",
+                    Effect: "Allow",
+                    Action: ["aws-marketplace:Subscribe", "aws-marketplace:ViewSubscriptions"],
+                    Resource: "*",
+                  },
+                  {
                     // The Bedrock permission (DESIGN.md §6): inference bills to the
                     // owner's AWS, via IAM — no API key exists anywhere. InvokeModel*
                     // covers text inference AND the §3c avatar image models (same
