@@ -103,8 +103,12 @@ export function ModelsCard({ onModels }: { onModels?: (m: ModelCatalogue["models
                 <span className="dot" /> Ready
               </span>
             ) : (
+              // A STATE, not a demand. We can't tell "form not submitted" from "form
+              // submitted, still propagating" — the API that would say is account-level
+              // and unscopable — and "Needs setup" wrongly blames a user who has already
+              // done it. "Not ready yet" is true in both cases.
               <span className="badge warn">
-                <span className="dot" /> Needs setup
+                <span className="dot" /> Not ready yet
               </span>
             )}
           </div>
@@ -114,10 +118,15 @@ export function ModelsCard({ onModels }: { onModels?: (m: ModelCatalogue["models
       {needsSetup.length > 0 && (
         <>
           <p style={{ margin: 0 }}>
-            <strong>To use {needsSetup.map((m) => m.label).join(" or ")}</strong>, Anthropic asks a
-            few questions about how you plan to use them. It's <strong>free</strong>, takes about a
-            minute, and you only do it <strong>once for the whole account</strong>. Everything else
-            above works right now without it.
+            <strong>{needsSetup.map((m) => m.label).join(" and ")}</strong>{" "}
+            {needsSetup.length === 1 ? "isn't" : "aren't"} available on your account yet. Anthropic
+            asks a few questions about how you plan to use their models — it's <strong>free</strong>,
+            takes about a minute, and you only do it <strong>once for the whole account</strong>.
+            Everything else above works right now without it.
+          </p>
+          <p className="muted" style={{ margin: 0 }}>
+            <strong>Already filled it in?</strong> Then there's nothing left to do — AWS can take a
+            while to switch the models on afterwards, and this list updates itself when it does.
           </p>
           <ol className="muted" style={{ margin: 0, paddingLeft: 18 }}>
             <li>Open the AWS page below — it opens in your normal browser.</li>

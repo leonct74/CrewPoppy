@@ -40,7 +40,8 @@ describe("the model catalogue", () => {
     vi.spyOn(api, "models").mockResolvedValue(catalogue());
     render(<ModelsCard />);
 
-    expect(await screen.findByText("Claude Haiku 4.5")).toBeInTheDocument();
+    // named in its own row (and again in the "not ready yet" sentence)
+    expect((await screen.findAllByText("Claude Haiku 4.5")).length).toBeGreaterThan(0);
     expect(screen.getByText(/Solid general text work/)).toBeInTheDocument();
     expect(screen.getByText("$$")).toBeInTheDocument();
     expect(screen.getByText("$")).toBeInTheDocument();
@@ -54,9 +55,11 @@ describe("the model catalogue", () => {
 
     expect(await screen.findByText(/1 ready now/)).toBeInTheDocument();
     expect(screen.getByText("Ready")).toBeInTheDocument();
-    expect(screen.getByText("Needs setup")).toBeInTheDocument();
+    expect(screen.getByText("Not ready yet")).toBeInTheDocument();
     // The fast lane is stated explicitly — you are never stuck.
     expect(screen.getByText(/Everything else above works right now without it/)).toBeInTheDocument();
+    // And someone who already did the form is not told to do it again.
+    expect(screen.getByText(/Already filled it in\?/)).toBeInTheDocument();
   });
 
   it("sets the expectation that AWS takes a while, instead of asking the user to confirm", async () => {
