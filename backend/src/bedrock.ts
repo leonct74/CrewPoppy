@@ -22,7 +22,7 @@ import {
   GetFoundationModelAvailabilityCommand,
   type BedrockClient,
 } from "@aws-sdk/client-bedrock";
-import { DEFAULT_MODEL_ID, MODEL_CATALOGUE, type ModelOption } from "./models";
+import { DEFAULT_MODEL_ID, MODEL_CATALOGUE, type ModelOption } from "@crewpoppy/shared";
 
 export interface ModelAccess {
   /** True when agents can actually run. */

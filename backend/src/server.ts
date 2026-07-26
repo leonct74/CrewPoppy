@@ -2,12 +2,19 @@
 // plus the teardown hook. Spawned by AgentsPoppy with AGENTSPOPPY_BOOTSTRAP; listens on
 // the injected loopback port (never a fixed one). See AGENTS.md §7, DESIGN.md §2.
 
-import { createServer, type ServerResponse } from "node:http";
+import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { CloudFormationClient } from "@aws-sdk/client-cloudformation";
 import { S3Client } from "@aws-sdk/client-s3";
 import { BedrockClient } from "@aws-sdk/client-bedrock";
+import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
+import { DynamoDBDocumentClient } from "@aws-sdk/lib-dynamodb";
+import { LambdaClient } from "@aws-sdk/client-lambda";
+import { randomUUID } from "node:crypto";
 import { readBootstrap, brokerCredentialsProvider } from "./boot";
-import { deploy, getStatus, teardown } from "./stack";
+import { deploy, getStatus, teardown, runnerFunctionName, tableName } from "./stack";
+import {
+  deleteAgent, getAgent, getRun, getTranscript, listAgents, listRuns, saveAgent, startRun,
+} from "./agents";
 import { consoleUrl, getCatalogue, getModelAccess } from "./bedrock";
 
 const boot = readBootstrap();
@@ -16,7 +23,21 @@ const region = boot.account.region;
 const cfn = new CloudFormationClient({ region, credentials });
 const s3 = new S3Client({ region, credentials });
 const bedrock = new BedrockClient({ region, credentials });
+const ddb = DynamoDBDocumentClient.from(new DynamoDBClient({ region, credentials }));
+const lambda = new LambdaClient({ region, credentials });
 const ctx = { accountId: boot.account.accountId, connectionId: boot.connectionId };
+
+/** Read a JSON request body. An empty or malformed body is an empty object, not a crash. */
+async function readJson(req: IncomingMessage): Promise<Record<string, unknown>> {
+  const chunks: Buffer[] = [];
+  for await (const c of req) chunks.push(c as Buffer);
+  if (!chunks.length) return {};
+  try {
+    return JSON.parse(Buffer.concat(chunks).toString("utf8")) as Record<string, unknown>;
+  } catch {
+    return {};
+  }
+}
 
 function json(res: ServerResponse, status: number, body: unknown): void {
   res.statusCode = status;
@@ -68,6 +89,45 @@ const server = createServer(async (req, res) => {
     // The teardown hook the host POSTs at the start of teardown. MUST be idempotent.
     if (method === "POST" && parts[0] === "teardown" && parts.length === 1) {
       return json(res, 200, { ok: true, ...(await teardown(cfn, s3, ctx.accountId, region)) });
+    }
+
+    // ---- agents (P1) -------------------------------------------------------
+    if (parts[0] === "agents") {
+      const now = new Date().toISOString();
+
+      if (method === "GET" && parts.length === 1) {
+        return json(res, 200, { agents: await listAgents(ddb, tableName, now) });
+      }
+      // Create/replace. The id comes from us, so a retried request overwrites.
+      if (method === "POST" && parts.length === 1) {
+        const body = await readJson(req);
+        const id = typeof body.id === "string" && body.id ? body.id : randomUUID();
+        return json(res, 200, await saveAgent(ddb, tableName, id, body as never, now));
+      }
+      if (method === "DELETE" && parts.length === 2) {
+        await deleteAgent(ddb, tableName, parts[1]!);
+        return json(res, 200, { ok: true });
+      }
+      // Start a run. Returns immediately — the Lambda carries on in their account.
+      if (method === "POST" && parts.length === 3 && parts[2] === "runs") {
+        const agent = await getAgent(ddb, tableName, parts[1]!);
+        if (!agent) return json(res, 404, { error: "That agent no longer exists." });
+        const body = await readJson(req);
+        const runId = typeof body.runId === "string" && body.runId ? body.runId : randomUUID();
+        const run = await startRun(
+          ddb, lambda, tableName, runnerFunctionName, agent, runId, String(body.input ?? ""), now,
+        );
+        return json(res, 200, run);
+      }
+      if (method === "GET" && parts.length === 3 && parts[2] === "runs") {
+        return json(res, 200, { runs: await listRuns(ddb, tableName, parts[1]!) });
+      }
+      // One run plus its transcript — what the run view polls.
+      if (method === "GET" && parts.length === 4 && parts[2] === "runs") {
+        const run = await getRun(ddb, tableName, parts[1]!, parts[3]!);
+        if (!run) return json(res, 404, { error: "That run no longer exists." });
+        return json(res, 200, { run, transcript: await getTranscript(ddb, tableName, parts[3]!) });
+      }
     }
 
     return json(res, 404, { error: `No route for ${method} /${parts.join("/")}` });

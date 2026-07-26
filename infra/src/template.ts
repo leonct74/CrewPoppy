@@ -220,7 +220,7 @@ export function buildTemplate(): CfnTemplate {
         DependsOn: ["RunnerLogGroup"],
         Properties: {
           FunctionName: RUNNER_FUNCTION_NAME,
-          Description: "CrewPoppy agent-runner — the agentic loop (empty walking-skeleton build).",
+          Description: "CrewPoppy agent-runner — loads an agent, calls Bedrock, enforces the spend guardrails.",
           Runtime: "nodejs20.x",
           Architectures: ["arm64"],
           Handler: "agent-runner.handler",
@@ -231,8 +231,11 @@ export function buildTemplate(): CfnTemplate {
           },
           // P0 defaults, deliberately tiny: nothing invokes this yet. P1 sizes it for
           // the real loop (and the §7 wall-clock cap becomes the enforced timeout).
-          MemorySize: 256,
-          Timeout: 60,
+          MemorySize: 512,
+          // The §7 wall-clock cap (default 120s) is enforced INSIDE the loop; this is
+          // the outer backstop, generous enough that the guardrail — not Lambda — is
+          // what stops a run, so the user always gets a recorded reason.
+          Timeout: 300,
         },
       },
     },

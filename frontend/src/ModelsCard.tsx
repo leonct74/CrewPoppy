@@ -21,7 +21,7 @@ import type { ModelCatalogue } from "./types";
  */
 const POLL_MS = 8_000;
 
-export function ModelsCard() {
+export function ModelsCard({ onModels }: { onModels?: (m: ModelCatalogue["models"]) => void } = {}) {
   const [data, setData] = useState<ModelCatalogue | null>(null);
   /** Set when the owner says they finished the form but AWS hasn't caught up yet. */
   const [confirmedButWaiting, setConfirmedButWaiting] = useState(false);
@@ -31,11 +31,12 @@ export function ModelsCard() {
     try {
       const d = await api.models();
       setData(d);
+      onModels?.(d.models);
       return d;
     } catch {
       return null;
     }
-  }, []);
+  }, [onModels]);
 
   useEffect(() => {
     void load();

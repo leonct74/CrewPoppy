@@ -2,13 +2,17 @@
   "id": "com.crewpoppy.desktop",
   "name": "CrewPoppy",
   "version": "0.1.0",
-  "description": "Mission Control for your AI crew — task-specific AI agents that run entirely in your own AWS, with hard spend caps and every action visible.",
+  "description": "Mission Control for your AI crew \u2014 task-specific AI agents that run entirely in your own AWS, with hard spend caps and every action visible.",
   "icon": "frontend/crewpoppy-icon.png",
   "permissionSet": {
     "id": "crewpoppy-backend",
     "name": "CrewPoppy backend",
-    "description": "Deploys and removes its own CloudFormation stack (CrewPoppyStack): the agents table, the agent workspace bucket, the agent-runner function and its execution role. Every change and delete is limited to resources named CrewPoppy*/crewpoppy-* — it cannot touch anything else in your account. The one role it creates is the runner's own, name-locked to CrewPoppy*, and only that role can invoke AI models (Bedrock) — billed to your AWS, capped by CrewPoppy's spend limits.",
-    "requiredTags": ["agentspoppy:account", "agentspoppy:app", "agentspoppy:connection"],
+    "description": "Deploys and removes its own CloudFormation stack (CrewPoppyStack): the agents table, the agent workspace bucket, the agent-runner function and its execution role. Every change and delete is limited to resources named CrewPoppy*/crewpoppy-* \u2014 it cannot touch anything else in your account. The one role it creates is the runner's own, name-locked to CrewPoppy*, and only that role can invoke AI models (Bedrock) \u2014 billed to your AWS, capped by CrewPoppy's spend limits.",
+    "requiredTags": [
+      "agentspoppy:account",
+      "agentspoppy:app",
+      "agentspoppy:connection"
+    ],
     "grants": [
       {
         "service": "cloudformation",
@@ -31,18 +35,33 @@
           "UpdateTimeToLive",
           "DescribeTimeToLive",
           "TagResource",
-          "ListTagsOfResource"
+          "ListTagsOfResource",
+          "GetItem",
+          "PutItem",
+          "UpdateItem",
+          "DeleteItem",
+          "Query"
         ],
         "resourceScope": "arn:aws:dynamodb:*:*:table/CrewPoppy*"
       },
       {
         "service": "s3",
-        "actions": ["CreateBucket", "DeleteBucket", "PutBucketTagging", "PutBucketPublicAccessBlock", "ListBucket"],
+        "actions": [
+          "CreateBucket",
+          "DeleteBucket",
+          "PutBucketTagging",
+          "PutBucketPublicAccessBlock",
+          "ListBucket"
+        ],
         "resourceScope": "arn:aws:s3:::crewpoppy-*"
       },
       {
         "service": "s3",
-        "actions": ["PutObject", "GetObject", "DeleteObject"],
+        "actions": [
+          "PutObject",
+          "GetObject",
+          "DeleteObject"
+        ],
         "resourceScope": "arn:aws:s3:::crewpoppy-*/*"
       },
       {
@@ -54,7 +73,8 @@
           "UpdateFunctionCode",
           "UpdateFunctionConfiguration",
           "TagResource",
-          "ListTags"
+          "ListTags",
+          "InvokeFunction"
         ],
         "resourceScope": "arn:aws:lambda:*:*:function:CrewPoppy*"
       },
@@ -74,7 +94,9 @@
       },
       {
         "service": "bedrock",
-        "actions": ["GetFoundationModelAvailability"],
+        "actions": [
+          "GetFoundationModelAvailability"
+        ],
         "resourceScope": "arn:aws:bedrock:*::foundation-model/*"
       },
       {
@@ -101,5 +123,10 @@
   "teardown": {
     "endpoint": "/teardown"
   },
-  "capabilities": ["aws:credentials", "connection:read", "backend:invoke", "host:openExternal"]
+  "capabilities": [
+    "aws:credentials",
+    "connection:read",
+    "backend:invoke",
+    "host:openExternal"
+  ]
 }

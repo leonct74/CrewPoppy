@@ -2,10 +2,11 @@
   "name": "crewpoppy",
   "version": "0.1.0",
   "private": true,
-  "description": "CrewPoppy — Mission Control for your AI crew. An AgentsPoppy extension: task-specific AI agents that run entirely in your own AWS.",
+  "description": "CrewPoppy \u2014 Mission Control for your AI crew. An AgentsPoppy extension: task-specific AI agents that run entirely in your own AWS.",
   "type": "module",
   "license": "MIT",
   "workspaces": [
+    "shared",
     "infra",
     "lambdas",
     "backend",

@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { GetFoundationModelAvailabilityCommand, type BedrockClient } from "@aws-sdk/client-bedrock";
 import { consoleUrl, getModelAccess } from "./bedrock";
-import { DEFAULT_MODEL_ID } from "./models";
+import { DEFAULT_MODEL_ID } from "@crewpoppy/shared";
 
 function fakeBedrock(reply: unknown | Error) {
   const sent: unknown[] = [];

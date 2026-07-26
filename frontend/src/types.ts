@@ -64,3 +64,48 @@ export interface ModelAccess {
   /** Where the owner completes the one-time form. */
   consoleUrl?: string;
 }
+
+// ---- agents (P1) ----------------------------------------------------------
+// Mirrors @crewpoppy/shared — the sidecar is a separate process, so this is a wire
+// contract rather than a shared type.
+
+export interface AgentCaps {
+  maxIterations: number;
+  maxTokensPerRun: number;
+  maxWallClockMs: number;
+  monthlySpendCapUsd: number;
+}
+
+export interface AgentSummary {
+  id: string;
+  name: string;
+  role: string;
+  instructions: string;
+  modelId: string;
+  caps: AgentCaps;
+  createdAt: string;
+  updatedAt: string;
+  /** Spent this calendar month, against caps.monthlySpendCapUsd. */
+  monthSpendUsd: number;
+}
+
+export interface RunRecord {
+  runId: string;
+  agentId: string;
+  status: "running" | "succeeded" | "failed" | "stopped";
+  stopReason?: string;
+  input: string;
+  output?: string;
+  cost: { usage: { inputTokens: number; outputTokens: number }; usd?: number; approx?: boolean };
+  iterations: number;
+  startedAt: string;
+  finishedAt?: string;
+  message?: string;
+  modelId: string;
+}
+
+export interface TranscriptEntry {
+  seq: number;
+  role: "user" | "assistant" | "system";
+  text: string;
+}

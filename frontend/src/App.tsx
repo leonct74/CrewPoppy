@@ -2,9 +2,10 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "./api";
 import { Button } from "./Button";
 import { host, type AccessState } from "./host";
+import { CrewCard } from "./CrewCard";
 import { ModelsCard } from "./ModelsCard";
 import { RemovePanel } from "./RemovePanel";
-import type { DeploymentStatus, Meta } from "./types";
+import type { DeploymentStatus, Meta, ModelChoice } from "./types";
 
 // Served from frontend/public → dist root; the same file the manifest declares as our icon.
 const icon = "./crewpoppy-icon.png";
@@ -20,6 +21,7 @@ export function App() {
   const [status, setStatus] = useState<DeploymentStatus | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [showDetails, setShowDetails] = useState(false);
+  const [models, setModels] = useState<ModelChoice[]>([]);
   const pollRef = useRef<number | null>(null);
 
   /**
@@ -190,8 +192,8 @@ export function App() {
               </span>
             </div>
             <p className="muted" style={{ margin: 0 }}>
-              Your crew's home base is live in {status?.region}. Creating your first agent — a name, a
-              role, instructions and a set of tools — arrives in the next version.
+              Your crew's home base is live in {status?.region}. Everything an agent thinks, learns
+              and produces stays in this account.
             </p>
             <div className="banner info">
               <strong>$0.00 so far — nothing is being billed.</strong> No agents exist yet, and an idle
@@ -200,7 +202,8 @@ export function App() {
             </div>
           </div>
           {/* Only meaningful once the stack exists — an agent needs both a home and a brain. */}
-          <ModelsCard />
+          <CrewCard models={models} />
+          <ModelsCard onModels={setModels} />
         </>
       )}
 

@@ -1,0 +1,27 @@
+// DynamoDB key construction — single-table design (DESIGN §2b).
+//
+// IDEMPOTENCY RULE (the family lesson, CLAUDE.md gotcha #3): every key is a
+// DETERMINISTIC function of ids the caller already holds. `new Date()` is NEVER a
+// sort-key fallback — a re-run would then write a SECOND row instead of overwriting the
+// first, which is precisely what would break `ask_user` resume at P2.
+//
+// Layout (pk / sk):
+//   agents            / agent#<agentId>    the agent definition — Query "agents" lists the crew
+//   agent#<agentId>   / run#<runId>        one run of that agent — Query lists its history
+//   run#<runId>       / msg#000001…        the transcript, ordered by zero-padded sequence
+//   spend#<agentId>   / month#YYYY-MM      the monthly spend counter (atomic ADD target)
+
+/** Partition holding every agent definition, so the crew lists with one Query. */
+export const AGENTS_PK = "agents";
+export const agentSk = (agentId: string) => `agent#${agentId}`;
+
+export const agentPk = (agentId: string) => `agent#${agentId}`;
+export const runSk = (runId: string) => `run#${runId}`;
+
+export const transcriptPk = (runId: string) => `run#${runId}`;
+/** Zero-padded so lexical sort is numeric order. */
+export const transcriptSk = (seq: number) => `msg#${String(seq).padStart(6, "0")}`;
+
+/** Per-agent, per-month spend counter — an atomic ADD target, not read-modify-write. */
+export const spendPk = (agentId: string) => `spend#${agentId}`;
+export const spendSk = (monthKey: string) => `month#${monthKey}`;
