@@ -289,8 +289,12 @@ export async function handler(event: RunnerEvent): Promise<{ ok: boolean; status
     stopReason = "error";
     const raw = (e as Error)?.message ?? String(e);
     // One calm sentence, with the specific case the user can actually act on.
+    // The commonest first-use failure, and it looks alarming while being entirely
+    // normal. AWS subscribes your account to a model the first time you use it, and
+    // sends a confirmation email when that finishes — which is the signal a user can
+    // actually watch for, so say so instead of talking about IAM.
     message = /aws-marketplace/i.test(raw)
-      ? "Your AWS account is still applying the permissions CrewPoppy just set up. This usually clears within a minute — try running again shortly."
+      ? "AWS is still setting up your account's subscription to this model — this happens once per model, and it's free. AWS will email you a confirmation from AWS Marketplace when it's done, usually within a few minutes. Once that email arrives, run this again and it will work."
       : /use case details have not been submitted/i.test(raw)
       ? "This model needs the one-time Anthropic form for your AWS account before it can run. Open CrewPoppy's model list to finish that step."
       : `The run couldn't finish: ${raw.slice(0, 200)}`;

@@ -125,8 +125,10 @@ export function ModelsCard({ onModels }: { onModels?: (m: ModelCatalogue["models
             Everything else above works right now without it.
           </p>
           <p className="muted" style={{ margin: 0 }}>
-            <strong>Already filled it in?</strong> Then there's nothing left to do — AWS can take a
-            while to switch the models on afterwards, and this list updates itself when it does.
+            <strong>Already filled it in?</strong> Then there's nothing left to do. The first time
+            you use a model, AWS sets up a subscription for your account and emails you a
+            confirmation from AWS Marketplace — it's free, and once that email arrives the model
+            works. This list updates itself too.
           </p>
           <ol className="muted" style={{ margin: 0, paddingLeft: 18 }}>
             <li>Open the AWS page below — it opens in your normal browser.</li>

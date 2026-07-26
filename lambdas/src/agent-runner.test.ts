@@ -188,6 +188,21 @@ describe("failures are recorded, never swallowed", () => {
     expect(run.message).not.toMatch(/use case details have not been submitted/); // not the raw error
   });
 
+  it("explains the first-use Marketplace subscription in terms the user can act on", async () => {
+    // Live failure. Alarming-looking, entirely normal, and the actionable signal is an
+    // email — not anything about IAM roles, which the raw error talks about.
+    state.modelReply = new Error(
+      "Model access is denied due to IAM user or service role is not authorized to perform the required AWS Marketplace actions (aws-marketplace:ViewSubscriptions, aws-marketplace:Subscribe) to enable access",
+    );
+    await handler({ runId: "r1", agentId: "a1", input: "Hi", tableName: TABLE });
+
+    const m = String(runOf().message);
+    expect(m).toMatch(/email/i); // the thing to wait for
+    expect(m).toMatch(/free/i); // nobody should fear a surprise charge
+    expect(m).toMatch(/run this again/i); // and what to do after
+    expect(m).not.toMatch(/IAM|aws-marketplace:/); // never the raw jargon
+  });
+
   it("records any other failure with a calm, truncated message", async () => {
     state.modelReply = new Error("ThrottlingException: too many requests");
     const r = await handler({ runId: "r1", agentId: "a1", input: "Hi", tableName: TABLE });
