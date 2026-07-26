@@ -84,6 +84,7 @@ export interface AgentSummary {
   role: string;
   instructions: string;
   modelId: string;
+  tools: string[];
   caps: AgentCaps;
   createdAt: string;
   updatedAt: string;
@@ -94,7 +95,7 @@ export interface AgentSummary {
 export interface RunRecord {
   runId: string;
   agentId: string;
-  status: "running" | "succeeded" | "failed" | "stopped";
+  status: "running" | "waiting" | "succeeded" | "failed" | "stopped";
   stopReason?: string;
   input: string;
   output?: string;
@@ -108,6 +109,14 @@ export interface RunRecord {
 
 export interface TranscriptEntry {
   seq: number;
-  role: "user" | "assistant" | "system";
+  role: "user" | "assistant" | "system" | "tool";
   text: string;
+}
+
+/** One switchable tool, with the plain-language note shown beside its checkbox. */
+export interface ToolOption {
+  name: string;
+  label: string;
+  what: string;
+  risk?: string;
 }

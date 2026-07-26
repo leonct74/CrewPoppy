@@ -40,6 +40,48 @@ export interface ToolSpec {
 }
 
 /**
+ * What the OWNER sees next to the checkbox (DESIGN §10). Deliberately separate from
+ * `description`, which is written for the model: the owner needs to know what switching
+ * this on lets the agent do, and what it costs them in risk — "don't give an agent a
+ * tool you wouldn't want a stranger triggering" (DESIGN §1b).
+ */
+export interface ToolNote {
+  label: string;
+  what: string;
+  /** The honest caveat. Absent when there genuinely isn't one. */
+  risk?: string;
+}
+
+export const TOOL_NOTES: Record<ToolName, ToolNote> = {
+  memory_read: {
+    label: "Remember things",
+    what: "Lets this agent look up what it noted in earlier runs.",
+  },
+  memory_write: {
+    label: "Save to memory",
+    what: "Lets this agent keep notes between runs — your preferences, a style guide, approved examples.",
+    risk: "Anything it reads could end up in its memory, so it carries forward.",
+  },
+  workspace_list: {
+    label: "See its own files",
+    what: "Lets this agent list the files in its own private folder.",
+  },
+  workspace_read: {
+    label: "Read its own files",
+    what: "Lets this agent read files from its own private folder. It cannot see another agent's files.",
+  },
+  workspace_write: {
+    label: "Write files",
+    what: "Lets this agent save documents and results into its own private folder.",
+  },
+  ask_user: {
+    label: "Ask you before acting",
+    what: "Lets this agent pause and ask you a question, or get your approval, before doing something consequential.",
+    risk: "Strongly recommended for anything irreversible, public, or that spends money.",
+  },
+};
+
+/**
  * What each tool looks like to the model. Descriptions are written FOR the model: they
  * state the boundary too, so a well-behaved agent doesn't waste a turn attempting
  * something the dispatcher would refuse anyway.

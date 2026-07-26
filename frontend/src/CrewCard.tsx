@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "./api";
 import { Button } from "./Button";
-import type { AgentSummary, ModelChoice, RunRecord, TranscriptEntry } from "./types";
+import type { AgentSummary, ModelChoice, RunRecord, ToolOption, TranscriptEntry } from "./types";
 
 /**
  * The crew: define an agent, give it a job, read its answer, see what it cost.
@@ -24,6 +24,7 @@ function money(usd: number | undefined): string {
 
 export function CrewCard(props: { models: ModelChoice[] }) {
   const [agents, setAgents] = useState<AgentSummary[] | null>(null);
+  const [tools, setTools] = useState<ToolOption[]>([]);
   const [creating, setCreating] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
@@ -38,6 +39,7 @@ export function CrewCard(props: { models: ModelChoice[] }) {
 
   useEffect(() => {
     void refresh();
+    void api.listTools().then((t) => setTools(t.tools)).catch(() => {});
   }, [refresh]);
 
   if (!agents) return null;
@@ -75,6 +77,7 @@ export function CrewCard(props: { models: ModelChoice[] }) {
       {creating ? (
         <NewAgentForm
           models={props.models}
+          tools={tools}
           onCancel={() => setCreating(false)}
           onCreated={async () => {
             setCreating(false);
@@ -92,13 +95,21 @@ export function CrewCard(props: { models: ModelChoice[] }) {
   );
 }
 
-function NewAgentForm(props: { models: ModelChoice[]; onCancel: () => void; onCreated: () => Promise<void> }) {
+function NewAgentForm(props: {
+  models: ModelChoice[];
+  tools: ToolOption[];
+  onCancel: () => void;
+  onCreated: () => Promise<void>;
+}) {
   const usable = props.models.filter((m) => m.ready);
   const [name, setName] = useState("");
   const [role, setRole] = useState("");
   const [instructions, setInstructions] = useState("");
   const [modelId, setModelId] = useState(usable[0]?.id ?? props.models[0]?.id ?? "");
   const [cap, setCap] = useState(10);
+  // Nothing is on by default. An agent starts able only to read its task and answer —
+  // every ability is something the owner deliberately grants (DESIGN §1b).
+  const [chosen, setChosen] = useState<string[]>([]);
   const [err, setErr] = useState<string | null>(null);
   const ready = name.trim() && role.trim() && instructions.trim() && modelId;
 
@@ -166,6 +177,40 @@ function NewAgentForm(props: { models: ModelChoice[]; onCancel: () => void; onCr
           </small>
         </label>
       </div>
+      {props.tools.length > 0 && (
+        <label className="field">
+          <span>What this agent is allowed to do</span>
+          <div className="stack" style={{ marginTop: 4 }}>
+            {props.tools.map((t) => (
+              <label key={t.name} className="row" style={{ alignItems: "flex-start", gap: 8 }}>
+                <input
+                  type="checkbox"
+                  checked={chosen.includes(t.name)}
+                  onChange={(e) =>
+                    setChosen((c) => (e.target.checked ? [...c, t.name] : c.filter((x) => x !== t.name)))
+                  }
+                  style={{ marginTop: 3 }}
+                />
+                <span style={{ flex: 1 }}>
+                  <strong style={{ fontSize: 13 }}>{t.label}</strong>
+                  <span className="muted" style={{ display: "block", fontSize: 12 }}>
+                    {t.what}
+                  </span>
+                  {t.risk && (
+                    <span className="muted-2" style={{ display: "block", fontSize: 12 }}>
+                      ⚠ {t.risk}
+                    </span>
+                  )}
+                </span>
+              </label>
+            ))}
+          </div>
+          <small className="muted" style={{ fontSize: 12 }}>
+            Everything is off to begin with. Give an agent only what its job needs — don't give it
+            anything you wouldn't want a stranger triggering.
+          </small>
+        </label>
+      )}
       {err && <div className="banner err">{err}</div>}
       <div className="row" style={{ justifyContent: "flex-end" }}>
         <button className="btn" onClick={props.onCancel}>
@@ -178,7 +223,9 @@ function NewAgentForm(props: { models: ModelChoice[]; onCancel: () => void; onCr
           onClick={async () => {
             setErr(null);
             try {
-              await api.saveAgent({ name, role, instructions, modelId, caps: { monthlySpendCapUsd: cap } });
+              await api.saveAgent({
+                name, role, instructions, modelId, tools: chosen, caps: { monthlySpendCapUsd: cap },
+              });
               await props.onCreated();
             } catch (e) {
               setErr((e as Error).message);
@@ -199,6 +246,7 @@ function AgentRow(props: { agent: AgentSummary; models: ModelChoice[]; onChanged
   // the card. Fall back to the raw id if the catalogue has moved on.
   const model = props.models.find((m) => m.id === agent.modelId);
   const [task, setTask] = useState("");
+  const [answer, setAnswer] = useState("");
   const [run, setRun] = useState<RunRecord | null>(null);
   const [transcript, setTranscript] = useState<TranscriptEntry[]>([]);
   const [err, setErr] = useState<string | null>(null);
@@ -224,7 +272,7 @@ function AgentRow(props: { agent: AgentSummary; models: ModelChoice[]; onChanged
       window.clearInterval(timer.current);
       timer.current = null;
     }
-    if (!run || run.status !== "running") return;
+    if (!run || (run.status !== "running" && run.status !== "waiting")) return;
     const id = run.runId;
     timer.current = window.setInterval(() => void poll(id), POLL_MS);
     return () => {
@@ -247,6 +295,7 @@ function AgentRow(props: { agent: AgentSummary; models: ModelChoice[]; onChanged
             </span>
           </div>
           <p className="muted-2" style={{ margin: "4px 0 0", fontSize: 12 }}>
+            {agent.tools?.length ? `Can: ${agent.tools.length} tool${agent.tools.length === 1 ? "" : "s"} · ` : ""}
             Thinks with <strong>{model?.label ?? agent.modelId}</strong>
             {model ? ` (${model.cost})` : ""} · this month: {money(spent)} of $
             {agent.caps.monthlySpendCapUsd.toFixed(2)} limit
@@ -309,7 +358,70 @@ function AgentRow(props: { agent: AgentSummary; models: ModelChoice[]; onChanged
         )}
       </div>
 
-      {run && run.status !== "running" && (
+      {run?.status === "waiting" && (
+        <div className="card stack" style={{ marginTop: 10, borderColor: "var(--poppy-warn)" }}>
+          <div className="spread">
+            <strong>{agent.name} is waiting for you</strong>
+            <span className="badge warn">
+              <span className="dot" /> Needs your answer
+            </span>
+          </div>
+          <p style={{ margin: 0 }}>{run.message}</p>
+          {/* The draft is shown verbatim: approving something you haven't read is not
+              approval. It appears as the last thing the agent said. */}
+          {transcript.filter((t) => t.role === "assistant").slice(-1).map((t) => (
+            <div key={t.seq} className="card" style={{ margin: 0, whiteSpace: "pre-wrap" }}>
+              {t.text}
+            </div>
+          ))}
+          <label className="field" style={{ margin: 0 }}>
+            <span>Your answer</span>
+            <textarea
+              className="input"
+              value={answer}
+              onChange={(e) => setAnswer(e.target.value)}
+              placeholder="Yes, send it — but change the greeting to 'Hi Sam'."
+            />
+          </label>
+          <div className="row">
+            <Button
+              className="btn btn-primary"
+              busyLabel="Sending…"
+              onClick={async () => {
+                setErr(null);
+                try {
+                  setRun(await api.answerRun(agent.id, run.runId, answer.trim() || "Yes, go ahead."));
+                  setAnswer("");
+                } catch (e) {
+                  setErr((e as Error).message);
+                }
+              }}
+            >
+              {answer.trim() ? "Send answer" : "Approve"}
+            </Button>
+            <Button
+              className="btn"
+              busyLabel="Sending…"
+              onClick={async () => {
+                setErr(null);
+                try {
+                  setRun(await api.answerRun(agent.id, run.runId, "No — do not do that. Stop and explain why you asked."));
+                  setAnswer("");
+                } catch (e) {
+                  setErr((e as Error).message);
+                }
+              }}
+            >
+              Deny
+            </Button>
+          </div>
+          <p className="muted" style={{ margin: 0, fontSize: 12 }}>
+            The run picks up exactly where it paused — nothing it already did is repeated.
+          </p>
+        </div>
+      )}
+
+      {run && run.status !== "running" && run.status !== "waiting" && (
         <div className="stack" style={{ marginTop: 10 }}>
           <div className="spread">
             <span className={`badge ${run.status === "succeeded" ? "ok" : "warn"}`}>
@@ -332,12 +444,19 @@ function AgentRow(props: { agent: AgentSummary; models: ModelChoice[]; onChanged
           </div>
           {run.message && <div className="banner info">{run.message}</div>}
           {transcript
-            .filter((t) => t.role === "assistant")
-            .map((t) => (
-              <p key={t.seq} style={{ margin: 0, whiteSpace: "pre-wrap" }}>
-                {t.text}
-              </p>
-            ))}
+            .filter((t) => t.role === "assistant" || t.role === "tool")
+            .map((t) =>
+              t.role === "tool" ? (
+                // Every tool call is visible — nothing an agent does is hidden (DESIGN §9).
+                <p key={t.seq} className="muted-2 mono" style={{ margin: 0, fontSize: 12 }}>
+                  ⚙ {t.text}
+                </p>
+              ) : (
+                <p key={t.seq} style={{ margin: 0, whiteSpace: "pre-wrap" }}>
+                  {t.text}
+                </p>
+              ),
+            )}
         </div>
       )}
     </div>

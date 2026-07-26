@@ -4,7 +4,8 @@
 
 import { host } from "./host";
 import type {
-  AgentSummary, DeploymentStatus, Meta, ModelAccess, ModelCatalogue, RunRecord, TranscriptEntry,
+  AgentSummary, DeploymentStatus, Meta, ModelAccess, ModelCatalogue, RunRecord, ToolOption,
+  TranscriptEntry,
 } from "./types";
 
 export const api = {
@@ -23,6 +24,9 @@ export const api = {
   deploy: (): Promise<{ operation: string; stackName: string }> =>
     host.invokeBackend({ method: "POST", path: "/deploy" }),
 
+  /** The switchable tools, with the note shown beside each checkbox. */
+  listTools: (): Promise<{ tools: ToolOption[] }> => host.invokeBackend({ method: "GET", path: "/tools" }),
+
   // ---- agents (P1) --------------------------------------------------------
   listAgents: (): Promise<{ agents: AgentSummary[] }> =>
     host.invokeBackend({ method: "GET", path: "/agents" }),
@@ -39,6 +43,10 @@ export const api = {
 
   listRuns: (id: string): Promise<{ runs: RunRecord[] }> =>
     host.invokeBackend({ method: "GET", path: `/agents/${id}/runs` }),
+
+  /** Answer a run waiting on ask_user, so it carries on (DESIGN §5). */
+  answerRun: (id: string, runId: string, answer: string): Promise<RunRecord> =>
+    host.invokeBackend({ method: "POST", path: `/agents/${id}/runs/${runId}/answer`, body: { answer } }),
 
   /** The kill switch (DESIGN §7). */
   stopRun: (id: string, runId: string): Promise<RunRecord> =>

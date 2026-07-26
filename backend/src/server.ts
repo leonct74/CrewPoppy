@@ -17,6 +17,7 @@ import {
   startRun, stopRun, withStaleness,
 } from "./agents";
 import { consoleUrl, getCatalogue, getModelAccess } from "./bedrock";
+import { TOOL_NAMES, TOOL_NOTES } from "@crewpoppy/shared";
 
 const boot = readBootstrap();
 const credentials = brokerCredentialsProvider(boot);
@@ -79,6 +80,13 @@ const server = createServer(async (req, res) => {
     // now, which need the one-time provider form, what each is good at, relative cost.
     if (method === "GET" && parts[0] === "models" && parts.length === 1) {
       return json(res, 200, { models: await getCatalogue(bedrock, ddb, tableName), consoleUrl: consoleUrl(region) });
+    }
+
+    // The tool catalogue, with the plain-language note shown beside each checkbox.
+    if (method === "GET" && parts[0] === "tools" && parts.length === 1) {
+      return json(res, 200, {
+        tools: TOOL_NAMES.map((name) => ({ name, ...TOOL_NOTES[name] })),
+      });
     }
 
     // Start (or update) the deploy. Returns as soon as AWS accepts it — the work
