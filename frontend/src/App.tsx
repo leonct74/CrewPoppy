@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "./api";
 import { Button } from "./Button";
 import { host, type AccessState } from "./host";
+import { ModelAccessCard } from "./ModelAccessCard";
 import { RemovePanel } from "./RemovePanel";
 import type { DeploymentStatus, Meta } from "./types";
 
@@ -180,23 +181,27 @@ export function App() {
       )}
 
       {phaseKey === "ready" && (
-        <div className="card stack">
-          <div className="spread">
-            <strong>Mission Control is set up</strong>
-            <span className="badge ok">
-              <span className="dot" /> Ready
-            </span>
+        <>
+          <div className="card stack">
+            <div className="spread">
+              <strong>Mission Control is set up</strong>
+              <span className="badge ok">
+                <span className="dot" /> Ready
+              </span>
+            </div>
+            <p className="muted" style={{ margin: 0 }}>
+              Your crew's home base is live in {status?.region}. Creating your first agent — a name, a
+              role, instructions and a set of tools — arrives in the next version.
+            </p>
+            <div className="banner info">
+              <strong>$0.00 so far — nothing is being billed.</strong> No agents exist yet, and an idle
+              crew costs nothing: you pay AWS only for what your agents actually do, with a hard spend
+              cap on every agent.
+            </div>
           </div>
-          <p className="muted" style={{ margin: 0 }}>
-            Your crew's home base is live in {status?.region}. Creating your first agent — a name, a
-            role, instructions and a set of tools — arrives in the next version.
-          </p>
-          <div className="banner info">
-            <strong>$0.00 so far — nothing is being billed.</strong> No agents exist yet, and an idle
-            crew costs nothing: you pay AWS only for what your agents actually do, with a hard spend
-            cap on every agent.
-          </div>
-        </div>
+          {/* Only meaningful once the stack exists — an agent can't run without both. */}
+          <ModelAccessCard />
+        </>
       )}
 
       {phaseKey === "failed" && (

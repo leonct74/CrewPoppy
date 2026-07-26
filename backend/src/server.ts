@@ -5,14 +5,17 @@
 import { createServer, type ServerResponse } from "node:http";
 import { CloudFormationClient } from "@aws-sdk/client-cloudformation";
 import { S3Client } from "@aws-sdk/client-s3";
+import { BedrockClient } from "@aws-sdk/client-bedrock";
 import { readBootstrap, brokerCredentialsProvider } from "./boot";
 import { deploy, getStatus, teardown } from "./stack";
+import { consoleUrl, getModelAccess } from "./bedrock";
 
 const boot = readBootstrap();
 const credentials = brokerCredentialsProvider(boot);
 const region = boot.account.region;
 const cfn = new CloudFormationClient({ region, credentials });
 const s3 = new S3Client({ region, credentials });
+const bedrock = new BedrockClient({ region, credentials });
 const ctx = { accountId: boot.account.accountId, connectionId: boot.connectionId };
 
 function json(res: ServerResponse, status: number, body: unknown): void {
@@ -42,6 +45,12 @@ const server = createServer(async (req, res) => {
     // holds no memory of a deploy; this is what it mounts against and polls.
     if (method === "GET" && parts[0] === "status" && parts.length === 1) {
       return json(res, 200, await getStatus(cfn, region));
+    }
+
+    // Can this account actually run Claude yet? Drives the one-time setup card. Read-only
+    // and token-free — deliberately NOT a probe invocation (see bedrock.ts).
+    if (method === "GET" && parts[0] === "model-access" && parts.length === 1) {
+      return json(res, 200, { ...(await getModelAccess(bedrock)), consoleUrl: consoleUrl(region) });
     }
 
     // Start (or update) the deploy. Returns as soon as AWS accepts it — the work

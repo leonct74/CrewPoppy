@@ -73,6 +73,11 @@
         "resourceScope": "arn:aws:iam::*:role/CrewPoppy*"
       },
       {
+        "service": "bedrock",
+        "actions": ["GetFoundationModelAvailability"],
+        "resourceScope": "arn:aws:bedrock:*::foundation-model/*"
+      },
+      {
         "service": "logs",
         "actions": [
           "CreateLogGroup",
@@ -96,5 +101,5 @@
   "teardown": {
     "endpoint": "/teardown"
   },
-  "capabilities": ["aws:credentials", "connection:read", "backend:invoke"]
+  "capabilities": ["aws:credentials", "connection:read", "backend:invoke", "host:openExternal"]
 }
