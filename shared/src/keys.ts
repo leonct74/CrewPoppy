@@ -31,6 +31,10 @@ export const transcriptSk = (seq: number) => `msg#${String(seq).padStart(6, "0")
 export const provenPk = (modelId: string) => `model#${modelId}`;
 export const PROVEN_SK = "proven";
 
+/** A suspended run's checkpoint — one per run, so resuming overwrites rather than forks. */
+export const checkpointPk = (runId: string) => `checkpoint#${runId}`;
+export const CHECKPOINT_SK = "state";
+
 /** Per-agent, per-month spend counter — an atomic ADD target, not read-modify-write. */
 export const spendPk = (agentId: string) => `spend#${agentId}`;
 export const spendSk = (monthKey: string) => `month#${monthKey}`;

@@ -51,7 +51,7 @@ export interface AgentDef {
   updatedAt: string;
 }
 
-export type RunStatus = "running" | "succeeded" | "failed" | "stopped";
+export type RunStatus = "running" | "waiting" | "succeeded" | "failed" | "stopped";
 
 /** Why a run ended early. Recorded so the user always learns which limit bit. */
 export type StopReason =
@@ -60,6 +60,7 @@ export type StopReason =
   | "max_tokens"
   | "max_wall_clock"
   | "monthly_spend_cap"
+  | "waiting_for_you"
   | "error";
 
 export interface TokenUsage {
@@ -77,8 +78,29 @@ export interface RunCost {
 
 export interface TranscriptEntry {
   seq: number;
-  role: "user" | "assistant" | "system";
+  /** "tool" entries are the audit trail: which tool ran, and what came back (DESIGN §9). */
+  role: "user" | "assistant" | "system" | "tool";
   text: string;
+}
+
+/**
+ * A suspended run (DESIGN §5). A Lambda cannot block for hours waiting on a human, so
+ * `ask_user` writes the WHOLE conversation here and exits; answering resumes from this
+ * and nothing else. The checkpoint is the entire truth — which is what makes resuming
+ * safe: earlier tool calls are never replayed, they are already in `messages`.
+ */
+export interface RunCheckpoint {
+  runId: string;
+  agentId: string;
+  question: string;
+  draft?: string;
+  /** The full Anthropic-format conversation so far. */
+  messages: unknown[];
+  usage: TokenUsage;
+  iterations: number;
+  startedAt: string;
+  /** Unix seconds; DynamoDB expires the row, and the code checks it too. */
+  expiresAt: number;
 }
 
 export interface RunRecord {
