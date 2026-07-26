@@ -525,6 +525,43 @@ they are infrastructure capabilities, and the doctrine says we don't paywall tho
   mobile. **Price: founder to confirm in §13** — anchor **$19.99/yr** (above VPN-Poppy's $14.99,
   below business-SaaS; covers app-store costs + push infrastructure).
 
+### 15c. The MailPoppy bridge — investigated 2026-07-26, and why it's MailPoppy-side work
+
+The "agents read your incoming mail" use case (founder's sales-enquiry example). Read
+MailPoppy's actual surface rather than assuming; three findings, in order of how much
+they matter:
+
+1. **Message bodies are ENCRYPTED AT REST BY DEFAULT** — sealed to the recipient's
+   libsodium public key, unwrapped only by a password-derived private key that never
+   leaves the client. A sibling app reading MailPoppy's bucket gets **ciphertext**. This
+   isn't an obstacle to route around; it's MailPoppy's core promise working. Only
+   `subject/from/to/date/threadId` stay cleartext in DynamoDB — too thin to draft a reply
+   from. **Any inbound bridge must therefore hand the message over INSIDE
+   `inbound-processor`, before/independently of sealing, to a destination the user
+   configured** — never by granting CrewPoppy read access to stored mail.
+2. **There is no event to subscribe to.** `NotificationsTopicArn` is a *bounce/complaint*
+   topic; nothing publishes to it, and it isn't even wired to SES. No DynamoDB stream, no
+   S3 notification, no EventBridge rule beyond the janitor. The only inbound signal is an
+   Expo push to mobile devices. MailPoppy's own DESIGN Phase 7.1 names the missing
+   primitive: *"the inbound-processor emits a 'new mail' event → EventBridge/SNS"*.
+3. **No machine auth.** The access-api is a Cognito **public** client, SRP only — no
+   client-credentials, no resource server, no API keys (Phase 7.2, unbuilt). A daemon
+   cannot authenticate; it would need a human's password.
+
+**Rule that governs the design (AGENTS.md §3):** a poppy may only touch resources IT
+created. CrewPoppy must never hold grants on `mailpoppy*` / `MailpoppyMailStack-*`.
+⚠️ **The assessor cannot catch this** — such a grant is a concrete ARN pattern, so it
+rates amber/`scoped:true` with ZERO findings while flagrantly breaking the invariant.
+The rating checks how NARROW a grant is, never WHOSE resources it names. Worth fixing
+platform-side; CrewPoppy is the first poppy where the shortcut would be tempting.
+
+**Conclusion:** the bridge is real and both products' principles align (mail never leaves
+the owner's account), but the work is **MailPoppy-side first** — Phase 7.1's event
+emission — and the handoff must be initiated by the poppy that owns the data, into an
+endpoint CrewPoppy owns, with the user explicitly connecting the two. Sequenced AFTER
+P2, which delivers `send_email` + `ask_user` — two of the three pieces that use case
+needs, and the ones that make agents able to act at all.
+
 ### 15b. Marketing notes — the Bedrock story (bank these for the listing/site)
 
 Why "agents in your own AWS via Bedrock" beats agent-SaaS — the seven sellable points:
