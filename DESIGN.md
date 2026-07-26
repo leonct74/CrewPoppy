@@ -537,10 +537,34 @@ Why "agents in your own AWS via Bedrock" beats agent-SaaS — the seven sellable
 Implementation delegated to a SEPARATE Claude Code session per the TrafficPoppy/VPN-Poppy
 model — coordinate via this DESIGN.md + commits.
 
-**P0 build complete locally (implementation session, 2026-07-20; decisions in §2b):**
-scaffold ✓ · template + embedded-artifact pipeline ✓ · sidecar (deploy/status/teardown on
-brokered creds) ✓ · manifest amber with zero unscoped findings against the REAL assessor ✓ ·
-design-kit frontend ✓ · SEA sidecar built + smoke-tested ✓ · 50 unit tests green ✓ ·
-dev-installed into AgentsPoppy ✓. **Awaiting the founder gate to finish P0:** live deploy →
-verify in AgentsPoppy (rating + UI) → teardown → `npm run certify` green → account verified
-clean. No Bedrock spend at P0 (nothing invokes the model).
+## P0 — COMPLETE ✅ (live-verified + certified, 2026-07-26)
+
+Walking skeleton done end to end in the founder's account (675546221165 / eu-west-1).
+Implementation decisions: §2b. 51 unit tests green; manifest **amber, zero unscoped findings**
+against the REAL `assessPermissionSet`.
+
+**Live acceptance, all passed:**
+- **Deploy** — `CrewPoppyStack` CREATE_COMPLETE with all five resources: `CrewPoppyData`
+  (ACTIVE, PAY_PER_REQUEST, **TTL live on `expiresAt`** — verified against AWS, the foundation
+  §5's expiring checkpoints depend on), `CrewPoppyRunner` (Active, arm64, on
+  `CrewPoppyRunnerRole`), the private workspace bucket, and the in-stack log group.
+- **Attribution** — all three `agentspoppy:*` tags + `agentspoppy:managed`,
+  `crewpoppy:templateKey`, `crewpoppy:sourceCommit` on every resource **including the
+  out-of-stack deploy bucket** (untagged there = invisible to the sweep = a guaranteed leak).
+- **Leaves no trace — CERTIFIED.** `npm run certify -- --yes` ran the real teardown with the
+  host's residual cleanup OFF: footprint of 6 → **`residualsAfter: []`, `passed: true`, zero
+  problems, zero warnings**. Independently re-verified: tag sweep empty, and the table, Lambda,
+  log group, IAM role and BOTH buckets each confirmed gone. `deletedStacks: []` is correct and
+  expected — our hook had already deleted the stack before the harness's own step, which is
+  precisely what a compliant hook must do. Cert: `leaves-no-trace.cert.json` (self-issued,
+  manifest `987390022a2e…`; git-ignored).
+- **Cost** — $0.00 throughout. Nothing invoked the model, so P0 spent no Bedrock tokens.
+
+**Two live-gate lessons, both fixed at the source and documented in AGENTS.md §3 for every
+future poppy** (each was invisible to `validate-manifest`, the rating, and all unit tests —
+they only ever appear on a real deploy): the **STS packed-policy budget** and the
+**collection-API / `Fn::GetAtt` trap**. Both are written up in §2b.
+
+**Next: P1 — one agent, one run** (§16). Note for P1: it introduces the first real Bedrock
+spend, so model access must be enabled in the founder's Bedrock console first, and caps stay
+tiny during testing.

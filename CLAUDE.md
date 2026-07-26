@@ -110,8 +110,15 @@ and phases P0–P4: `DESIGN.md`.
 
 ## Status
 
-**P0 built locally, 2026-07-20 (implementation decisions: DESIGN §2b; status: DESIGN §17).**
-Remote: `https://github.com/leonct74/CrewPoppy.git`. Remaining for P0: the live founder gate —
-deploy → verify rating/UI in AgentsPoppy → teardown → certify green → account clean.
+**P0 COMPLETE — live-verified and leaves-no-trace CERTIFIED, 2026-07-26** (details: DESIGN §17;
+implementation decisions + the two live-gate lessons: DESIGN §2b). Deploy → use → teardown ran
+clean in the founder's account; the certify sweep found zero residuals.
+Remote: `https://github.com/leonct74/CrewPoppy.git`.
+
+**Current phase: P1 — one agent, one run** (DESIGN §16): agent def CRUD → the `agent-runner`
+loop → a Bedrock (Claude) call, NO tools yet → transcript persisted → §7 guardrails enforced
+from day one → live acceptance: define an agent, run it, read its answer, SEE the cost.
+⚠️ P1 is the first REAL token spend: the founder must enable Bedrock model access in the
+console first, and caps stay tiny during testing.
 Before the repo ever goes public: the pre-public checklist in `agentspoppy/docs/ROADMAP.md`
 (history secret scan, FSL headers, no personal paths).
