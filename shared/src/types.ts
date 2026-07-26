@@ -40,6 +40,12 @@ export interface AgentDef {
   instructions: string;
   /** A bare foundation-model id from the catalogue. */
   modelId: string;
+  /**
+   * Which tools this agent may use — the per-agent allowlist the dispatcher enforces
+   * (DESIGN §4). Empty means the agent can only read its task and answer, which is the
+   * safe default for a new agent.
+   */
+  tools: string[];
   caps: AgentCaps;
   createdAt: string;
   updatedAt: string;

@@ -88,6 +88,7 @@ const agent: AgentDef = {
   role: "Research Assistant",
   instructions: "Be concise.",
   modelId: "qwen.qwen3-32b-v1:0", // a model with a measured rate, so cost is computed
+  tools: [],
   caps: { maxIterations: 8, maxTokensPerRun: 20_000, maxWallClockMs: 120_000, monthlySpendCapUsd: 10 },
   createdAt: "2026-07-26T00:00:00.000Z",
   updatedAt: "2026-07-26T00:00:00.000Z",

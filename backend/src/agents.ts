@@ -21,6 +21,7 @@ import {
   DEFAULT_CAPS,
   agentPk,
   agentSk,
+  isToolName,
   monthKeyOf,
   runSk,
   sanitiseCaps,
@@ -38,6 +39,7 @@ export interface AgentInput {
   role: string;
   instructions: string;
   modelId: string;
+  tools?: unknown;
   caps?: Partial<AgentCaps>;
 }
 
@@ -70,6 +72,9 @@ export async function saveAgent(
     role: requireText(input.role, "A role", 120),
     instructions: requireText(input.instructions, "Instructions", 20_000),
     modelId: requireText(input.modelId, "A model", 200),
+    // Only names from the fixed catalogue survive; anything else the client sends is
+    // dropped rather than stored, so a bad request can't widen an agent's reach.
+    tools: Array.isArray(input.tools) ? input.tools.filter(isToolName) : (existing?.tools ?? []),
     // Caps are never taken raw from the client: a missing or absurd value falls back to
     // the safe default, so an agent can't be created without limits (DESIGN §7).
     caps: sanitiseCaps(input.caps ?? {}, DEFAULT_CAPS),
