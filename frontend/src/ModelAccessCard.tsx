@@ -20,6 +20,13 @@ const POLL_MS = 6_000;
 
 export function ModelAccessCard(props: { onReady?: () => void }) {
   const [access, setAccess] = useState<ModelAccess | null>(null);
+  /**
+   * Set when the owner has told us they finished the form, but AWS doesn't agree yet.
+   * AWS itself says the submission can take up to 15 minutes to register — so without
+   * this, someone who genuinely did the work keeps staring at "Action needed", which
+   * reads as "you didn't do it". Answering their claim beats leaving them guessing.
+   */
+  const [confirmedButWaiting, setConfirmedButWaiting] = useState(false);
   const timer = useRef<number | null>(null);
   const onReady = props.onReady;
 
@@ -103,14 +110,31 @@ export function ModelAccessCard(props: { onReady?: () => void }) {
         >
           Open the AWS page
         </Button>
-        <Button className="btn" busyLabel="Checking…" onClick={async () => void (await check())}>
-          Check now
+        <Button
+          className="btn"
+          busyLabel="Checking…"
+          onClick={async () => {
+            const a = await check();
+            // Only claim "not registered yet" when we actually heard back and it's still
+            // not ready — a failed check is a different problem, handled below.
+            setConfirmedButWaiting(!!a && !a.ready && !a.unknown);
+          }}
+        >
+          I've filled in the form
         </Button>
       </div>
 
+      {confirmedButWaiting && (
+        <div className="banner info">
+          <strong>Thanks — AWS hasn't registered it yet.</strong> That's normal: it can take up to
+          15 minutes after you submit the form. You don't need to do anything else, and you can
+          leave this page — CrewPoppy keeps checking and will switch over by itself.
+        </div>
+      )}
+
       <p className="muted" style={{ margin: 0, fontSize: 12 }}>
-        Your answers go to AWS and Anthropic — not to us. CrewPoppy checks every few seconds, so
-        when you're done this step disappears on its own.
+        Your answers go to AWS and Anthropic — not to us. CrewPoppy also checks every few seconds
+        on its own, so this step disappears once your account is ready.
       </p>
 
       {access.unknown && (
