@@ -327,7 +327,12 @@ export async function handler(event: RunnerEvent): Promise<{ ok: boolean; status
     return { ok: true, status: outcome.status };
   } catch (e) {
     const raw = (e as Error)?.message ?? String(e);
-    const message = /aws-marketplace/i.test(raw)
+    const message = /model identifier is invalid|invalid model identifier/i.test(raw)
+      ? // Bedrock's answer when the inference profile doesn't exist in this region. The
+        // usual cause is a model CrewPoppy's engine can't drive — quoting AWS here sends
+        // people hunting through their account for a problem that isn't there.
+        `This agent is set to ${agent.modelId}, which CrewPoppy can't run in ${REGION}. Edit the agent and choose one of the Claude models, then try again.`
+      : /aws-marketplace/i.test(raw)
       ? "AWS is still setting up your account's subscription to this model — this happens once per model, and it's free. AWS will email you a confirmation from AWS Marketplace when it's done, usually within a few minutes. Once that email arrives, run this again and it will work."
       : /use case details have not been submitted/i.test(raw)
         ? "This model needs the one-time Anthropic form for your AWS account before it can run. Open CrewPoppy's model list to finish that step."

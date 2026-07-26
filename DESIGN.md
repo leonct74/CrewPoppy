@@ -170,6 +170,22 @@ them counter to the documentation:
    policy), unlike the use-case actions, which are account-level and cannot be scoped at all —
    `bedrock:PutUseCaseForModelAccess` on `*` rates **RED** with the real assessor, which is why
    the form is not submitted from inside the poppy (see §6).
+6. **🪤 THE CATALOGUE OFFERED MODELS THE ENGINE CANNOT DRIVE (live failure, 2026-07-26).** An
+   agent asked to send an email failed with *"The provided model identifier is invalid."* Nothing
+   to do with email, and nothing to do with the account. The runner builds ONE wire format —
+   Anthropic's (`anthropic_version` + content blocks) — and parses one, while the picker offered
+   five models. Nova needs `{messages, inferenceConfig, toolConfig}`; Qwen and GPT-OSS are
+   OpenAI-shaped. On top of that, `inferenceProfileFor` prefixes `eu.` unconditionally, and
+   `eu.qwen…`/`eu.openai…` are not real profiles in eu-west-1 — which is the exact error string.
+   **Worse, the agent form defaulted to the first model reporting `ready`**, so when the Claude
+   rows lagged (finding #2), a new agent was silently created on a brain that could never work.
+   **Fix:** every catalogue entry now declares its `wire`; `SUPPORTED_WIRES` lists what the runner
+   actually implements; undrivable models are marked `supported: false`, are never `ready`, can
+   never be the default, and appear greyed-out-but-visible in the picker with the honest reason
+   ("CrewPoppy can't drive this one yet"). The runner turns the raw AWS string into a sentence
+   naming the model and the fix. **Rule: a model joins `SUPPORTED_WIRES` in the same change as
+   its adapter, never before.** Nova and the open-weight models return when those adapters are
+   written — that is engine work, not a catalogue edit.
 
 ## 3. What an "agent" is (the data model)
 

@@ -23,7 +23,7 @@ import {
   type BedrockClient,
 } from "@aws-sdk/client-bedrock";
 import {
-  DEFAULT_MODEL_ID, MODEL_CATALOGUE, PROVEN_SK, provenPk, type ModelOption,
+  DEFAULT_MODEL_ID, MODEL_CATALOGUE, PROVEN_SK, isDrivable, provenPk, type ModelOption,
 } from "@crewpoppy/shared";
 import { GetCommand, type DynamoDBDocumentClient } from "@aws-sdk/lib-dynamodb";
 
@@ -46,6 +46,12 @@ export interface ModelAccess {
 export interface ModelChoice extends ModelOption {
   /** True when this model can be used right now, with no further setup. */
   ready: boolean;
+  /**
+   * False when CrewPoppy's own engine can't talk to this model yet (DESIGN §2c). Nothing
+   * to do with the account: it's our gap, and the UI must say so rather than let someone
+   * pick a brain the runner will fail on.
+   */
+  supported: boolean;
   /** Ready because a run actually succeeded on it, not because AWS says so. */
   proven?: boolean;
   /** We couldn't determine it — say so rather than guess either way. */
@@ -73,9 +79,12 @@ export async function getCatalogue(
       // NOT_AVAILABLE. If a run has actually completed on this model in this account,
       // the model works, and telling the user otherwise is simply false.
       const proven = access.ready ? false : await hasRunSuccessfully(ddb, table, option.id);
+      const supported = isDrivable(option);
       return {
         ...option,
-        ready: access.ready || proven,
+        supported,
+        // A model we cannot drive is never "ready", whatever AWS says about the account.
+        ready: supported && (access.ready || proven),
         ...(proven ? { proven: true } : {}),
         ...(access.unknown && !proven ? { unknown: true } : {}),
       };

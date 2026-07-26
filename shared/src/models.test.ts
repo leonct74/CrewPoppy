@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { DEFAULT_MODEL_ID, MODEL_CATALOGUE, inferenceProfileFor } from "./models";
+import {
+  DEFAULT_MODEL_ID, MODEL_CATALOGUE, SUPPORTED_WIRES, inferenceProfileFor, isDrivable,
+} from "./models";
 
 describe("the curated model catalogue", () => {
   it("offers a genuine fast lane — models usable with no provider form", () => {
@@ -45,5 +47,34 @@ describe("inference profile ids (the trap that cost a live test — DESIGN §2c)
 
   it("leaves an unknown region alone rather than inventing a prefix", () => {
     expect(inferenceProfileFor(DEFAULT_MODEL_ID, "ca-central-1")).toBe(DEFAULT_MODEL_ID);
+  });
+});
+
+// Live failure, 2026-07-26: an agent on a non-Anthropic model failed with "The provided
+// model identifier is invalid". The runner only ever spoke Anthropic's format, while the
+// picker offered five models — so the catalogue could hand out a brain the engine can't
+// drive. The wire format is now declared, and these hold that line.
+describe("the catalogue never offers a model the engine can't drive", () => {
+  it("marks every entry with the format it speaks", () => {
+    for (const m of MODEL_CATALOGUE) {
+      expect(["anthropic", "nova", "openai-compatible"]).toContain(m.wire);
+    }
+  });
+
+  it("only lets through models the runner actually implements", () => {
+    // If this fails because an adapter was added, that's the point — add it to
+    // SUPPORTED_WIRES in the SAME change as the adapter, never before.
+    for (const m of MODEL_CATALOGUE) {
+      expect(isDrivable(m)).toBe(SUPPORTED_WIRES.includes(m.wire));
+    }
+  });
+
+  it("keeps the default model one we can drive", () => {
+    const def = MODEL_CATALOGUE.find((m) => m.id === DEFAULT_MODEL_ID)!;
+    expect(isDrivable(def)).toBe(true);
+  });
+
+  it("has at least one drivable model, or nobody can create an agent at all", () => {
+    expect(MODEL_CATALOGUE.some(isDrivable)).toBe(true);
   });
 });

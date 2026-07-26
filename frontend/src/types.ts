@@ -40,6 +40,8 @@ export interface ModelChoice {
   /** Hint only; `ready` is the authoritative answer. */
   formLikely: boolean;
   ready: boolean;
+  /** False when CrewPoppy's engine can't drive this model yet — our gap, not yours. */
+  supported?: boolean;
   /** Ready because a run actually succeeded on it, not because AWS says so. */
   proven?: boolean;
   unknown?: boolean;

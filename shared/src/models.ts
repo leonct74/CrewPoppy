@@ -17,6 +17,24 @@
 
 export type CostBand = "$" | "$$" | "$$$";
 
+/**
+ * Which request/response format a model speaks on Bedrock's InvokeModel.
+ *
+ * 🪤 LIVE FAILURE (2026-07-26): the runner only ever built Anthropic's body
+ * (`anthropic_version` + content blocks) and only ever parsed Anthropic's reply, while
+ * the picker offered five models. Choosing a non-Anthropic one produced "The provided
+ * model identifier is invalid" — Bedrock's answer for a profile that doesn't exist,
+ * because `eu.qwen…`/`eu.openai…` aren't real inference profiles in eu-west-1 either.
+ *
+ * So the wire format is now DECLARED, and a model the engine can't drive can't be
+ * selected. Nova and the open-weight models return when their adapters are written —
+ * that's an engine change, not a catalogue edit.
+ */
+export type ModelWire = "anthropic" | "nova" | "openai-compatible";
+
+/** The formats the agent-runner actually implements today. */
+export const SUPPORTED_WIRES: readonly ModelWire[] = ["anthropic"];
+
 export interface ModelOption {
   /** The bare foundation-model id — what the access APIs accept. */
   id: string;
@@ -43,6 +61,8 @@ export interface ModelOption {
    * (AGENTS.md §9 vs §3 — see DESIGN §2d).
    */
   cost: CostBand;
+  /** How the runner must talk to it. Only SUPPORTED_WIRES can be chosen today. */
+  wire: ModelWire;
   /**
    * True for models whose provider demands a one-time account form (Anthropic only).
    * A HINT for copy — the authoritative answer is the live availability check, so the
@@ -71,6 +91,7 @@ export const MODEL_CATALOGUE: ModelOption[] = [
     toolUse: true,
     vision: true,
     cost: "$$",
+    wire: "anthropic",
     formLikely: true,
   },
   {
@@ -81,6 +102,7 @@ export const MODEL_CATALOGUE: ModelOption[] = [
     toolUse: true,
     vision: true,
     cost: "$$$",
+    wire: "anthropic",
     formLikely: true,
   },
   {
@@ -91,6 +113,7 @@ export const MODEL_CATALOGUE: ModelOption[] = [
     toolUse: true,
     vision: true,
     cost: "$",
+    wire: "nova",
     formLikely: false,
   },
   {
@@ -101,6 +124,7 @@ export const MODEL_CATALOGUE: ModelOption[] = [
     toolUse: true,
     vision: false,
     cost: "$",
+    wire: "openai-compatible",
     formLikely: false,
   },
   {
@@ -111,9 +135,15 @@ export const MODEL_CATALOGUE: ModelOption[] = [
     toolUse: true,
     vision: false,
     cost: "$",
+    wire: "openai-compatible",
     formLikely: false,
   },
 ];
+
+/** Can the agent-runner actually drive this model today? */
+export function isDrivable(model: { wire: ModelWire }): boolean {
+  return SUPPORTED_WIRES.includes(model.wire);
+}
 
 /**
  * The cross-region inference-profile prefix for a region. Verified for `eu-` and `us-`;

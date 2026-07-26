@@ -135,12 +135,16 @@ function AgentForm(props: {
   onSaved: () => Promise<void>;
 }) {
   const editing = !!props.agent;
-  const usable = props.models.filter((m) => m.ready);
+  // Models the ENGINE can drive. A model we can't talk to must never be the silent
+  // default: that's how an agent ended up on Qwen and failed with "the provided model
+  // identifier is invalid" the first time it was asked to do real work.
+  const drivable = props.models.filter((m) => m.supported !== false);
+  const usable = drivable.filter((m) => m.ready);
   const [name, setName] = useState(props.agent?.name ?? "");
   const [role, setRole] = useState(props.agent?.role ?? "");
   const [instructions, setInstructions] = useState(props.agent?.instructions ?? "");
   const [modelId, setModelId] = useState(
-    props.agent?.modelId ?? usable[0]?.id ?? props.models[0]?.id ?? "",
+    props.agent?.modelId ?? usable[0]?.id ?? drivable[0]?.id ?? "",
   );
   const [cap, setCap] = useState(props.agent?.caps.monthlySpendCapUsd ?? 10);
   // Nothing is on by default. An agent starts able only to read its task and answer —
@@ -212,11 +216,26 @@ function AgentForm(props: {
                 telling them exactly what's missing. Never build a dead end out of a
                 signal you don't fully trust. */}
             {props.models.map((m) => (
-              <option key={m.id} value={m.id}>
-                {m.label} ({m.cost}){m.ready ? "" : " — may still be switching on"}
+              // Unsupported models stay VISIBLE but unpickable: hiding them would make
+              // the catalogue silently disagree with the models card. Disabling here is
+              // safe in a way disabling on `ready` was not — this signal is ours, and we
+              // know for certain whether the runner can speak to a model.
+              <option key={m.id} value={m.id} disabled={m.supported === false}>
+                {m.label} ({m.cost})
+                {m.supported === false
+                  ? " — CrewPoppy can't drive this one yet"
+                  : m.ready
+                    ? ""
+                    : " — may still be switching on"}
               </option>
             ))}
           </select>
+          {props.models.some((m) => m.supported === false) && (
+            <small className="muted" style={{ fontSize: 12 }}>
+              Some models are greyed out because CrewPoppy's engine doesn't speak their
+              format yet. That's our gap, not your account's.
+            </small>
+          )}
         </label>
         <label className="field">
           <span>Spending limit per month</span>
