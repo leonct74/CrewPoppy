@@ -575,6 +575,33 @@ endpoint CrewPoppy owns, with the user explicitly connecting the two. Sequenced 
 P2, which delivers `send_email` + `ask_user` — two of the three pieces that use case
 needs, and the ones that make agents able to act at all.
 
+### 15d. Agents emailing YOU — the approval channel (founder request, 2026-07-26)
+
+Decomposed, because the three things sound like one feature and cost wildly different amounts:
+
+1. **Agent → owner email (approvals, reports). NO MailPoppy needed, and none of §15c's
+   blockers apply.** This is `send_email` from the §14.5 catalogue: SES `SendEmail` from the
+   runner role to the owner's own verified address(es) (§14.7's anti-abuse scope). Outbound
+   never touches stored mail, so encryption-at-rest, the missing event and the absent machine
+   auth are all irrelevant. **P2 work, already planned.** Sender identity: let the owner name
+   the address and let SES reject an unverified one with a clear message, rather than adding a
+   `ListIdentities`-style collection grant we'd have to widen the manifest for (the pattern the
+   log-group and pricing traps taught us).
+2. **Owner replies BY EMAIL → resumes the run.** This is the expensive one: it needs inbound,
+   i.e. every §15c blocker. Not a prerequisite for approvals — the agent can email *"Emma needs
+   your approval"* with the draft, and the decision happens in the dashboard (or, post-MVP, a
+   phone). Email as the NOTIFICATION channel; the dashboard as the DECISION surface.
+3. **Chat with your agents — belongs in CrewPoppy Mobile, not MailPoppy.** §14.3/§15 already
+   settled this deliberately: chat needs live run status, streaming and a kill switch, *"which
+   email can't carry"*, and binding it to a MailPoppy deployment *"would couple two products"*.
+   Building agent chat inside MailPoppy would duplicate the locked premium and re-open a
+   decision made for good reasons. If the goal is "talk to my crew away from my desk", the
+   answer is the mobile app (§15), not a second chat surface.
+
+**Recommendation:** ship (1) with `ask_user` in P2 — that delivers the approval loop end to end
+minus the email *reply*, with no cross-poppy work and no new blockers. Revisit (2) only if
+replying from the inbox proves to be the thing people actually miss.
+
 ### 15b. Marketing notes — the Bedrock story (bank these for the listing/site)
 
 Why "agents in your own AWS via Bedrock" beats agent-SaaS — the seven sellable points:
