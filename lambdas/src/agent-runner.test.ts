@@ -3,7 +3,7 @@
 // already covers.
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { AGENTS_PK, agentSk, spendPk, spendSk, type AgentDef } from "@crewpoppy/shared";
+import { AGENTS_PK, PROVEN_SK, agentSk, provenPk, spendPk, spendSk, type AgentDef } from "@crewpoppy/shared";
 
 const state = vi.hoisted(() => ({
   /** Fake table: "pk|sk" -> item */
@@ -130,6 +130,19 @@ describe("a normal run", () => {
     const body = JSON.parse(String(state.invocations[0]!.body));
     expect(body.system).toMatch(/never claim to be human/i);
     expect(body.system).toContain("Emma");
+  });
+
+  it("records the model as PROVEN, so the list can stop trusting a lagging status field", async () => {
+    await handler({ runId: "r1", agentId: "a1", input: "Hi", tableName: TABLE });
+    const proven = state.items.get(`${provenPk(agent.modelId)}|${PROVEN_SK}`);
+    expect(proven).toBeDefined();
+    expect(proven!.modelId).toBe(agent.modelId);
+  });
+
+  it("does not mark a model proven when the run failed", async () => {
+    state.modelReply = new Error("ThrottlingException");
+    await handler({ runId: "r1", agentId: "a1", input: "Hi", tableName: TABLE });
+    expect(state.items.get(`${provenPk(agent.modelId)}|${PROVEN_SK}`)).toBeUndefined();
   });
 
   it("adds the run's cost to the agent's monthly counter", async () => {

@@ -99,8 +99,8 @@ export function ModelsCard({ onModels }: { onModels?: (m: ModelCatalogue["models
                 <span className="dot" /> Unknown
               </span>
             ) : m.ready ? (
-              <span className="badge ok">
-                <span className="dot" /> Ready
+              <span className="badge ok" title={m.proven ? "An agent has already run on this model here" : undefined}>
+                <span className="dot" /> {m.proven ? "Working" : "Ready"}
               </span>
             ) : (
               // A STATE, not a demand. We can't tell "form not submitted" from "form

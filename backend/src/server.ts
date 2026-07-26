@@ -77,7 +77,7 @@ const server = createServer(async (req, res) => {
     // The curated model shortlist, each answered against this account: which are ready
     // now, which need the one-time provider form, what each is good at, relative cost.
     if (method === "GET" && parts[0] === "models" && parts.length === 1) {
-      return json(res, 200, { models: await getCatalogue(bedrock), consoleUrl: consoleUrl(region) });
+      return json(res, 200, { models: await getCatalogue(bedrock, ddb, tableName), consoleUrl: consoleUrl(region) });
     }
 
     // Start (or update) the deploy. Returns as soon as AWS accepts it — the work

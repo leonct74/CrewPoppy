@@ -22,6 +22,15 @@ export const transcriptPk = (runId: string) => `run#${runId}`;
 /** Zero-padded so lexical sort is numeric order. */
 export const transcriptSk = (seq: number) => `msg#${String(seq).padStart(6, "0")}`;
 
+/**
+ * Ground truth: a model that has actually completed a run in THIS account works, whatever
+ * the model-agreement status field says (it lags, sometimes for a long time). The runner
+ * stamps this on success; the catalogue trusts it over the status field.
+ * Deterministic key — re-proving overwrites rather than accumulating rows.
+ */
+export const provenPk = (modelId: string) => `model#${modelId}`;
+export const PROVEN_SK = "proven";
+
 /** Per-agent, per-month spend counter — an atomic ADD target, not read-modify-write. */
 export const spendPk = (agentId: string) => `spend#${agentId}`;
 export const spendSk = (monthKey: string) => `month#${monthKey}`;

@@ -22,7 +22,10 @@ import {
   GetFoundationModelAvailabilityCommand,
   type BedrockClient,
 } from "@aws-sdk/client-bedrock";
-import { DEFAULT_MODEL_ID, MODEL_CATALOGUE, type ModelOption } from "@crewpoppy/shared";
+import {
+  DEFAULT_MODEL_ID, MODEL_CATALOGUE, PROVEN_SK, provenPk, type ModelOption,
+} from "@crewpoppy/shared";
+import { GetCommand, type DynamoDBDocumentClient } from "@aws-sdk/lib-dynamodb";
 
 export interface ModelAccess {
   /** True when agents can actually run. */
@@ -43,6 +46,8 @@ export interface ModelAccess {
 export interface ModelChoice extends ModelOption {
   /** True when this model can be used right now, with no further setup. */
   ready: boolean;
+  /** Ready because a run actually succeeded on it, not because AWS says so. */
+  proven?: boolean;
   /** We couldn't determine it — say so rather than guess either way. */
   unknown?: boolean;
 }
@@ -55,17 +60,44 @@ export interface ModelChoice extends ModelOption {
  * themselves. Checks run in parallel; one model failing must not hide the rest, so a
  * failed lookup degrades that row to `unknown` instead of rejecting the whole list.
  */
-export async function getCatalogue(bedrock: BedrockClient): Promise<ModelChoice[]> {
+export async function getCatalogue(
+  bedrock: BedrockClient,
+  ddb?: DynamoDBDocumentClient,
+  table?: string,
+): Promise<ModelChoice[]> {
   return Promise.all(
     MODEL_CATALOGUE.map(async (option) => {
       const access = await getModelAccess(bedrock, option.id);
+      // GROUND TRUTH WINS. The agreement field lags — measured: a submitted Anthropic
+      // form registers immediately while the per-model agreement still reads
+      // NOT_AVAILABLE. If a run has actually completed on this model in this account,
+      // the model works, and telling the user otherwise is simply false.
+      const proven = access.ready ? false : await hasRunSuccessfully(ddb, table, option.id);
       return {
         ...option,
-        ready: access.ready,
-        ...(access.unknown ? { unknown: true } : {}),
+        ready: access.ready || proven,
+        ...(proven ? { proven: true } : {}),
+        ...(access.unknown && !proven ? { unknown: true } : {}),
       };
     }),
   );
+}
+
+/** Has any run actually completed on this model here? Best-effort; false on any error. */
+async function hasRunSuccessfully(
+  ddb: DynamoDBDocumentClient | undefined,
+  table: string | undefined,
+  modelId: string,
+): Promise<boolean> {
+  if (!ddb || !table) return false;
+  try {
+    const r = await ddb.send(
+      new GetCommand({ TableName: table, Key: { pk: provenPk(modelId), sk: PROVEN_SK } }),
+    );
+    return !!r.Item;
+  } catch {
+    return false;
+  }
 }
 
 /** The console page where the owner completes the one-time form. */

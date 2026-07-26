@@ -32,6 +32,8 @@ import {
   inferenceProfileFor,
   monthKeyOf,
   remainingOutputBudget,
+  PROVEN_SK,
+  provenPk,
   runSk,
   spendPk,
   spendSk,
@@ -252,6 +254,19 @@ export async function handler(event: RunnerEvent): Promise<{ ok: boolean; status
 
       // P1 has no tools, so one good answer completes the run.
       break;
+    }
+
+    // Ground truth for the model list: this model demonstrably works in this account.
+    // Best-effort — a failure to record it must never fail an otherwise good run.
+    try {
+      await ddb.send(
+        new PutCommand({
+          TableName: table,
+          Item: { pk: provenPk(agent.modelId), sk: PROVEN_SK, modelId: agent.modelId, at: new Date().toISOString() },
+        }),
+      );
+    } catch {
+      /* the status field remains the fallback */
     }
 
     await finish("succeeded");
