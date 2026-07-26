@@ -229,6 +229,48 @@ export async function getRun(
 }
 
 /**
+ * Answer a run that is waiting on `ask_user`, and let it carry on (DESIGN §5).
+ *
+ * The answer is passed to a FRESH runner invocation, which continues from the stored
+ * checkpoint. Nothing that already happened is re-executed — the earlier tool calls are
+ * inside the checkpoint as results, which is the whole point of checkpointing the
+ * conversation rather than the intent.
+ */
+export async function answerRun(
+  ddb: DynamoDBDocumentClient,
+  lambda: LambdaClient,
+  table: string,
+  functionName: string,
+  agentId: string,
+  runId: string,
+  answer: string,
+  now: string,
+): Promise<RunRecord | null> {
+  const run = await getRun(ddb, table, agentId, runId);
+  if (!run) return null;
+  // Only a waiting run can be answered. Anything else would either restart finished work
+  // or race a run that is already going.
+  if (run.status !== "waiting") return run;
+
+  const text = requireText(answer, "An answer", 20_000);
+  const resumed: RunRecord = { ...run, status: "running", message: undefined, startedAt: run.startedAt };
+  await ddb.send(
+    new PutCommand({ TableName: table, Item: { pk: agentPk(agentId), sk: runSk(runId), ...resumed } }),
+  );
+  await lambda.send(
+    new InvokeCommand({
+      FunctionName: functionName,
+      InvocationType: "Event",
+      Payload: Buffer.from(
+        JSON.stringify({ runId, agentId, input: run.input, tableName: table, answer: text }),
+      ),
+    }),
+  );
+  void now;
+  return resumed;
+}
+
+/**
  * The kill switch (DESIGN §7). Marks the run stopped so the UI is truthful immediately
  * and the record shows who ended it.
  *

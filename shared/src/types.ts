@@ -99,6 +99,8 @@ export interface RunCheckpoint {
   usage: TokenUsage;
   iterations: number;
   startedAt: string;
+  /** Where the transcript got to, so resuming continues rather than overwriting. */
+  nextSeq: number;
   /** Unix seconds; DynamoDB expires the row, and the code checks it too. */
   expiresAt: number;
 }
@@ -121,10 +123,18 @@ export interface RunRecord {
   modelId: string;
 }
 
-/** What the sidecar sends the Lambda to start a run. */
+/** What the sidecar sends the Lambda to start — or resume — a run. */
 export interface RunnerEvent {
   runId: string;
   agentId: string;
   input: string;
   tableName: string;
+  /**
+   * Present only when resuming a run that was waiting on `ask_user`. The run continues
+   * from its checkpoint with this appended — it never re-executes what already happened.
+   */
+  answer?: string;
 }
+
+/** How long a phone-approval link, and the waiting run behind it, stay valid. */
+export const CHECKPOINT_TTL_SECONDS = 7 * 24 * 60 * 60;

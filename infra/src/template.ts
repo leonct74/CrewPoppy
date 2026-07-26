@@ -257,6 +257,14 @@ export function buildTemplate(): CfnTemplate {
           },
           // P0 defaults, deliberately tiny: nothing invokes this yet. P1 sizes it for
           // the real loop (and the §7 wall-clock cap becomes the enforced timeout).
+          Environment: {
+            Variables: {
+              // Passed in rather than derived: the runner must never have to guess a
+              // resource name, and CloudFormation already knows both.
+              CREWPOPPY_TABLE: TABLE_NAME,
+              CREWPOPPY_WORKSPACE_BUCKET: { "Fn::Sub": WORKSPACE_BUCKET_SUB },
+            },
+          },
           MemorySize: 512,
           // The §7 wall-clock cap (default 120s) is enforced INSIDE the loop; this is
           // the outer backstop, generous enough that the guardrail — not Lambda — is

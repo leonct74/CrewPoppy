@@ -13,8 +13,8 @@ import { randomUUID } from "node:crypto";
 import { readBootstrap, brokerCredentialsProvider } from "./boot";
 import { deploy, getStatus, teardown, runnerFunctionName, tableName } from "./stack";
 import {
-  deleteAgent, getAgent, getRun, getTranscript, listAgents, listRuns, saveAgent, startRun,
-  stopRun, withStaleness,
+  answerRun, deleteAgent, getAgent, getRun, getTranscript, listAgents, listRuns, saveAgent,
+  startRun, stopRun, withStaleness,
 } from "./agents";
 import { consoleUrl, getCatalogue, getModelAccess } from "./bedrock";
 
@@ -126,6 +126,15 @@ const server = createServer(async (req, res) => {
           withStaleness(r, agent?.caps, Date.now()),
         );
         return json(res, 200, { runs });
+      }
+      // Answer a run waiting on ask_user, and let it continue (DESIGN §5).
+      if (method === "POST" && parts.length === 5 && parts[2] === "runs" && parts[4] === "answer") {
+        const body = await readJson(req);
+        const answered = await answerRun(
+          ddb, lambda, tableName, runnerFunctionName, parts[1]!, parts[3]!, String(body.answer ?? ""), now,
+        );
+        if (!answered) return json(res, 404, { error: "That run no longer exists." });
+        return json(res, 200, answered);
       }
       // The kill switch (DESIGN §7).
       if (method === "POST" && parts.length === 5 && parts[2] === "runs" && parts[4] === "stop") {

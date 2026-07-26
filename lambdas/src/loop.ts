@@ -76,15 +76,23 @@ export async function runLoop(
   spentBefore: number,
   startMs: number,
   deps: LoopDeps,
+  /**
+   * A resumed run's stored conversation (DESIGN §5). When present, `task` is the OWNER'S
+   * ANSWER and is appended — everything before it already happened and is never replayed.
+   */
+  priorMessages?: unknown[],
 ): Promise<LoopOutcome> {
   const caps: AgentCaps = agent.caps;
   const usage: TokenUsage = { inputTokens: 0, outputTokens: 0 };
-  const messages: unknown[] = [{ role: "user", content: task }];
+  const messages: unknown[] = priorMessages
+    ? [...priorMessages, { role: "user", content: task }]
+    : [{ role: "user", content: task }];
   const tools = specsFor(agent.tools ?? []);
   let iterations = 0;
   let lastText = "";
 
   await deps.record("user", task);
+
 
   for (;;) {
     // The kill switch, re-read every turn rather than trusted from memory.
