@@ -123,6 +123,15 @@ function NewAgentForm(props: { models: ModelChoice[]; onCancel: () => void; onCr
           onChange={(e) => setInstructions(e.target.value)}
           placeholder="You research topics and answer in short, plain paragraphs. Always say when you're unsure."
         />
+        {/* DESIGN §4b: the commonest misconception is that instructions grant ABILITY.
+            They don't — knowing how to write a reply is built in; reaching an inbox is
+            a TOOL. Saying so here prevents the disappointment instead of explaining it
+            after a run that quietly did nothing. */}
+        <small className="muted" style={{ fontSize: 12 }}>
+          Describe the job and the judgement, not the plumbing. Right now this agent can only read
+          the task you type and reply in writing — it can't reach your email, files or the web.
+          Those arrive as <strong>tools</strong> you switch on, one at a time.
+        </small>
       </label>
       <div className="grid-2">
         <label className="field">
