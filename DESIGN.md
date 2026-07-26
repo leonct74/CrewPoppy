@@ -126,6 +126,38 @@ AgentsPoppy container (the dashboard)        Your AWS account (chosen region)
   scoped to foundation-model/inference-profile ARNs); P1 adds `bedrock:ListFoundationModels`
   for the model dropdown (manifest change ⇒ normal re-approval).
 
+### 2c. Bedrock model access — measured, not assumed (2026-07-26)
+
+Tested live against the founder's account (675546221165 / eu-west-1). Four findings, three of
+them counter to the documentation:
+
+1. **Model IDs must be inference profiles, not bare foundation models.** `InvokeModel` on
+   `anthropic.claude-haiku-4-5-20251001-v1:0` fails — *"on-demand throughput isn't supported;
+   retry with an inference profile"*. The working form is the regional profile,
+   `eu.anthropic.claude-haiku-4-5-20251001-v1:0`. **P1 must build model IDs as profiles.** The
+   P0 runner role already grants `inference-profile/*` alongside `foundation-model/*`, so no
+   permission change is needed.
+2. **🪤 A first Bedrock call can succeed and then STOP working ~15 minutes later.** AWS
+   auto-initiates the Marketplace subscription in the background on first invoke; during that
+   window calls succeed *provisionally*. Our first test returned a real Claude reply; a re-test
+   5 minutes later failed with *"Model use case details have not been submitted for this
+   account."* **Never treat one successful Bedrock call as proof of access** — re-test after the
+   settling window. This nearly sent P1 off on a false premise.
+3. **The Anthropic first-time-use form is genuinely required**, and neither auto-enablement
+   (Sept 2025) nor the `bedrock-mantle` endpoint avoids it. The docs' twice-stated carve-out
+   ("does not apply to Anthropic models accessed through `bedrock-mantle`") did **not** hold:
+   mantle authenticated fine over SigV4 but returned `403 permission_error — not available for
+   this account`. Mantle stays a P2+ option (server-side tool use, Workspaces) — it costs
+   Guardrails and cross-region inference, and does not dodge model access.
+4. **The blocked state is precisely detectable with ZERO extra permissions.** The runner's own
+   `InvokeModel` returns `ResourceNotFoundException` with *"Model use case details have not been
+   submitted"*. That string drives the setup card (§6) — no wildcard grant, no rating cost.
+   `bedrock:GetFoundationModelAvailability` is *also* usable as a pre-check and **does** scope
+   cleanly to `arn:aws:bedrock:*::foundation-model/*` (verified under a restricted session
+   policy), unlike the use-case actions, which are account-level and cannot be scoped at all —
+   `bedrock:PutUseCaseForModelAccess` on `*` rates **RED** with the real assessor, which is why
+   the form is not submitted from inside the poppy (see §6).
+
 ## 3. What an "agent" is (the data model)
 
 An agent is a stored definition (DynamoDB), not code:
