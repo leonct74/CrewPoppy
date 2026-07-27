@@ -114,8 +114,27 @@ describe("buildTemplate", () => {
     const actions = statements.flatMap((s) => s.Action);
     // aws-marketplace is the one non-CrewPoppy service, and only to let Bedrock finish
     // its own first-use subscription — never to reach account resources.
-    expect(actions.every((a) => /^(logs|dynamodb|s3|bedrock|aws-marketplace|ses):/.test(a))).toBe(true);
+    expect(
+      actions.every((a) => /^(logs|dynamodb|s3|bedrock|aws-marketplace|ses|lambda):/.test(a)),
+    ).toBe(true);
     expect(actions.some((a) => /^(iam|sts):/.test(a))).toBe(false);
+  });
+
+  it("can invoke ITSELF and nothing else (the ticker), scoped to one function", () => {
+    // Live failure 2026-07-27: without this the tick found due agents, wrote their run
+    // rows, then failed at the invoke — runs stuck at "running", nothing saying why.
+    const statements = resources.RunnerRole!.Properties.Policies[0].PolicyDocument.Statement as Array<{
+      Sid: string;
+      Action: string[];
+      Resource: unknown;
+    }>;
+    const self = statements.find((s) => s.Sid === "InvokeSelf")!;
+    expect(self.Action).toEqual(["lambda:InvokeFunction"]);
+    expect(JSON.stringify(self.Resource)).toMatch(/function:CrewPoppyRunner/);
+    expect(JSON.stringify(self.Resource)).not.toMatch(/GetAtt/);
+    // Exactly one lambda action anywhere in the role — no create, no update, no delete.
+    const lambdaActions = statements.flatMap((s) => s.Action).filter((a) => a.startsWith("lambda:"));
+    expect(lambdaActions).toEqual(["lambda:InvokeFunction"]);
   });
 
   it("can send mail, but can never verify a new sender (DESIGN §4c)", () => {

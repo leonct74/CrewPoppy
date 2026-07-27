@@ -481,6 +481,20 @@ Lambda invocation every five minutes, comfortably inside the free tier, and it b
   `attribute_not_exists(sk)`. A duplicated or retried tick cannot fork a second run.
 - **Never stacks up.** An agent already running, or waiting on the owner's answer, is skipped.
 - **One agent's failure is its own** — a broken schedule can't stop the rest of the crew.
+- **🪤 LIVE FAILURE (2026-07-27): the runner could not invoke ITSELF.** The ticker hands each
+  due agent its own invocation, but the runner's in-stack role had no `lambda:InvokeFunction`.
+  The tick found the due agent, wrote its run row, then failed at the invoke — the run sat at
+  "running" until the staleness rule marked it failed, and **nothing on screen said
+  "permission"**. Fixed with an `InvokeSelf` statement scoped to exactly one function, its own,
+  ARN constructed not read back. Guarded by a test asserting the role holds that single lambda
+  action and no other.
+- **🪤 And the clock was unverifiable.** The founder set 20:40 and had no way to tell whether
+  that meant 20:40 where they were: the zone was captured from the browser and only shown, never
+  editable, and nothing said when the next run would be. Fixed with a timezone picker **and** a
+  `POST /schedule-preview` that answers "next run at…" using the TICKER'S OWN CODE. Deliberately
+  a round-trip rather than arithmetic in the frontend: a second implementation could answer
+  confidently and wrongly, which is the one thing a schedule preview must never do. The agent
+  card shows the same computed time.
 - **🪤 Both ARNs are built with `Fn::Sub`, never `Fn::GetAtt`** — the §2b collection-API trap
   repeating; a GetAtt makes CloudFormation call a describe API under our least-privilege grants.
 

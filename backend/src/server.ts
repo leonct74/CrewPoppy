@@ -23,6 +23,7 @@ import { getOwnerEmail, isVerifiedSender, setOwnerEmail } from "./email";
 import { consoleUrl, getCatalogue, getModelAccess } from "./bedrock";
 import {
   COMING_CAPABILITIES, EMAIL_TOOLS, TOOL_GROUPS, TOOL_NAMES, TOOL_NOTES,
+  describeSchedule, nextRunAt, sanitiseSchedule,
 } from "@crewpoppy/shared";
 
 const boot = readBootstrap();
@@ -103,6 +104,22 @@ const server = createServer(async (req, res) => {
     if (method === "GET" && parts[0] === "verify-sender" && parts.length === 1) {
       const address = url.searchParams.get("email") ?? "";
       return json(res, 200, { email: address, verified: await isVerifiedSender(ses, address) });
+    }
+
+    // What a schedule actually means, answered by the SAME code the ticker uses
+    // (DESIGN §5b). The editor asks before saving, so "next run" is a fact rather than
+    // the UI's own guess — the founder had no way to tell whether 20:40 meant 20:40 in
+    // their own clock, and a second implementation in the frontend could have lied.
+    if (method === "POST" && parts[0] === "schedule-preview" && parts.length === 1) {
+      const body = await readJson(req);
+      const schedule = sanitiseSchedule(body.schedule);
+      if (!schedule) return json(res, 200, {});
+      const next = nextRunAt(schedule, new Date());
+      return json(res, 200, {
+        schedule,
+        description: describeSchedule(schedule),
+        nextRunAt: next?.toISOString(),
+      });
     }
 
     // The tool catalogue, with the plain-language note shown beside each checkbox.

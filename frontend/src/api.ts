@@ -5,7 +5,7 @@
 import { host, type BackendInvoke } from "./host";
 import type {
   AgentSummary, DeleteResult, DeploymentStatus, Meta, ModelAccess, ModelCatalogue, OwnerEmail,
-  RunRecord, RunView, ToolCatalogue,
+  RunRecord, RunView, SchedulePreview, ToolCatalogue,
 } from "./types";
 
 /**
@@ -48,6 +48,13 @@ export const api = {
 
   /** The switchable capabilities, grouped as the create form asks them. */
   listTools: (): Promise<ToolCatalogue> => invoke({ method: "GET", path: "/tools" }),
+
+  /**
+   * What a candidate schedule actually means, answered by the ticker's own code. Asked
+   * before saving so "next run" is a fact rather than the UI's own arithmetic.
+   */
+  previewSchedule: (schedule: unknown): Promise<SchedulePreview> =>
+    invoke({ method: "POST", path: "/schedule-preview", body: { schedule } }),
 
   /** The one address agents email you at. Re-checked against SES on every read. */
   ownerEmail: (): Promise<OwnerEmail> => invoke({ method: "GET", path: "/owner-email" }),

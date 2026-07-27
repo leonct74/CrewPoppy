@@ -32,6 +32,7 @@ import {
   isToolName,
   memoryPk,
   monthKeyOf,
+  nextRunAt,
   normaliseEmail,
   runSk,
   sanitiseSchedule,
@@ -63,6 +64,8 @@ export interface AgentInput {
 /** Everything the dashboard shows for one agent, including this month's spend. */
 export interface AgentSummary extends AgentDef {
   monthSpendUsd: number;
+  /** Computed here, by the ticker's own code, so the card can't promise a different time. */
+  nextRunAt?: string;
 }
 
 function requireText(value: unknown, field: string, max: number): string {
@@ -162,8 +165,13 @@ export async function listAgents(
   );
   const defs = (r.Items ?? []) as AgentDef[];
   const monthKey = monthKeyOf(now);
+  const at = new Date(now);
   return Promise.all(
-    defs.map(async (d) => ({ ...d, monthSpendUsd: await monthSpend(ddb, table, d.id, monthKey) })),
+    defs.map(async (d) => ({
+      ...d,
+      monthSpendUsd: await monthSpend(ddb, table, d.id, monthKey),
+      ...(d.schedule ? { nextRunAt: nextRunAt(d.schedule, at)?.toISOString() } : {}),
+    })),
   );
 }
 

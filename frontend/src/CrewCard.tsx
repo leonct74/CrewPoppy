@@ -3,8 +3,8 @@ import { api } from "./api";
 import { Button } from "./Button";
 import { describeSchedule } from "./schedule";
 import type {
-  AgentSchedule, AgentSummary, ModelChoice, OwnerEmail, PendingSend, RunRecord, ToolCatalogue,
-  TranscriptEntry,
+  AgentSchedule, AgentSummary, ModelChoice, OwnerEmail, PendingSend, RunRecord, SchedulePreview,
+  ToolCatalogue, TranscriptEntry,
 } from "./types";
 
 /**
@@ -19,6 +19,18 @@ import type {
  * (AGENTS.md §5).
  */
 const POLL_MS = 2_500;
+
+/**
+ * Every zone the browser knows, with the agent's own kept in the list even if this build
+ * of the runtime doesn't enumerate it — a saved schedule must never lose its clock just
+ * because the picker couldn't offer it.
+ */
+function timezones(current: string): string[] {
+  const supported = (Intl as unknown as { supportedValuesOf?: (k: string) => string[] })
+    .supportedValuesOf?.("timeZone");
+  const list = supported?.length ? supported : ["UTC", "Europe/London", "Europe/Amsterdam", "America/New_York"];
+  return list.includes(current) ? list : [current, ...list];
+}
 
 function money(usd: number | undefined): string {
   if (usd === undefined) return "—";
@@ -154,6 +166,7 @@ function AgentForm(props: {
   const [chosen, setChosen] = useState<string[]>(props.agent?.tools ?? []);
   const [emailFrom, setEmailFrom] = useState(props.agent?.emailFrom ?? "");
   const [sched, setSched] = useState<AgentSchedule | null>(props.agent?.schedule ?? null);
+  const [preview, setPreview] = useState<SchedulePreview | null>(null);
   const [senderState, setSenderState] = useState<"unknown" | "checking" | "ok" | "bad">("unknown");
   const [err, setErr] = useState<string | null>(null);
   const ready = name.trim() && role.trim() && instructions.trim() && modelId;
@@ -161,6 +174,17 @@ function AgentForm(props: {
   const notes = new Map((props.catalogue?.tools ?? []).map((t) => [t.name, t]));
   const wantsEmail = (props.catalogue?.needsEmail ?? []).some((t) => chosen.includes(t));
   const granted = chosen.map((t) => notes.get(t)?.label ?? t);
+
+  // Ask the BACKEND what this schedule means — the same code the ticker runs. The
+  // founder set 20:40 and had no way to know which clock that was in; a second
+  // implementation here could have answered confidently and wrongly.
+  useEffect(() => {
+    if (!sched?.task.trim()) return setPreview(null);
+    const t = window.setTimeout(() => {
+      void api.previewSchedule(sched).then(setPreview).catch(() => setPreview(null));
+    }, 300);
+    return () => window.clearTimeout(t);
+  }, [sched]);
 
   // An address of its own must be one AWS will really send from. Checked as it's typed,
   // so the answer arrives before the save rather than as a bounce days later.
@@ -348,6 +372,18 @@ function AgentForm(props: {
                 </div>
               </label>
             </div>
+            <label className="field" style={{ marginBottom: 8 }}>
+              <span>In which clock?</span>
+              <select
+                className="select"
+                value={sched.timezone}
+                onChange={(e) => setSched({ ...sched, timezone: e.target.value })}
+              >
+                {timezones(sched.timezone).map((tz) => (
+                  <option key={tz} value={tz}>{tz.replace(/_/g, " ")}</option>
+                ))}
+              </select>
+            </label>
             <label className="field" style={{ margin: 0 }}>
               <span>What should it do each time?</span>
               <textarea
@@ -356,10 +392,19 @@ function AgentForm(props: {
                 onChange={(e) => setSched({ ...sched, task: e.target.value })}
                 placeholder="Check yesterday's enquiries and email me a short summary."
               />
-              <small className="muted" style={{ fontSize: 12 }}>
-                Times are in your own clock ({sched.timezone}). A run that's already going — or
-                waiting on your answer — is never doubled up.
-              </small>
+              {/* The promise, in the reader's own local time, computed by the ticker's
+                  own code. If this line is wrong, the schedule is wrong — which is
+                  exactly what you want to find out BEFORE waiting for 20:40. */}
+              {preview?.nextRunAt ? (
+                <small className="muted" style={{ fontSize: 12 }}>
+                  {preview.description}. <strong>Next run: {new Date(preview.nextRunAt).toLocaleString()}</strong>{" "}
+                  your time. A run already going — or waiting on your answer — is never doubled up.
+                </small>
+              ) : (
+                <small className="muted" style={{ fontSize: 12 }}>
+                  Give it a job above and you'll see exactly when it next runs.
+                </small>
+              )}
             </label>
           </div>
         )}
@@ -717,7 +762,11 @@ function AgentRow(props: {
             </span>
           </div>
           <p className="muted-2" style={{ margin: "4px 0 0", fontSize: 12 }}>
-            {agent.schedule?.enabled ? `${describeSchedule(agent.schedule)} · ` : ""}
+            {agent.nextRunAt
+              ? `Next run ${new Date(agent.nextRunAt).toLocaleString()} · `
+              : agent.schedule?.enabled
+                ? `${describeSchedule(agent.schedule)} · `
+                : ""}
             {agent.tools?.length ? `Can: ${agent.tools.length} tool${agent.tools.length === 1 ? "" : "s"} · ` : ""}
             Thinks with <strong>{model?.label ?? agent.modelId}</strong>
             {model ? ` (${model.cost})` : ""} · this month: {money(spent)} of $

@@ -241,6 +241,23 @@ export function buildTemplate(): CfnTemplate {
                     ],
                   },
                   {
+                    // The ticker hands each due agent its OWN invocation, so the runner
+                    // has to be able to invoke itself (DESIGN §5b). Scoped to exactly one
+                    // function — its own — and the ARN is CONSTRUCTED, never read back
+                    // with Fn::GetAtt (the §2b trap).
+                    //
+                    // 🪤 Missing this is silent: the tick finds due agents, writes their
+                    // run rows, then fails at the invoke. The runs sit at "running" until
+                    // the staleness rule marks them failed, and nothing on screen says
+                    // "permission". It cost a live schedule test.
+                    Sid: "InvokeSelf",
+                    Effect: "Allow",
+                    Action: ["lambda:InvokeFunction"],
+                    Resource: {
+                      "Fn::Sub": `arn:\${AWS::Partition}:lambda:\${AWS::Region}:\${AWS::AccountId}:function:${RUNNER_FUNCTION_NAME}`,
+                    },
+                  },
+                  {
                     // Email (DESIGN §4c). Sending is scoped to identities the owner has
                     // ALREADY verified in their own account — this grant creates no new
                     // ability to prove an address, only to use one that is proven.

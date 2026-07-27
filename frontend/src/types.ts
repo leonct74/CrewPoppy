@@ -90,6 +90,8 @@ export interface AgentSummary {
   /** The verified address this agent sends from, if it has one of its own. */
   emailFrom?: string;
   schedule?: AgentSchedule;
+  /** When it next fires, computed by the ticker's own code. */
+  nextRunAt?: string;
   caps: AgentCaps;
   createdAt: string;
   updatedAt: string;
@@ -173,6 +175,13 @@ export interface AgentSchedule {
   timezone: string;
   task: string;
   enabled: boolean;
+}
+
+/** What a schedule means, answered by the backend so the UI never does its own maths. */
+export interface SchedulePreview {
+  schedule?: AgentSchedule;
+  description?: string;
+  nextRunAt?: string;
 }
 
 /** The one address agents email you at (DESIGN §4c). */
