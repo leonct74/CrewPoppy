@@ -324,7 +324,15 @@ export function buildTemplate(): CfnTemplate {
         Properties: {
           Name: TICK_RULE_NAME,
           Description: "Wakes the CrewPoppy runner to start any agent whose schedule is due.",
-          ScheduleExpression: `rate(${TICK_MINUTES} minutes)`,
+          // 🪤 NOT `rate(5 minutes)`. A rate expression counts from the moment the rule
+          // was CREATED, so its ticks land on an arbitrary offset — :02, :07, :12… or
+          // :06, :11, :16. In the second case a schedule set for 21:00 is never sampled
+          // at all: the ticker simply never looks during its window, and whether an
+          // agent runs depends on which minute the stack happened to be deployed.
+          //
+          // A cron expression is aligned to the clock, so the ticks are always :00, :05,
+          // :10… — which is exactly the set of minutes `sanitiseSchedule` snaps to.
+          ScheduleExpression: `cron(0/${TICK_MINUTES} * * * ? *)`,
           State: "ENABLED",
           Targets: [
             {

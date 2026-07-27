@@ -42,8 +42,14 @@ describe("buildTemplate", () => {
   describe("the schedule ticker (DESIGN §5b)", () => {
     it("is ONE rule for the whole install, not one per agent", () => {
       const rule = resources.TickRule!.Properties as { ScheduleExpression: string; Targets: unknown[] };
-      expect(rule.ScheduleExpression).toBe(`rate(${TICK_MINUTES} minutes)`);
       expect(rule.Targets).toHaveLength(1);
+      // Live failure 2026-07-27: `rate(5 minutes)` counts from rule CREATION, so ticks
+      // land on an arbitrary offset. If they fall at :06/:11/:16, a schedule set for
+      // 21:00 is never sampled and never fires — and which it is depends on the minute
+      // the stack was deployed. Cron is clock-aligned, so ticks are always :00/:05/:10,
+      // exactly the minutes sanitiseSchedule snaps to.
+      expect(rule.ScheduleExpression).toBe(`cron(0/${TICK_MINUTES} * * * ? *)`);
+      expect(rule.ScheduleExpression).not.toMatch(/^rate\(/);
     });
 
     it("builds both ARNs with Fn::Sub — never Fn::GetAtt (the collection-API trap)", () => {

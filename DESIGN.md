@@ -488,6 +488,14 @@ Lambda invocation every five minutes, comfortably inside the free tier, and it b
   "permission"**. Fixed with an `InvokeSelf` statement scoped to exactly one function, its own,
   ARN constructed not read back. Guarded by a test asserting the role holds that single lambda
   action and no other.
+- **🪤 LIVE FAILURE (2026-07-27, same evening): `rate(5 minutes)` is NOT clock-aligned.** A
+  rate expression counts from the moment the rule was created, so its ticks land on an
+  arbitrary offset — :02/:07/:12… or :06/:11/:16. In the second case a schedule set for 21:00
+  is **never sampled**: the ticker doesn't look during the window, so the agent never runs, and
+  which behaviour you get depends on the minute the stack happened to be deployed. That is the
+  worst kind of bug — silent, intermittent across installs, and impossible to tell apart from
+  "the schedule is wrong". Fixed with `cron(0/5 * * * ? *)`, which is aligned to the clock, so
+  ticks are always :00/:05/:10 — exactly the minutes `sanitiseSchedule` snaps to.
 - **🪤 And the clock was unverifiable.** The founder set 20:40 and had no way to tell whether
   that meant 20:40 where they were: the zone was captured from the browser and only shown, never
   editable, and nothing said when the next run would be. Fixed with a timezone picker **and** a
