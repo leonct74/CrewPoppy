@@ -833,3 +833,39 @@ they only ever appear on a real deploy): the **STS packed-policy budget** and th
 **Next: P1 — one agent, one run** (§16). Note for P1: it introduces the first real Bedrock
 spend, so model access must be enabled in the founder's Bedrock console first, and caps stay
 tiny during testing.
+
+## P2 — COMPLETE ✅ (live-verified + RE-CERTIFIED, 2026-07-27)
+
+Tools, the approval gate, email, and the chat run view. Live on the founder's account
+(675546221165 / eu-west-1).
+
+**Live acceptance, all passed:**
+- **Tools + `ask_user`** — a run pauses, the owner answers, and the run resumes from its
+  checkpoint without replaying a single earlier tool call.
+- **Email to the owner** — `email_owner` delivered; the owner replied to it (replies land in
+  their own inbox, since an agent without its own address sends from theirs).
+- **The external-send gate (§4c), all three paths** — approve sends the STORED copy verbatim;
+  typed changes are treated as a revision and send NOTHING; deny sends nothing and the agent
+  explains why it asked. This is the one that had to be right, and it is.
+- **Delete an agent (§3a)** — removes memory, files, runs, transcripts, checkpoint and spend
+  counters, refuses while a run is live.
+- **Leaves no trace — RE-CERTIFIED with REAL DATA in the account.** Deliberately run against a
+  dirty install (agents, memory, an owner-email config row, run history, a populated workspace
+  bucket) rather than a clean stack — a teardown of an empty deployment proves very little,
+  and a non-empty bucket is exactly what CloudFormation refuses to delete. Result: footprint
+  of 6 → **`residualsAfter: []`, `passed: true`, zero problems, zero warnings**, teardown hook
+  ran. `deletedStacks: []` is correct and expected, as at P0: our hook deletes the stack before
+  the harness's own step. Cert manifest `2d259ad24487…`.
+
+**🪤 Harness note (AgentsPoppy, not CrewPoppy): `certify` does not EXIT.** The certification
+itself completed and wrote the certificate, then the process stayed alive indefinitely — the
+`finally` block's `server.close()` never resolves, or something in the broker keeps a handle
+open. Harmless locally (the verdict is in the cert file) but it makes certify unusable in CI
+and will bite at directory submission (MARKETPLACE M7). Worth fixing in the agentspoppy repo.
+
+**Live failures fixed along the way**, each written up above: the model catalogue offering
+brains the engine can't drive (§2c #6), and the run view being a bespoke visual pattern rather
+than a chat (§10b).
+
+**Next: P3** — schedules (an agent that runs itself), the live cost meter, the `--win32`
+build, packing, screenshots, and a final certify against the shipping stack.
