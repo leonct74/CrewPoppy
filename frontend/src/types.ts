@@ -89,6 +89,7 @@ export interface AgentSummary {
   tools: string[];
   /** The verified address this agent sends from, if it has one of its own. */
   emailFrom?: string;
+  schedule?: AgentSchedule;
   caps: AgentCaps;
   createdAt: string;
   updatedAt: string;
@@ -161,6 +162,17 @@ export interface ToolCatalogue {
   /** Tools that do nothing until an email address is set for this install. */
   needsEmail: string[];
   coming?: ComingCapability[];
+}
+
+/** When an agent runs itself (DESIGN §5b). Data on the agent, not an AWS resource. */
+export interface AgentSchedule {
+  kind: "hourly" | "daily" | "weekly";
+  hour: number;
+  minute: number;
+  weekday: number;
+  timezone: string;
+  task: string;
+  enabled: boolean;
 }
 
 /** The one address agents email you at (DESIGN §4c). */

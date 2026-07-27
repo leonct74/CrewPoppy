@@ -452,6 +452,38 @@ trust her. No fine-tuning anywhere in that story.
   gates spans segments naturally. Long-running/expensive agents are a **post-MVP Fargate**
   execution target (noted so we don't over-build now).
 
+### 5b. Agents that run themselves — ONE ticker, not a rule per agent (P3, 2026-07-27)
+
+An implementation decision, recorded here per CLAUDE.md.
+
+**The obvious design is one EventBridge rule per agent, and it's the wrong one.** It makes the
+sidecar create and delete AWS resources every time somebody edits a schedule, which:
+- needs `events:PutRule`/`PutTargets` **plus `lambda:AddPermission` at runtime** — ~10 more
+  manifest actions against the STS packed-policy budget that already bit us once (§2b);
+- leaves per-agent resources for the sweep to find at teardown;
+- puts a failure mode between "I set a schedule" and "it saved".
+
+**So the stack owns ONE rule** (`CrewPoppyTick`, `rate(5 minutes)`) that pokes the runner, and a
+schedule is **data on the agent**, exactly like its tools and its caps — free to change, nothing
+to provision, nothing to leak, and it disappears when the agent does. The tick costs one short
+Lambda invocation every five minutes, comfortably inside the free tier, and it buys back the
+"$0 when idle" promise everywhere else.
+
+- **Plain language, never cron.** "Every day at 09:00" is checkable at a glance; `0 9 * * *` is
+  something people get wrong and discover a week later. Hourly / daily / weekly, and the minute
+  picker only offers multiples of the tick — offering 09:07 would promise precision we lack.
+- **The owner's clock.** An IANA zone is stored, so 09:00 stays 09:00 across a daylight-saving
+  change (tested both sides of one).
+- **Due is a WINDOW, not an equality.** EventBridge fires "within the minute", never on the
+  second; testing for an exact wall-clock reading would skip runs silently, forever.
+- **Idempotent by SLOT.** The run id is `slotIdFor(agent, slot)` — a pure function of the agent
+  and the time slot, never of "now" (CLAUDE.md gotcha #3) — written with
+  `attribute_not_exists(sk)`. A duplicated or retried tick cannot fork a second run.
+- **Never stacks up.** An agent already running, or waiting on the owner's answer, is skipped.
+- **One agent's failure is its own** — a broken schedule can't stop the rest of the crew.
+- **🪤 Both ARNs are built with `Fn::Sub`, never `Fn::GetAtt`** — the §2b collection-API trap
+  repeating; a GetAtt makes CloudFormation call a describe API under our least-privilege grants.
+
 ## 6. LLM inference — Amazon Bedrock (tokens bill to your AWS)
 
 - **Bedrock-first**, in the owner's account, chosen region. Inference bills to their AWS like

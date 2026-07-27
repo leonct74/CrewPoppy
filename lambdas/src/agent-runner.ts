@@ -13,7 +13,10 @@
 // tool NAMES; the dispatcher decides what, if anything, happens.
 
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
-import { DynamoDBDocumentClient, GetCommand, PutCommand, UpdateCommand } from "@aws-sdk/lib-dynamodb";
+import {
+  DynamoDBDocumentClient, GetCommand, PutCommand, QueryCommand, UpdateCommand,
+} from "@aws-sdk/lib-dynamodb";
+import { InvokeCommand, LambdaClient } from "@aws-sdk/client-lambda";
 import { S3Client } from "@aws-sdk/client-s3";
 import { BedrockRuntimeClient, InvokeModelCommand } from "@aws-sdk/client-bedrock-runtime";
 import { SESv2Client } from "@aws-sdk/client-sesv2";
@@ -28,6 +31,8 @@ import {
   agentPk,
   agentSk,
   capCostFor,
+  isDue,
+  slotIdFor,
   checkStart,
   checkpointPk,
   costFor,
@@ -55,6 +60,8 @@ const ddb = DynamoDBDocumentClient.from(new DynamoDBClient({ region: REGION }));
 const s3 = new S3Client({ region: REGION });
 const bedrock = new BedrockRuntimeClient({ region: REGION });
 const ses = new SESv2Client({ region: REGION });
+/** Used ONLY by the ticker, to hand each due agent its own invocation. */
+const lambda = new LambdaClient({ region: REGION });
 
 /**
  * Call the model through the REGIONAL INFERENCE PROFILE.
@@ -130,7 +137,99 @@ async function addSpend(table: string, agentId: string, monthKey: string, usd: n
   );
 }
 
-export async function handler(event: RunnerEvent): Promise<{ ok: boolean; status: string }> {
+/**
+ * The ticker (DESIGN §5b). EventBridge pokes us every few minutes; we start a run for
+ * every agent whose schedule says it's due, and do nothing at all the rest of the time.
+ *
+ * Three rules, each load-bearing:
+ *
+ *  1. IDEMPOTENT BY SLOT. The run id comes from `slotIdFor`, a pure function of the agent
+ *     and the time slot — never of "now" (CLAUDE.md gotcha #3). A duplicated or retried
+ *     tick writes the SAME row instead of starting a second run.
+ *  2. NEVER STACK RUNS. An agent already running or waiting on you is skipped. A schedule
+ *     that fires while yesterday's run is still waiting for an answer must not pile up.
+ *  3. ONE AGENT'S FAILURE IS ITS OWN. Each is started independently, so a broken schedule
+ *     can't stop the rest of the crew from running.
+ */
+async function tick(table: string, now: Date): Promise<{ ok: boolean; status: string }> {
+  const listed = await ddb.send(
+    new QueryCommand({
+      TableName: table,
+      KeyConditionExpression: "pk = :pk",
+      ExpressionAttributeValues: { ":pk": AGENTS_PK },
+    }),
+  );
+  const agents = ((listed.Items ?? []) as AgentDef[]).filter((a) => a.schedule && isDue(a.schedule, now));
+
+  let started = 0;
+  for (const agent of agents) {
+    const runId = slotIdFor(agent.id, agent.schedule!, now);
+    try {
+      // Already busy? Leave it alone. Deliberately checked per agent rather than once:
+      // the answer is only meaningful for the agent we're about to start.
+      const runs = await ddb.send(
+        new QueryCommand({
+          TableName: table,
+          KeyConditionExpression: "pk = :pk AND begins_with(sk, :sk)",
+          ExpressionAttributeValues: { ":pk": agentPk(agent.id), ":sk": "run#" },
+          ScanIndexForward: false,
+          Limit: 5,
+        }),
+      );
+      const busy = ((runs.Items ?? []) as RunRecord[]).some(
+        (r) => r.status === "running" || r.status === "waiting",
+      );
+      if (busy) continue;
+
+      const record: RunRecord = {
+        runId,
+        agentId: agent.id,
+        status: "running",
+        input: agent.schedule!.task,
+        cost: { usage: { inputTokens: 0, outputTokens: 0 } },
+        iterations: 0,
+        startedAt: now.toISOString(),
+        modelId: agent.modelId,
+      };
+      await ddb.send(
+        new PutCommand({
+          TableName: table,
+          Item: { pk: agentPk(agent.id), sk: runSk(runId), ...record },
+          // The second half of idempotency: if this slot already produced a run, don't
+          // overwrite it and don't invoke again.
+          ConditionExpression: "attribute_not_exists(sk)",
+        }),
+      );
+      await lambda.send(
+        new InvokeCommand({
+          FunctionName: process.env.AWS_LAMBDA_FUNCTION_NAME ?? "CrewPoppyRunner",
+          InvocationType: "Event",
+          Payload: Buffer.from(
+            JSON.stringify({ runId, agentId: agent.id, input: agent.schedule!.task, tableName: table }),
+          ),
+        }),
+      );
+      started += 1;
+    } catch (e) {
+      // ConditionalCheckFailed = another tick got here first. That is success, not error.
+      if ((e as { name?: string })?.name !== "ConditionalCheckFailedException") {
+        console.error(`[crewpoppy] schedule for ${agent.id} failed to start:`, e);
+      }
+    }
+  }
+  return { ok: true, status: `tick: ${started} started` };
+}
+
+export async function handler(
+  event: RunnerEvent | { kind: "tick" },
+): Promise<{ ok: boolean; status: string }> {
+  if ((event as { kind?: string }).kind === "tick") {
+    return tick(process.env.CREWPOPPY_TABLE || "", new Date());
+  }
+  return runSegment(event as RunnerEvent);
+}
+
+async function runSegment(event: RunnerEvent): Promise<{ ok: boolean; status: string }> {
   const table = process.env.CREWPOPPY_TABLE || event.tableName;
   const bucket = process.env.CREWPOPPY_WORKSPACE_BUCKET || "";
   const startMs = Date.now();

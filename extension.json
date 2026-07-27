@@ -2,12 +2,12 @@
   "id": "com.crewpoppy.desktop",
   "name": "CrewPoppy",
   "version": "0.1.0",
-  "description": "Mission Control for your AI crew \u2014 task-specific AI agents that run entirely in your own AWS, with hard spend caps and every action visible.",
+  "description": "Mission Control for your AI crew — task-specific AI agents that run entirely in your own AWS, with hard spend caps and every action visible.",
   "icon": "frontend/crewpoppy-icon.png",
   "permissionSet": {
     "id": "crewpoppy-backend",
     "name": "CrewPoppy backend",
-    "description": "Deploys and removes its own CloudFormation stack (CrewPoppyStack): the agents table, the agent workspace bucket, the agent-runner function and its execution role. Every change and delete is limited to resources named CrewPoppy*/crewpoppy-* \u2014 it cannot touch anything else in your account. The one role it creates is the runner's own, name-locked to CrewPoppy*, and only that role can invoke AI models (Bedrock) \u2014 billed to your AWS, capped by CrewPoppy's spend limits. If you let an agent send email, that role can also send from addresses you have ALREADY verified in SES \u2014 it can never verify a new one, and CrewPoppy refuses to send to anyone but you until you approve that exact message. Here it only READS whether an address is verified.",
+    "description": "Deploys and removes its own CloudFormation stack (CrewPoppyStack): the agents table, the agent workspace bucket, the agent-runner function and its execution role. Every change and delete is limited to resources named CrewPoppy*/crewpoppy-* — it cannot touch anything else in your account. The one role it creates is the runner's own, name-locked to CrewPoppy*, and only that role can invoke AI models (Bedrock) — billed to your AWS, capped by CrewPoppy's spend limits. If you let an agent send email, that role can also send from addresses you have ALREADY verified in SES — it can never verify a new one, and CrewPoppy refuses to send to anyone but you until you approve that exact message. Here it only READS whether an address is verified.",
     "requiredTags": [
       "agentspoppy:account",
       "agentspoppy:app",
@@ -74,7 +74,10 @@
           "UpdateFunctionConfiguration",
           "TagResource",
           "ListTags",
-          "InvokeFunction"
+          "InvokeFunction",
+          "AddPermission",
+          "RemovePermission",
+          "GetPolicy"
         ],
         "resourceScope": "arn:aws:lambda:*:*:function:CrewPoppy*"
       },
@@ -105,6 +108,20 @@
           "GetEmailIdentity"
         ],
         "resourceScope": "arn:aws:ses:*:*:identity/*"
+      },
+      {
+        "service": "events",
+        "actions": [
+          "PutRule",
+          "DeleteRule",
+          "DescribeRule",
+          "PutTargets",
+          "RemoveTargets",
+          "ListTargetsByRule",
+          "TagResource",
+          "ListTagsForResource"
+        ],
+        "resourceScope": "arn:aws:events:*:*:rule/CrewPoppy*"
       },
       {
         "service": "logs",

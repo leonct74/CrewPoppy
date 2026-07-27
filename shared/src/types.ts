@@ -2,6 +2,8 @@
 // machine) and the agent-runner Lambda (execution, in the user's AWS). Both bundle this
 // module, so the wire contract can't drift between them.
 
+import type { AgentSchedule } from "./schedule";
+
 /** Safe defaults — never unlimited (DESIGN §7, §14.6). Every agent starts capped. */
 export const DEFAULT_CAPS: AgentCaps = {
   maxIterations: 8,
@@ -60,6 +62,12 @@ export interface AgentDef {
    * own address.
    */
   emailFrom?: string;
+  /**
+   * When this agent runs itself (DESIGN §5b). Data on the agent, not an AWS resource:
+   * one ticker serves the whole install, so changing a schedule provisions nothing and
+   * leaves nothing behind.
+   */
+  schedule?: AgentSchedule;
   caps: AgentCaps;
   createdAt: string;
   updatedAt: string;
@@ -98,12 +106,6 @@ export interface TranscriptEntry {
 }
 
 /**
- * A suspended run (DESIGN §5). A Lambda cannot block for hours waiting on a human, so
- * `ask_user` writes the WHOLE conversation here and exits; answering resumes from this
- * and nothing else. The checkpoint is the entire truth — which is what makes resuming
- * safe: earlier tool calls are never replayed, they are already in `messages`.
- */
-/**
  * An action the agent PROPOSED and the owner has not yet approved (DESIGN §4c).
  *
  * Stored on the checkpoint verbatim, and executed from HERE — never from whatever the
@@ -118,6 +120,12 @@ export interface PendingSend {
   body: string;
 }
 
+/**
+ * A suspended run (DESIGN §5). A Lambda cannot block for hours waiting on a human, so
+ * `ask_user` writes the WHOLE conversation here and exits; answering resumes from this
+ * and nothing else. The checkpoint is the entire truth — which is what makes resuming
+ * safe: earlier tool calls are never replayed, they are already in `messages`.
+ */
 export interface RunCheckpoint {
   runId: string;
   agentId: string;

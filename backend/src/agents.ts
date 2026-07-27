@@ -34,6 +34,7 @@ import {
   monthKeyOf,
   normaliseEmail,
   runSk,
+  sanitiseSchedule,
   sanitiseCaps,
   spendPk,
   spendSk,
@@ -54,6 +55,8 @@ export interface AgentInput {
   tools?: unknown;
   /** An address the owner verified, "" to clear it, or absent to leave it as it was. */
   emailFrom?: unknown;
+  /** When it runs itself. null clears it; absent leaves it alone. */
+  schedule?: unknown;
   caps?: Partial<AgentCaps>;
 }
 
@@ -98,6 +101,19 @@ export async function saveAgent(
         ? {}
         : existing?.emailFrom
           ? { emailFrom: existing.emailFrom }
+          : {}),
+    // Same rule as caps and tools: nothing the client sends is stored raw. A schedule
+    // with no task, an hour of 99, or a timezone that doesn't exist becomes either a
+    // safe value or no schedule at all (DESIGN §5b).
+    ...(input.schedule === null || input.schedule === ""
+      ? {}
+      : input.schedule !== undefined
+        ? (() => {
+            const s = sanitiseSchedule(input.schedule);
+            return s ? { schedule: s } : {};
+          })()
+        : existing?.schedule
+          ? { schedule: existing.schedule }
           : {}),
     // Caps are never taken raw from the client: a missing or absurd value falls back to
     // the safe default, so an agent can't be created without limits (DESIGN §7).

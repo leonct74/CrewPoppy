@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { TICK_MINUTES } from "@crewpoppy/shared";
 import {
   buildTemplate,
   RUNNER_FUNCTION_NAME,
@@ -24,14 +25,46 @@ describe("buildTemplate", () => {
     expect(resources.WorkspaceBucket!.Properties.BucketName["Fn::Sub"]).toMatch(/^crewpoppy-/);
   });
 
-  it("declares the P0 footprint: table, workspace bucket, log group, role, runner", () => {
+  it("declares the whole footprint, and nothing else", () => {
+    // An exact list on purpose: a resource that appears here without a deliberate change
+    // to this test is a resource nobody decided to create.
     expect(Object.keys(resources).sort()).toEqual([
       "CrewTable",
       "RunnerFunction",
       "RunnerLogGroup",
       "RunnerRole",
+      "TickPermission",
+      "TickRule",
       "WorkspaceBucket",
     ]);
+  });
+
+  describe("the schedule ticker (DESIGN §5b)", () => {
+    it("is ONE rule for the whole install, not one per agent", () => {
+      const rule = resources.TickRule!.Properties as { ScheduleExpression: string; Targets: unknown[] };
+      expect(rule.ScheduleExpression).toBe(`rate(${TICK_MINUTES} minutes)`);
+      expect(rule.Targets).toHaveLength(1);
+    });
+
+    it("builds both ARNs with Fn::Sub — never Fn::GetAtt (the collection-API trap)", () => {
+      // Same lesson as the log group: a GetAtt makes CloudFormation call a describe API
+      // under our least-privilege grants, and that is what rolled a whole stack back.
+      const json = JSON.stringify([resources.TickRule, resources.TickPermission]);
+      expect(json).not.toMatch(/GetAtt/);
+      expect(json).toMatch(/Fn::Sub/);
+    });
+
+    it("lets ONLY that rule invoke the runner", () => {
+      const p = resources.TickPermission!.Properties as {
+        Principal: string;
+        Action: string;
+        SourceArn: unknown;
+      };
+      expect(p.Principal).toBe("events.amazonaws.com");
+      expect(p.Action).toBe("lambda:InvokeFunction");
+      // Without SourceArn, any EventBridge rule in the account could fire the runner.
+      expect(JSON.stringify(p.SourceArn)).toMatch(/rule\/CrewPoppyTick/);
+    });
   });
 
   it("enables TTL from day zero (checkpoint/question expiry, DESIGN §5)", () => {

@@ -13,6 +13,8 @@
 // your stack"). Nothing gets DeletionPolicy: Retain, and deletion protection stays off —
 // both would make our own teardown fail.
 
+import { TICK_MINUTES } from "@crewpoppy/shared";
+
 /** The one stack we deploy. The manifest's cloudformation grant is scoped to this exact name. */
 export const STACK_NAME = "CrewPoppyStack";
 
@@ -38,6 +40,9 @@ export const RUNNER_FUNCTION_NAME = "CrewPoppyRunner";
 
 /** The runner's execution role — the manifest's iam grant is name-scoped to CrewPoppy*. */
 export const RUNNER_ROLE_NAME = "CrewPoppyRunnerRole";
+
+/** The single EventBridge rule that wakes the runner to check for due schedules (§5b). */
+export const TICK_RULE_NAME = "CrewPoppyTick";
 
 /**
  * The per-agent workspace bucket (DESIGN.md §3: each agent's files live under its own
@@ -285,6 +290,50 @@ export function buildTemplate(): CfnTemplate {
           // what stops a run, so the user always gets a recorded reason.
           Timeout: 300,
         },
+      },
+
+      /**
+       * ONE ticker for the whole install (DESIGN §5b). Not one rule per agent: a schedule
+       * is DATA on the agent, and this pokes the runner every few minutes to ask which
+       * agents are due.
+       *
+       * 🪤 Both ARNs below are CONSTRUCTED with Fn::Sub, never read back with Fn::GetAtt.
+       * That's the §2b lesson repeating: a GetAtt makes CloudFormation call a describe API
+       * on our behalf, and least-privilege grants are exactly where those fail — it cost a
+       * whole stack rollback once already.
+       */
+      TickRule: {
+        Type: "AWS::Events::Rule",
+        Properties: {
+          Name: TICK_RULE_NAME,
+          Description: "Wakes the CrewPoppy runner to start any agent whose schedule is due.",
+          ScheduleExpression: `rate(${TICK_MINUTES} minutes)`,
+          State: "ENABLED",
+          Targets: [
+            {
+              Id: "runner",
+              Arn: {
+                "Fn::Sub": `arn:\${AWS::Partition}:lambda:\${AWS::Region}:\${AWS::AccountId}:function:${RUNNER_FUNCTION_NAME}`,
+              },
+              Input: JSON.stringify({ kind: "tick" }),
+            },
+          ],
+        },
+      },
+
+      /** EventBridge may invoke the runner — and ONLY from this one rule. */
+      TickPermission: {
+        Type: "AWS::Lambda::Permission",
+        Properties: {
+          FunctionName: RUNNER_FUNCTION_NAME,
+          Action: "lambda:InvokeFunction",
+          Principal: "events.amazonaws.com",
+          // Without SourceArn any EventBridge rule in the account could invoke the runner.
+          SourceArn: {
+            "Fn::Sub": `arn:\${AWS::Partition}:events:\${AWS::Region}:\${AWS::AccountId}:rule/${TICK_RULE_NAME}`,
+          },
+        },
+        DependsOn: ["RunnerFunction"],
       },
     },
     Outputs: {

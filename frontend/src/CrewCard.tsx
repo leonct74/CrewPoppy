@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "./api";
 import { Button } from "./Button";
+import { describeSchedule } from "./schedule";
 import type {
-  AgentSummary, ModelChoice, OwnerEmail, PendingSend, RunRecord, ToolCatalogue, TranscriptEntry,
+  AgentSchedule, AgentSummary, ModelChoice, OwnerEmail, PendingSend, RunRecord, ToolCatalogue,
+  TranscriptEntry,
 } from "./types";
 
 /**
@@ -151,6 +153,7 @@ function AgentForm(props: {
   // every ability is something the owner deliberately grants (DESIGN §1b).
   const [chosen, setChosen] = useState<string[]>(props.agent?.tools ?? []);
   const [emailFrom, setEmailFrom] = useState(props.agent?.emailFrom ?? "");
+  const [sched, setSched] = useState<AgentSchedule | null>(props.agent?.schedule ?? null);
   const [senderState, setSenderState] = useState<"unknown" | "checking" | "ok" | "bad">("unknown");
   const [err, setErr] = useState<string | null>(null);
   const ready = name.trim() && role.trim() && instructions.trim() && modelId;
@@ -251,6 +254,115 @@ function AgentForm(props: {
             They stop when they reach it. You can change it any time.
           </small>
         </label>
+      </div>
+
+      {/* Runs itself (DESIGN §5b). Deliberately plain-language, never a cron string:
+          "Every day at 09:00" is something you can check at a glance; "0 9 * * *" is
+          something people get wrong and only find out about a week later. */}
+      <div className="field">
+        <span>Does {name.trim() || "this agent"} run on its own?</span>
+        <label className="row" style={{ alignItems: "flex-start", gap: 8, marginTop: 4 }}>
+          <input
+            type="checkbox"
+            checked={!!sched}
+            onChange={(e) =>
+              setSched(
+                e.target.checked
+                  ? {
+                      kind: "daily",
+                      hour: 9,
+                      minute: 0,
+                      weekday: 1,
+                      // Their clock, not the server's — so 09:00 stays 09:00 for them,
+                      // including across a daylight-saving change.
+                      timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC",
+                      task: "",
+                      enabled: true,
+                    }
+                  : null,
+              )
+            }
+            style={{ marginTop: 3 }}
+          />
+          <span style={{ flex: 1 }}>
+            <strong style={{ fontSize: 13 }}>Run on a schedule</strong>
+            <span className="muted" style={{ display: "block", fontSize: 12 }}>
+              It does the job below by itself, whether or not this app is open.
+            </span>
+          </span>
+        </label>
+
+        {sched && (
+          <div className="card" style={{ margin: "8px 0 0", padding: 10 }}>
+            <div className="grid-2">
+              <label className="field" style={{ marginBottom: 8 }}>
+                <span>How often</span>
+                <select
+                  className="select"
+                  value={sched.kind}
+                  onChange={(e) => setSched({ ...sched, kind: e.target.value as AgentSchedule["kind"] })}
+                >
+                  <option value="hourly">Every hour</option>
+                  <option value="daily">Every day</option>
+                  <option value="weekly">Every week</option>
+                </select>
+              </label>
+              <label className="field" style={{ marginBottom: 8 }}>
+                <span>{sched.kind === "hourly" ? "Minutes past the hour" : "At what time"}</span>
+                <div className="row" style={{ gap: 6, flexWrap: "nowrap" }}>
+                  {sched.kind === "weekly" && (
+                    <select
+                      className="select"
+                      value={sched.weekday}
+                      onChange={(e) => setSched({ ...sched, weekday: Number(e.target.value) })}
+                    >
+                      {["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"].map(
+                        (d, i) => (
+                          <option key={d} value={i}>{d}</option>
+                        ),
+                      )}
+                    </select>
+                  )}
+                  {sched.kind !== "hourly" && (
+                    <select
+                      className="select"
+                      value={sched.hour}
+                      onChange={(e) => setSched({ ...sched, hour: Number(e.target.value) })}
+                    >
+                      {Array.from({ length: 24 }, (_, h) => (
+                        <option key={h} value={h}>{String(h).padStart(2, "0")}</option>
+                      ))}
+                    </select>
+                  )}
+                  {/* Only offers what the ticker can actually honour — promising 09:07
+                      when we wake every 5 minutes would be a lie in the UI. */}
+                  <select
+                    className="select"
+                    value={sched.minute}
+                    onChange={(e) => setSched({ ...sched, minute: Number(e.target.value) })}
+                  >
+                    {Array.from({ length: 12 }, (_, i) => i * 5).map((m) => (
+                      <option key={m} value={m}>{String(m).padStart(2, "0")}</option>
+                    ))}
+                  </select>
+                </div>
+              </label>
+            </div>
+            <label className="field" style={{ margin: 0 }}>
+              <span>What should it do each time?</span>
+              <textarea
+                className="input"
+                value={sched.task}
+                onChange={(e) => setSched({ ...sched, task: e.target.value })}
+                placeholder="Check yesterday's enquiries and email me a short summary."
+              />
+              <small className="muted" style={{ fontSize: 12 }}>
+                Times are in your own clock ({sched.timezone}). A run that's already going — or
+                waiting on your answer — is never doubled up.
+              </small>
+            </label>
+          </div>
+        )}
       </div>
 
       {props.catalogue && (
@@ -389,6 +501,7 @@ function AgentForm(props: {
                 modelId,
                 tools: chosen,
                 emailFrom: emailFrom.trim(),
+                schedule: sched && sched.task.trim() ? sched : null,
                 caps: { ...(props.agent?.caps ?? {}), monthlySpendCapUsd: cap },
               });
               await props.onSaved();
@@ -604,6 +717,7 @@ function AgentRow(props: {
             </span>
           </div>
           <p className="muted-2" style={{ margin: "4px 0 0", fontSize: 12 }}>
+            {agent.schedule?.enabled ? `${describeSchedule(agent.schedule)} · ` : ""}
             {agent.tools?.length ? `Can: ${agent.tools.length} tool${agent.tools.length === 1 ? "" : "s"} · ` : ""}
             Thinks with <strong>{model?.label ?? agent.modelId}</strong>
             {model ? ` (${model.cost})` : ""} · this month: {money(spent)} of $
