@@ -21,7 +21,9 @@ import {
 } from "./agents";
 import { getOwnerEmail, isVerifiedSender, setOwnerEmail } from "./email";
 import { consoleUrl, getCatalogue, getModelAccess } from "./bedrock";
-import { EMAIL_TOOLS, TOOL_GROUPS, TOOL_NAMES, TOOL_NOTES } from "@crewpoppy/shared";
+import {
+  COMING_CAPABILITIES, EMAIL_TOOLS, TOOL_GROUPS, TOOL_NAMES, TOOL_NOTES,
+} from "@crewpoppy/shared";
 
 const boot = readBootstrap();
 const credentials = brokerCredentialsProvider(boot);
@@ -110,6 +112,9 @@ const server = createServer(async (req, res) => {
         // Grouped the way an owner actually asks: "can it email? only me? other people?"
         groups: TOOL_GROUPS,
         needsEmail: EMAIL_TOOLS,
+        // Shown greyed out, so the list is an honest account of what an agent can do —
+        // not just a menu of what happens to be possible.
+        coming: COMING_CAPABILITIES,
       });
     }
 

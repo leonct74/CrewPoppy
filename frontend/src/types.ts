@@ -146,11 +146,21 @@ export interface ToolGroup {
   tools: string[];
 }
 
+/** Something people expect an agent to do, that it can't. Shown greyed out. */
+export interface ComingCapability {
+  key: string;
+  label: string;
+  what: string;
+  why: string;
+  group: string;
+}
+
 export interface ToolCatalogue {
   tools: ToolOption[];
   groups: ToolGroup[];
   /** Tools that do nothing until an email address is set for this install. */
   needsEmail: string[];
+  coming?: ComingCapability[];
 }
 
 /** The one address agents email you at (DESIGN §4c). */

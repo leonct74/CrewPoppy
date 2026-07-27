@@ -291,6 +291,27 @@ function AgentForm(props: {
                   </label>
                 );
               })}
+
+              {/* The honest "no". Greyed out and unclickable, with the real blocker —
+                  never phrased so it sounds like installing something switches it on. */}
+              {(props.catalogue?.coming ?? [])
+                .filter((c) => c.group === g.key)
+                .map((c) => (
+                  <label
+                    key={c.key}
+                    className="row"
+                    style={{ alignItems: "flex-start", gap: 8, marginTop: 6, opacity: 0.55 }}
+                  >
+                    <input type="checkbox" checked={false} disabled readOnly style={{ marginTop: 3 }} />
+                    <span style={{ flex: 1 }}>
+                      <strong style={{ fontSize: 13 }}>
+                        {c.label} <span className="chip">not yet</span>
+                      </strong>
+                      <span className="muted" style={{ display: "block", fontSize: 12 }}>{c.what}</span>
+                      <span className="muted-2" style={{ display: "block", fontSize: 12 }}>{c.why}</span>
+                    </span>
+                  </label>
+                ))}
             </div>
           ))}
 
@@ -511,6 +532,7 @@ function AgentRow(props: {
   const [transcript, setTranscript] = useState<TranscriptEntry[]>([]);
   /** The exact message waiting on approval, read from the run's checkpoint. */
   const [pending, setPending] = useState<PendingSend | null>(null);
+  const logRef = useRef<HTMLDivElement>(null);
   const [err, setErr] = useState<string | null>(null);
   const timer = useRef<number | null>(null);
 
@@ -543,6 +565,30 @@ function AgentRow(props: {
       timer.current = null;
     };
   }, [run, poll]);
+
+  const send = async () => {
+    const text = task.trim();
+    if (!text) return;
+    setErr(null);
+    setTask("");
+    try {
+      const r = await api.startRun(agent.id, text);
+      setRun(r);
+      // The task appears immediately rather than after the first poll: a chat box that
+      // swallows your message for two seconds feels broken, whatever it's doing.
+      setTranscript((t) => [...t, { seq: -1, role: "user", text }]);
+      void poll(r.runId);
+    } catch (e) {
+      setTask(text); // don't lose what they typed
+      setErr((e as Error).message);
+    }
+  };
+
+  // Follow the conversation, like any chat window does.
+  useEffect(() => {
+    const el = logRef.current;
+    if (el) el.scrollTop = el.scrollHeight;
+  }, [transcript.length, run?.status]);
 
   const spent = agent.monthSpendUsd ?? 0;
   const atCap = spent >= agent.caps.monthlySpendCapUsd;
@@ -593,41 +639,72 @@ function AgentRow(props: {
         </div>
       )}
 
-      <label className="field" style={{ marginTop: 10, marginBottom: 0 }}>
-        <span>Give {agent.name} something to do</span>
-        <textarea
-          className="input"
-          value={task}
-          onChange={(e) => setTask(e.target.value)}
-          placeholder="Summarise the main arguments for and against four-day work weeks."
-        />
-      </label>
-      {err && <div className="banner err" style={{ marginTop: 8 }}>{err}</div>}
-      <div className="row" style={{ marginTop: 8 }}>
-        <Button
-          className="btn btn-primary"
-          disabled={!task.trim() || run?.status === "running"}
-          busyLabel="Starting…"
-          onClick={async () => {
-            setErr(null);
-            setTranscript([]);
-            try {
-              const r = await api.startRun(agent.id, task);
-              setRun(r);
-              void poll(r.runId);
-            } catch (e) {
-              setErr((e as Error).message);
+      {/* The conversation, as a conversation. Your words on the right, theirs on the
+          left, what they DID centred and quiet in between. Bounded and scrollable
+          because several agents share this page: an unbounded trail pushes the next
+          agent off screen, which is what made it hard to tell whose was whose. */}
+      <div className="chat" style={{ marginTop: 10 }}>
+        <div className="chat-log" ref={logRef}>
+          {transcript.length === 0 && !run && (
+            <p className="chat-empty">
+              Nothing yet. Give {agent.name} something to do below.
+            </p>
+          )}
+          {transcript.map((t) =>
+            t.role === "tool" ? (
+              // Visible, never hidden (DESIGN §9) — but it's machinery, not speech.
+              <div key={t.seq} className="msg step">
+                <div className="msg-body">⚙ {t.text}</div>
+              </div>
+            ) : (
+              <div key={t.seq} className={`msg ${t.role === "user" ? "you" : "agent"}`}>
+                <span className="msg-who">{t.role === "user" ? "You" : agent.name}</span>
+                <div className="msg-body">{t.text}</div>
+              </div>
+            ),
+          )}
+          {run?.status === "running" && (
+            <div className="msg agent">
+              <span className="msg-who">{agent.name}</span>
+              <div className="msg-body row" style={{ gap: 8 }}>
+                <span className="spinner" />
+                <span className="muted">Working… this keeps going if you leave.</span>
+              </div>
+            </div>
+          )}
+        </div>
+
+        <div className="chat-composer">
+          <textarea
+            className="input"
+            value={task}
+            onChange={(e) => setTask(e.target.value)}
+            placeholder={
+              run?.status === "waiting"
+                ? `${agent.name} is waiting for your answer below…`
+                : `Message ${agent.name}…`
             }
-          }}
-        >
-          Run
-        </Button>
-        {run?.status === "running" && (
-          <>
-            <span className="row muted" style={{ gap: 6 }}>
-              <span className="spinner" /> Working… this keeps going if you leave.
-            </span>
-            {/* The kill switch (DESIGN §7). Always reachable while a run is live. */}
+            aria-label={`Message ${agent.name}`}
+            disabled={run?.status === "waiting"}
+            onKeyDown={(e) => {
+              // Enter sends, Shift+Enter makes a new line — what every chat box does.
+              const busy = run?.status === "running" || run?.status === "waiting";
+              if (e.key === "Enter" && !e.shiftKey && task.trim() && !busy) {
+                e.preventDefault();
+                void send();
+              }
+            }}
+          />
+          <Button
+            className="btn btn-primary"
+            disabled={!task.trim() || run?.status === "running" || run?.status === "waiting"}
+            busyLabel="…"
+            onClick={send}
+          >
+            Send
+          </Button>
+          {/* The kill switch (DESIGN §7). Always reachable while a run is live. */}
+          {run?.status === "running" && (
             <Button
               className="btn btn-danger"
               busyLabel="Stopping…"
@@ -641,9 +718,10 @@ function AgentRow(props: {
             >
               Stop
             </Button>
-          </>
-        )}
+          )}
+        </div>
       </div>
+      {err && <div className="banner err" style={{ marginTop: 8 }}>{err}</div>}
 
       {run?.status === "waiting" && (
         <div className="card stack" style={{ marginTop: 10, borderColor: "var(--poppy-warn)" }}>
@@ -673,15 +751,7 @@ function AgentRow(props: {
                 {pending.body}
               </div>
             </div>
-          ) : (
-            /* A plain question. The draft is shown verbatim: approving something you
-               haven't read is not approval. */
-            transcript.filter((t) => t.role === "assistant").slice(-1).map((t) => (
-              <div key={t.seq} className="card" style={{ margin: 0, whiteSpace: "pre-wrap" }}>
-                {t.text}
-              </div>
-            ))
-          )}
+          ) : null}
 
           <label className="field" style={{ margin: 0 }}>
             <span>{pending ? "Or reply with changes instead" : "Your answer"}</span>
@@ -779,8 +849,11 @@ function AgentRow(props: {
         </div>
       )}
 
+      {/* The footer of a finished run: what it cost, and anything that went wrong.
+          The words themselves are already above, in the conversation. */}
       {run && run.status !== "running" && run.status !== "waiting" && (
         <div className="stack" style={{ marginTop: 10 }}>
+          {run.message && <div className="banner info">{run.message}</div>}
           <div className="spread">
             <span className={`badge ${run.status === "succeeded" ? "ok" : "warn"}`}>
               <span className="dot" /> {run.status === "succeeded" ? "Answered" : run.status}
@@ -800,23 +873,9 @@ function AgentRow(props: {
               )}
             </span>
           </div>
-          {run.message && <div className="banner info">{run.message}</div>}
-          {transcript
-            .filter((t) => t.role === "assistant" || t.role === "tool")
-            .map((t) =>
-              t.role === "tool" ? (
-                // Every tool call is visible — nothing an agent does is hidden (DESIGN §9).
-                <p key={t.seq} className="muted-2 mono" style={{ margin: 0, fontSize: 12 }}>
-                  ⚙ {t.text}
-                </p>
-              ) : (
-                <p key={t.seq} style={{ margin: 0, whiteSpace: "pre-wrap" }}>
-                  {t.text}
-                </p>
-              ),
-            )}
         </div>
       )}
+
     </div>
   );
 }

@@ -528,6 +528,37 @@ The widest set in the family so far — MailPoppy-class amber, name-scoped `Miss
 - **Cost everywhere** (§7). Design kit `poppy.css`, `poppyAccent(...)`, plain language, type-to-confirm
   destructive actions, background+resume.
 
+### 10b. The run view is a CHAT (founder note, 2026-07-27)
+
+*"The human has to learn a whole new chat visual pattern, so it isn't really friendly"* — and
+with several agents on one page, unbounded trails made it hard to tell whose was whose.
+
+- **A run is a conversation, so it looks like one.** Your words right, the agent's left, names
+  above each, `Enter` sends and `Shift+Enter` adds a line. Nothing here is a pattern anyone has
+  to learn.
+- **Tool steps are centred, monospaced and quiet** — visible always (§9 leaves nothing hidden),
+  but they are machinery, not speech, so they never wear a speech bubble.
+- **The log is bounded and scrolls inside its own card.** That's the multi-agent fix: an
+  unbounded transcript pushes the next agent's card off screen, which is precisely what made
+  orientation hard.
+- **Your message appears the instant you send it**, before the first poll — a chat box that
+  swallows what you typed for two seconds reads as broken whatever it's doing.
+- **The composer locks while a run is waiting on you**, so a pending approval can't be
+  accidentally abandoned by starting a second run in the same box.
+- **An approval is NOT a chat message.** It stays a distinct card below the conversation, with
+  the proposed email laid out as To / Subject / body. A decision that sends mail to a stranger
+  should not look like another bubble in a stream.
+
+### 10c. Say the "no"s out loud (founder-found, 2026-07-27)
+
+The founder asked an agent whether it had received any email; it correctly answered that it has
+no inbox. **The agent was right and the screen was wrong** — a capability list that shows only
+what IS possible reads as a complete account of what an agent can do. `COMING_CAPABILITIES` now
+puts the expected-but-absent abilities in the list, greyed out, with the real blocker.
+These are **not tools** and never reach the dispatcher. The wording must name the actual
+obstacle: "needs MailPoppy" would imply installing MailPoppy switches reading on, and it does
+not — mail bodies are sealed to the recipient's key, and that work is MailPoppy-side (§15c).
+
 ## 11. Reuse map (read-only references)
 
 - `~/Projects/mailpoppy/apps/desktop/node-sidecar` — embedded-template CFN deploy pipeline;

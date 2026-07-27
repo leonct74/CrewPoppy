@@ -141,6 +141,38 @@ export const TOOL_GROUPS: ToolGroup[] = [
 export const EMAIL_TOOLS: readonly ToolName[] = ["email_owner", "send_email"];
 
 /**
+ * Abilities people reasonably EXPECT an agent to have, which it does not (founder
+ * request, 2026-07-26).
+ *
+ * These are not tools and never reach the dispatcher — they exist so the capability list
+ * can say "no" out loud. The founder hit this himself: he asked an agent whether it had
+ * received any email, and it correctly said it had no inbox. The agent was right; the
+ * screen was the thing at fault, because a list that only shows what IS possible reads
+ * as a complete account of what an agent can do.
+ *
+ * `why` must stay honest about the BLOCKER. "Needs MailPoppy" would imply that installing
+ * MailPoppy switches it on, and it doesn't — the work is on MailPoppy's side.
+ */
+export interface ComingCapability {
+  key: string;
+  label: string;
+  what: string;
+  why: string;
+  /** Which group it is shown under, greyed out. */
+  group: string;
+}
+
+export const COMING_CAPABILITIES: ComingCapability[] = [
+  {
+    key: "read_email",
+    label: "Read your email",
+    what: "Would let this agent read messages sent to you — replying to enquiries, watching for something to arrive.",
+    why: "Not available yet, and installing MailPoppy won't switch it on. Your mail is encrypted so that only you can read it, which is the point of it — letting an agent in needs changes inside MailPoppy first.",
+    group: "you",
+  },
+];
+
+/**
  * Good enough to reject nonsense and anything that could smuggle a second recipient
  * (a newline, a comma, a bare angle bracket). Deliberately NOT a full RFC 5322 parser:
  * the address is checked here, checked again by SES, and every external send is read by
