@@ -4,7 +4,7 @@ import { Button } from "./Button";
 import { describeSchedule } from "./schedule";
 import type {
   AgentSchedule, AgentSummary, ModelChoice, OwnerEmail, PendingSend, RunRecord, SchedulePreview,
-  ToolCatalogue, TranscriptEntry,
+  TickerHealth, ToolCatalogue, TranscriptEntry,
 } from "./types";
 
 /**
@@ -42,6 +42,7 @@ export function CrewCard(props: { models: ModelChoice[] }) {
   const [agents, setAgents] = useState<AgentSummary[] | null>(null);
   const [catalogue, setCatalogue] = useState<ToolCatalogue | null>(null);
   const [owner, setOwner] = useState<OwnerEmail>({});
+  const [ticker, setTicker] = useState<TickerHealth | null>(null);
   const [creating, setCreating] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
@@ -68,6 +69,16 @@ export function CrewCard(props: { models: ModelChoice[] }) {
     void api.listTools().then(setCatalogue).catch(() => {});
   }, [refresh, refreshOwner]);
 
+  // Only asked when it can matter — an install with no schedules has no ticker to judge.
+  const anyScheduled = (agents ?? []).some((a) => a.schedule?.enabled);
+  useEffect(() => {
+    if (!anyScheduled) return;
+    const read = () => void api.ticker().then(setTicker).catch(() => {});
+    read();
+    const t = window.setInterval(read, 60_000);
+    return () => window.clearInterval(t);
+  }, [anyScheduled]);
+
   if (!agents) return null;
 
   return (
@@ -82,6 +93,33 @@ export function CrewCard(props: { models: ModelChoice[] }) {
       </div>
 
       {err && <div className="banner err">{err}</div>}
+
+      {/* Says which half is broken. "AWS never woke us" and "it woke us and nothing was
+          due" need completely different fixes and used to look identical — as a blank
+          screen and a schedule that silently didn't happen. */}
+      {anyScheduled && ticker && !ticker.healthy && (
+        <div className="banner err">
+          {ticker.everRan ? (
+            <>
+              <strong>Scheduled runs have stopped.</strong> AWS last woke CrewPoppy at{" "}
+              {new Date(ticker.at!).toLocaleString()}. If there's an update waiting above, apply
+              it — otherwise check that CrewPoppyTick is enabled in your EventBridge rules.
+            </>
+          ) : (
+            <>
+              <strong>Scheduled runs aren't working yet.</strong> AWS has never woken CrewPoppy to
+              check them. This is almost always a pending update — apply the one above, then give
+              it five minutes.
+            </>
+          )}
+        </div>
+      )}
+      {anyScheduled && ticker?.healthy && (
+        <p className="muted-2" style={{ margin: 0, fontSize: 12 }}>
+          ✓ Schedules are being checked — last at {new Date(ticker.at!).toLocaleTimeString()}
+          {ticker.due ? `, ${ticker.due} due` : ", nothing due"}.
+        </p>
+      )}
 
       {agents.length === 0 && !creating && (
         <>

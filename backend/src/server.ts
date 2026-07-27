@@ -7,7 +7,7 @@ import { CloudFormationClient } from "@aws-sdk/client-cloudformation";
 import { S3Client } from "@aws-sdk/client-s3";
 import { BedrockClient } from "@aws-sdk/client-bedrock";
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
-import { DynamoDBDocumentClient } from "@aws-sdk/lib-dynamodb";
+import { DynamoDBDocumentClient, GetCommand } from "@aws-sdk/lib-dynamodb";
 import { LambdaClient } from "@aws-sdk/client-lambda";
 import { SESv2Client } from "@aws-sdk/client-sesv2";
 import { randomUUID } from "node:crypto";
@@ -24,6 +24,7 @@ import { consoleUrl, getCatalogue, getModelAccess } from "./bedrock";
 import {
   COMING_CAPABILITIES, EMAIL_TOOLS, TOOL_GROUPS, TOOL_NAMES, TOOL_NOTES,
   describeSchedule, nextRunAt, sanitiseSchedule,
+  CONFIG_PK, LAST_TICK_SK, TICK_MINUTES,
 } from "@crewpoppy/shared";
 
 const boot = readBootstrap();
@@ -119,6 +120,25 @@ const server = createServer(async (req, res) => {
         schedule,
         description: describeSchedule(schedule),
         nextRunAt: next?.toISOString(),
+      });
+    }
+
+    // Is the ticker alive? Reads the heartbeat the runner writes on EVERY tick, so the
+    // UI can tell "AWS isn't waking CrewPoppy" apart from "it woke and nothing was due"
+    // — two very different faults that looked identical for four rounds of debugging.
+    if (method === "GET" && parts[0] === "ticker" && parts.length === 1) {
+      const r = await ddb.send(
+        new GetCommand({ TableName: tableName, Key: { pk: CONFIG_PK, sk: LAST_TICK_SK } }),
+      );
+      const beat = r.Item as
+        | { at?: string; agents?: number; scheduled?: number; due?: number; started?: number }
+        | undefined;
+      const ageMs = beat?.at ? Date.now() - Date.parse(beat.at) : undefined;
+      return json(res, 200, {
+        ...beat,
+        // Two ticks' grace before we call it: one missed beat is noise, not a fault.
+        healthy: ageMs !== undefined && ageMs < 3 * TICK_MINUTES * 60_000,
+        everRan: !!beat?.at,
       });
     }
 

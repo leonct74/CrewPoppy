@@ -25,6 +25,7 @@ import {
   CHECKPOINT_SK,
   CHECKPOINT_TTL_SECONDS,
   CONFIG_PK,
+  LAST_TICK_SK,
   MAX_EMAILS_PER_DAY,
   OWNER_EMAIL_SK,
   PROVEN_SK,
@@ -159,7 +160,9 @@ async function tick(table: string, now: Date): Promise<{ ok: boolean; status: st
       ExpressionAttributeValues: { ":pk": AGENTS_PK },
     }),
   );
-  const agents = ((listed.Items ?? []) as AgentDef[]).filter((a) => a.schedule && isDue(a.schedule, now));
+  const all = (listed.Items ?? []) as AgentDef[];
+  const withSchedule = all.filter((a) => a.schedule?.enabled);
+  const agents = withSchedule.filter((a) => isDue(a.schedule!, now));
 
   let started = 0;
   for (const agent of agents) {
@@ -217,6 +220,27 @@ async function tick(table: string, now: Date): Promise<{ ok: boolean; status: st
       }
     }
   }
+  // The heartbeat, written LAST so it also records what this tick decided. Best-effort:
+  // a failure here must never stop agents from running.
+  try {
+    await ddb.send(
+      new PutCommand({
+        TableName: table,
+        Item: {
+          pk: CONFIG_PK,
+          sk: LAST_TICK_SK,
+          at: now.toISOString(),
+          agents: all.length,
+          scheduled: withSchedule.length,
+          due: agents.length,
+          started,
+        },
+      }),
+    );
+  } catch (e) {
+    console.error("[crewpoppy] heartbeat failed:", e);
+  }
+
   return { ok: true, status: `tick: ${started} started` };
 }
 

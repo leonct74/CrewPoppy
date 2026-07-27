@@ -5,7 +5,7 @@
 import { host, type BackendInvoke } from "./host";
 import type {
   AgentSummary, DeleteResult, DeploymentStatus, Meta, ModelAccess, ModelCatalogue, OwnerEmail,
-  RunRecord, RunView, SchedulePreview, ToolCatalogue,
+  RunRecord, RunView, SchedulePreview, TickerHealth, ToolCatalogue,
 } from "./types";
 
 /**
@@ -55,6 +55,9 @@ export const api = {
    */
   previewSchedule: (schedule: unknown): Promise<SchedulePreview> =>
     invoke({ method: "POST", path: "/schedule-preview", body: { schedule } }),
+
+  /** Is AWS actually waking CrewPoppy to check schedules? */
+  ticker: (): Promise<TickerHealth> => invoke({ method: "GET", path: "/ticker" }),
 
   /** The one address agents email you at. Re-checked against SES on every read. */
   ownerEmail: (): Promise<OwnerEmail> => invoke({ method: "GET", path: "/owner-email" }),

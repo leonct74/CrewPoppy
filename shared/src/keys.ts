@@ -47,6 +47,17 @@ export const CONFIG_PK = "config";
 export const OWNER_EMAIL_SK = "owner-email";
 
 /**
+ * The ticker's heartbeat (DESIGN §5b). Written on EVERY tick, whether or not anything was
+ * due.
+ *
+ * Added after four rounds of debugging a schedule that never fired, where neither the
+ * founder nor I could tell "EventBridge isn't calling us" from "it's calling us and no
+ * agent matched". Those need completely different fixes and looked identical on screen.
+ * A row that says "I ran at 21:05 and checked 2 agents, 0 due" separates them instantly.
+ */
+export const LAST_TICK_SK = "last-tick";
+
+/**
  * Per-agent, per-DAY email counter. The same atomic-ADD shape as spend, for the same
  * reason: an approved workflow that goes wrong must hit a hard ceiling rather than a
  * polite intention (DESIGN §7 — caps are mechanisms, never advice).

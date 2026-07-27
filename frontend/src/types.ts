@@ -184,6 +184,17 @@ export interface SchedulePreview {
   nextRunAt?: string;
 }
 
+/** Whether AWS is actually waking CrewPoppy to check schedules (DESIGN §5b). */
+export interface TickerHealth {
+  at?: string;
+  agents?: number;
+  scheduled?: number;
+  due?: number;
+  started?: number;
+  healthy: boolean;
+  everRan: boolean;
+}
+
 /** The one address agents email you at (DESIGN §4c). */
 export interface OwnerEmail {
   email?: string;
