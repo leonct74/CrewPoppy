@@ -30,6 +30,7 @@ describe("buildTemplate", () => {
     // to this test is a resource nobody decided to create.
     expect(Object.keys(resources).sort()).toEqual([
       "ApprovalFunction",
+      "ApprovalInvokePermission",
       "ApprovalLogGroup",
       "ApprovalRole",
       "ApprovalUrl",
@@ -62,12 +63,22 @@ describe("buildTemplate", () => {
     it("exposes exactly one URL, unauthenticated by design, scoped to that one function", () => {
       const url = resources.ApprovalUrl!.Properties as { AuthType: string };
       expect(url.AuthType).toBe("NONE"); // the single-use token in the path is the lock
-      const perm = resources.ApprovalUrlPermission!.Properties as {
-        Action: string; FunctionName: string; FunctionUrlAuthType: string; Principal: string;
-      };
-      expect(perm.Action).toBe("lambda:InvokeFunctionUrl");
-      expect(perm.FunctionName).toBe("CrewPoppyApproval");
-      expect(perm.FunctionUrlAuthType).toBe("NONE");
+      // BOTH actions, or the URL answers 403 to everyone (live failure 2026-07-28):
+      // public NONE-auth URLs require InvokeFunctionUrl AND InvokeFunction for "*".
+      // The FunctionUrlAuthType condition on each keeps them URL-only — neither opens
+      // the direct Invoke API to anonymous callers.
+      for (const [logical, action] of [
+        ["ApprovalUrlPermission", "lambda:InvokeFunctionUrl"],
+        ["ApprovalInvokePermission", "lambda:InvokeFunction"],
+      ] as const) {
+        const perm = resources[logical]!.Properties as {
+          Action: string; FunctionName: string; FunctionUrlAuthType: string; Principal: string;
+        };
+        expect(perm.Action).toBe(action);
+        expect(perm.FunctionName).toBe("CrewPoppyApproval");
+        expect(perm.FunctionUrlAuthType).toBe("NONE");
+        expect(perm.Principal).toBe("*");
+      }
       // The RUNNER must not gain a public URL from this change, ever.
       expect(JSON.stringify(resources.ApprovalUrl)).not.toContain("CrewPoppyRunner");
     });

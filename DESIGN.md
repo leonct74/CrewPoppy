@@ -926,6 +926,15 @@ and a link. Implementation of the §15e contract:
   answered on desktop — so probing the URL space teaches nothing, and no page without a valid
   token reveals what was waiting. Agent-authored content is HTML-escaped: a draft cannot
   script its own approval page.
+- **🪤 LIVE FAILURE (2026-07-28): a public URL needs TWO permissions.** The documented
+  recipe — `lambda:InvokeFunctionUrl` for `*` with the NONE condition — is no longer enough:
+  AWS's hardening means public URLs also require `lambda:InvokeFunction` for `*` under the
+  same condition, and with only the first every request 403'd. The console's own warning
+  banner states both actions; the condition keeps each statement URL-only. Two more traps met
+  on the same road: MailPoppy's clients don't linkify plain text (the mail now carries an
+  HTML button + the bare URL), and MailPoppy's in-app browser attaches its own Authorization
+  header to external links, which a NONE-auth URL rejects — noted as a MailPoppy-side fix;
+  the copyable URL works everywhere.
 - The approval email is SYSTEM mail (the app talking, not the agent): it doesn't count
   against the agent's daily send cap, and a mail failure never breaks the wait — the desktop
   path always works.
