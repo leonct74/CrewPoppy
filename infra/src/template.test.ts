@@ -65,20 +65,18 @@ describe("buildTemplate", () => {
       expect(url.AuthType).toBe("NONE"); // the single-use token in the path is the lock
       // BOTH actions, or the URL answers 403 to everyone (live failure 2026-07-28):
       // public NONE-auth URLs require InvokeFunctionUrl AND InvokeFunction for "*".
-      // The FunctionUrlAuthType condition on each keeps them URL-only — neither opens
-      // the direct Invoke API to anonymous callers.
-      for (const [logical, action] of [
-        ["ApprovalUrlPermission", "lambda:InvokeFunctionUrl"],
-        ["ApprovalInvokePermission", "lambda:InvokeFunction"],
-      ] as const) {
-        const perm = resources[logical]!.Properties as {
-          Action: string; FunctionName: string; FunctionUrlAuthType: string; Principal: string;
-        };
-        expect(perm.Action).toBe(action);
-        expect(perm.FunctionName).toBe("CrewPoppyApproval");
-        expect(perm.FunctionUrlAuthType).toBe("NONE");
-        expect(perm.Principal).toBe("*");
-      }
+      const urlPerm = resources.ApprovalUrlPermission!.Properties as Record<string, string>;
+      expect(urlPerm.Action).toBe("lambda:InvokeFunctionUrl");
+      expect(urlPerm.FunctionUrlAuthType).toBe("NONE");
+      expect(urlPerm.Principal).toBe("*");
+      // The second grant goes in BARE — AWS rejects the FunctionUrlAuthType condition on
+      // InvokeFunction ("only supported for lambda:InvokeFunctionUrl"; it rolled back a
+      // live update). Both target only the approval function, never the runner.
+      const invokePerm = resources.ApprovalInvokePermission!.Properties as Record<string, string>;
+      expect(invokePerm.Action).toBe("lambda:InvokeFunction");
+      expect(invokePerm.FunctionUrlAuthType).toBeUndefined();
+      expect(invokePerm.FunctionName).toBe("CrewPoppyApproval");
+      expect(urlPerm.FunctionName).toBe("CrewPoppyApproval");
       // The RUNNER must not gain a public URL from this change, ever.
       expect(JSON.stringify(resources.ApprovalUrl)).not.toContain("CrewPoppyRunner");
     });

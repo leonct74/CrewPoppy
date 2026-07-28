@@ -414,9 +414,14 @@ export function buildTemplate(): CfnTemplate {
       // 🪤 BOTH permissions (live failure, 2026-07-28): a public (AuthType NONE) URL
       // now requires lambda:InvokeFunctionUrl AND lambda:InvokeFunction granted to "*" —
       // the console's own warning banner states it. The older documented recipe granted
-      // only the first, and every request answered 403 Forbidden. The FunctionUrlAuthType
-      // condition rides on both statements, so neither permits a direct anonymous
-      // Invoke API call — the condition key only exists on URL invocations.
+      // only the first, and every request answered 403 Forbidden.
+      //
+      // 🪤 And the second grant CANNOT carry the FunctionUrlAuthType condition — AWS
+      // rejects it ("only supported for lambda:InvokeFunctionUrl"), which rolled back a
+      // live update. It goes in bare. Honest posture note: that lets any AWS-
+      // authenticated principal invoke this function directly — which changes nothing
+      // real, because the URL already lets ANONYMOUS callers reach the same handler.
+      // The function's own minimal role and the single-use token stay the actual walls.
       ApprovalUrlPermission: {
         Type: "AWS::Lambda::Permission",
         Properties: {
@@ -433,7 +438,6 @@ export function buildTemplate(): CfnTemplate {
           FunctionName: APPROVAL_FUNCTION_NAME,
           Action: "lambda:InvokeFunction",
           Principal: "*",
-          FunctionUrlAuthType: "NONE",
         },
         DependsOn: ["ApprovalFunction"],
       },
