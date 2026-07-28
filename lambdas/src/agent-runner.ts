@@ -19,7 +19,8 @@ import {
 import { InvokeCommand, LambdaClient } from "@aws-sdk/client-lambda";
 import { S3Client } from "@aws-sdk/client-s3";
 import { BedrockRuntimeClient, InvokeModelCommand } from "@aws-sdk/client-bedrock-runtime";
-import { SESv2Client } from "@aws-sdk/client-sesv2";
+import { SESv2Client, SendEmailCommand } from "@aws-sdk/client-sesv2";
+import { createHash, randomBytes } from "node:crypto";
 import {
   AGENTS_PK,
   CHECKPOINT_SK,
@@ -415,7 +416,12 @@ async function runSegment(event: RunnerEvent): Promise<{ ok: boolean; status: st
     const iterations = (checkpoint?.iterations ?? 0) + outcome.iterations;
 
     if (outcome.status === "waiting" && outcome.suspend) {
+      // The email-approval link (DESIGN §15e). The token lives ONLY in the emailed URL;
+      // we store its hash. 24 h on the link — the request itself waits a week.
+      const token = randomBytes(32).toString("hex");
       const cp: RunCheckpoint = {
+        approvalHash: createHash("sha256").update(token).digest("hex"),
+        approvalExpiresAt: Math.floor(Date.now() / 1000) + 24 * 60 * 60,
         runId: event.runId,
         agentId: agent.id,
         question: outcome.suspend.question,
@@ -436,6 +442,7 @@ async function runSegment(event: RunnerEvent): Promise<{ ok: boolean; status: st
         }),
       );
       await finish("waiting", usage, iterations, "waiting_for_you", outcome.message);
+      await sendApprovalLink(agent, ownerEmail, outcome.suspend, event.runId, token, record);
       return { ok: true, status: "waiting" };
     }
 
@@ -476,6 +483,65 @@ async function runSegment(event: RunnerEvent): Promise<{ ok: boolean; status: st
         : `The run couldn't finish: ${raw.slice(0, 200)}`;
     await finish("failed", carriedUsage, checkpoint?.iterations ?? 0, "error", message);
     return { ok: false, status: "failed" };
+  }
+}
+
+/**
+ * Email the owner an approval link for a waiting run (DESIGN §15e). SYSTEM mail — the
+ * app talking, not the agent — so it doesn't touch the agent's daily send count, and it
+ * is best-effort: a mail failure must never break the wait itself, because the request
+ * is always answerable from the desktop.
+ */
+async function sendApprovalLink(
+  agent: AgentDef,
+  ownerEmail: string | undefined,
+  suspend: { question: string; pending?: PendingSend },
+  runId: string,
+  token: string,
+  record: (role: "user" | "assistant" | "tool", text: string) => Promise<void>,
+): Promise<void> {
+  const base = process.env.CREWPOPPY_APPROVAL_URL;
+  if (!ownerEmail || !base) return;
+  try {
+    const link = `${base.replace(/\/$/, "")}/a/${runId}/${token}`;
+    const p = suspend.pending;
+    const body = [
+      `${agent.name} needs your approval.`,
+      ``,
+      suspend.question,
+      ...(p
+        ? [
+            ``,
+            `To: ${p.to}`,
+            `Subject: ${p.subject}`,
+            ...(p.attach ? [`Attachment: ${p.attach}`] : []),
+            ``,
+            `--------------------------------`,
+            p.body,
+            `--------------------------------`,
+          ]
+        : []),
+      ``,
+      `Approve or deny here (one use, valid 24 hours):`,
+      link,
+      ``,
+      `Or open CrewPoppy on your computer — the request waits there too.`,
+    ].join("\n");
+    await ses.send(
+      new SendEmailCommand({
+        FromEmailAddress: `CrewPoppy <${ownerEmail}>`,
+        Destination: { ToAddresses: [ownerEmail] },
+        Content: {
+          Simple: {
+            Subject: { Data: `${agent.name} needs your approval` },
+            Body: { Text: { Data: body } },
+          },
+        },
+      }),
+    );
+    await record("tool", "Emailed you an approval link (one use, valid 24 hours).");
+  } catch (e) {
+    console.error("[crewpoppy] approval email failed:", e);
   }
 }
 

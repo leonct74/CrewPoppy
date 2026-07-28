@@ -903,6 +903,39 @@ addition rather than new architecture).
 - Does not undercut the §15 premium: mobile still owns push immediacy, conversation, live run
   status and the kill switch.
 
+### 15f. Approve by email — SHIPPED (2026-07-28), and what stays MailPoppy-side
+
+The founder's ask: *"the user can send an email to the agent asking to create the offer and
+the agent asks for authorisation by email and sends it."* Split honestly in two:
+
+**The approve-by-email half is live.** When any run pauses — a question or a proposed send —
+the runner emails the owner the question, the EXACT message (to/subject/body/attachment name),
+and a link. Implementation of the §15e contract:
+
+- **`CrewPoppyApproval`** — a separate Lambda behind a Function URL, CrewPoppy's ONLY
+  internet-facing piece, with a MINIMAL role: table Get/Put/Update (no Query — it can read rows
+  it can name, never enumerate) + invoke-runner. No Bedrock, no SES, no S3. A stranger who
+  finds the URL has found a door with almost nothing behind it. Guarded by a template test.
+- **Unique address per request** (`/a/<runId>/<64-hex-token>`); the token lives only in the
+  emailed link, stored as a SHA-256 hash, compared with timingSafeEqual; **24 h expiry** on the
+  link while the request itself keeps waiting a week in the desktop app.
+- **GET renders, POST approves** — mail scanners prefetch every link; a GET that approved
+  would mean scanners approving everything on arrival. **Single use is a conditional write**,
+  so a double-click or replay resumes the runner exactly once. Deny carries no approved flag.
+- **Every invalid link yields ONE identical page** — wrong token, unknown run, expired, used,
+  answered on desktop — so probing the URL space teaches nothing, and no page without a valid
+  token reveals what was waiting. Agent-authored content is HTML-escaped: a draft cannot
+  script its own approval page.
+- The approval email is SYSTEM mail (the app talking, not the agent): it doesn't count
+  against the agent's daily send cap, and a mail failure never breaks the wait — the desktop
+  path always works.
+
+**The ask-by-email half stays MailPoppy-side (§15c), for a structural reason:** inbound mail
+in AWS is SES receipt rules, and an account has exactly ONE active rule set — which MailPoppy
+owns in any account running both. CrewPoppy modifying it would break "only its own resources"
+for two poppies at once. When the §15c bridge lands, the loop closes: email in → agent works →
+approval email → send.
+
 ### 15b. Marketing notes — the Bedrock story (bank these for the listing/site)
 
 Why "agents in your own AWS via Bedrock" beats agent-SaaS — the seven sellable points:

@@ -35,7 +35,7 @@ const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const genDir = join(root, "backend", "src", "generated");
 
 /** The Lambda handlers baked into the stack. P1 adds the dispatcher etc. here. */
-const HANDLERS = ["agent-runner"];
+const HANDLERS = ["agent-runner", "approval"];
 
 const git = (args) => {
   try {

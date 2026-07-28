@@ -44,6 +44,10 @@ export const RUNNER_ROLE_NAME = "CrewPoppyRunnerRole";
 /** The single EventBridge rule that wakes the runner to check for due schedules (§5b). */
 export const TICK_RULE_NAME = "CrewPoppyTick";
 
+/** The email-approval endpoint (§15e) — CrewPoppy's ONLY internet-facing piece. */
+export const APPROVAL_FUNCTION_NAME = "CrewPoppyApproval";
+export const APPROVAL_ROLE_NAME = "CrewPoppyApprovalRole";
+
 /**
  * The per-agent workspace bucket (DESIGN.md §3: each agent's files live under its own
  * prefix; the dispatcher enforces the prefix boundary server-side from P2). Bucket names
@@ -304,6 +308,9 @@ export function buildTemplate(): CfnTemplate {
               // resource name, and CloudFormation already knows both.
               CREWPOPPY_TABLE: TABLE_NAME,
               CREWPOPPY_WORKSPACE_BUCKET: { "Fn::Sub": WORKSPACE_BUCKET_SUB },
+              // Where approval links point. A GetAtt on our own Url resource — CFN has
+              // the value from the create response, no describe call involved.
+              CREWPOPPY_APPROVAL_URL: { "Fn::GetAtt": ["ApprovalUrl", "FunctionUrl"] },
             },
           },
           MemorySize: 512,
@@ -312,6 +319,107 @@ export function buildTemplate(): CfnTemplate {
           // what stops a run, so the user always gets a recorded reason.
           Timeout: 300,
         },
+      },
+
+      /**
+       * The email-approval endpoint (DESIGN §15e) — deliberately its OWN function with a
+       * MINIMAL role, because its Function URL is reachable from the public internet.
+       * What that role cannot do is the security design: no Bedrock, no SES, no S3 —
+       * only the table and invoking the runner. A stranger who finds the URL has found
+       * a door with a 64-hex single-use token for a lock and almost nothing behind it.
+       */
+      ApprovalLogGroup: {
+        Type: "AWS::Logs::LogGroup",
+        Properties: {
+          LogGroupName: `/aws/lambda/${APPROVAL_FUNCTION_NAME}`,
+          RetentionInDays: 30,
+        },
+      },
+      ApprovalRole: {
+        Type: "AWS::IAM::Role",
+        Properties: {
+          RoleName: APPROVAL_ROLE_NAME,
+          AssumeRolePolicyDocument: {
+            Version: "2012-10-17",
+            Statement: [
+              { Effect: "Allow", Principal: { Service: "lambda.amazonaws.com" }, Action: "sts:AssumeRole" },
+            ],
+          },
+          Policies: [
+            {
+              PolicyName: "CrewPoppyApprovalPolicy",
+              PolicyDocument: {
+                Version: "2012-10-17",
+                Statement: [
+                  {
+                    Sid: "Logs",
+                    Effect: "Allow",
+                    Action: ["logs:CreateLogStream", "logs:PutLogEvents"],
+                    Resource: {
+                      "Fn::Sub": `arn:\${AWS::Partition}:logs:\${AWS::Region}:\${AWS::AccountId}:log-group:/aws/lambda/${APPROVAL_FUNCTION_NAME}:*`,
+                    },
+                  },
+                  {
+                    Sid: "Table",
+                    Effect: "Allow",
+                    Action: ["dynamodb:GetItem", "dynamodb:PutItem", "dynamodb:UpdateItem"],
+                    Resource: {
+                      "Fn::Sub": `arn:\${AWS::Partition}:dynamodb:\${AWS::Region}:\${AWS::AccountId}:table/${TABLE_NAME}`,
+                    },
+                  },
+                  {
+                    Sid: "ResumeRunner",
+                    Effect: "Allow",
+                    Action: ["lambda:InvokeFunction"],
+                    Resource: {
+                      "Fn::Sub": `arn:\${AWS::Partition}:lambda:\${AWS::Region}:\${AWS::AccountId}:function:${RUNNER_FUNCTION_NAME}`,
+                    },
+                  },
+                ],
+              },
+            },
+          ],
+        },
+      },
+      ApprovalFunction: {
+        Type: "AWS::Lambda::Function",
+        DependsOn: ["ApprovalLogGroup"],
+        Properties: {
+          FunctionName: APPROVAL_FUNCTION_NAME,
+          Description: "CrewPoppy email-approval endpoint — renders a waiting request, applies one answer, once.",
+          Runtime: "nodejs20.x",
+          Architectures: ["arm64"],
+          Handler: "approval.handler",
+          Role: { "Fn::GetAtt": ["ApprovalRole", "Arn"] },
+          Code: { S3Bucket: { Ref: "LambdaCodeBucket" }, S3Key: { Ref: "LambdaCodeKey" } },
+          Environment: {
+            Variables: {
+              CREWPOPPY_TABLE: TABLE_NAME,
+              CREWPOPPY_RUNNER: RUNNER_FUNCTION_NAME,
+            },
+          },
+          MemorySize: 128,
+          Timeout: 10,
+        },
+      },
+      ApprovalUrl: {
+        Type: "AWS::Lambda::Url",
+        Properties: {
+          TargetFunctionArn: { "Fn::GetAtt": ["ApprovalFunction", "Arn"] },
+          // NONE is deliberate: the owner clicks this from any mail app, with no AWS
+          // identity. The auth is the single-use token in the path (§15e).
+          AuthType: "NONE",
+        },
+      },
+      ApprovalUrlPermission: {
+        Type: "AWS::Lambda::Permission",
+        Properties: {
+          FunctionName: APPROVAL_FUNCTION_NAME,
+          Action: "lambda:InvokeFunctionUrl",
+          Principal: "*",
+          FunctionUrlAuthType: "NONE",
+        },
+        DependsOn: ["ApprovalFunction"],
       },
 
       /**

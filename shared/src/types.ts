@@ -146,6 +146,14 @@ export interface RunCheckpoint {
   startedAt: string;
   /** Where the transcript got to, so resuming continues rather than overwriting. */
   nextSeq: number;
+  /**
+   * The email-approval link (DESIGN §15e): SHA-256 of the single-use token — the token
+   * itself exists only inside the emailed link — plus its own 24 h expiry (the
+   * checkpoint's TTL is a week; the LINK dies first, the request keeps waiting).
+   */
+  approvalHash?: string;
+  approvalExpiresAt?: number;
+  approvalUsedAt?: string;
   /** Unix seconds; DynamoDB expires the row, and the code checks it too. */
   expiresAt: number;
 }

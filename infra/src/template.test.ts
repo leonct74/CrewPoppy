@@ -29,6 +29,11 @@ describe("buildTemplate", () => {
     // An exact list on purpose: a resource that appears here without a deliberate change
     // to this test is a resource nobody decided to create.
     expect(Object.keys(resources).sort()).toEqual([
+      "ApprovalFunction",
+      "ApprovalLogGroup",
+      "ApprovalRole",
+      "ApprovalUrl",
+      "ApprovalUrlPermission",
       "CrewTable",
       "RunnerFunction",
       "RunnerLogGroup",
@@ -37,6 +42,44 @@ describe("buildTemplate", () => {
       "TickRule",
       "WorkspaceBucket",
     ]);
+  });
+
+  describe("the email-approval endpoint (DESIGN §15e) — the only internet-facing piece", () => {
+    it("runs on its OWN role, and that role can reach almost nothing", () => {
+      const statements = resources.ApprovalRole!.Properties.Policies[0].PolicyDocument
+        .Statement as Array<{ Action: string[]; Resource: unknown }>;
+      const actions = statements.flatMap((s) => s.Action);
+      // The whole point: a public endpoint whose role has no Bedrock, no SES, no S3.
+      expect(actions.some((a) => /^(bedrock|ses|s3|aws-marketplace|events|iam|sts):/.test(a))).toBe(false);
+      expect(actions.filter((a) => a.startsWith("dynamodb:")).sort()).toEqual([
+        "dynamodb:GetItem", "dynamodb:PutItem", "dynamodb:UpdateItem",
+      ]);
+      expect(actions.filter((a) => a.startsWith("lambda:"))).toEqual(["lambda:InvokeFunction"]);
+      // No Query either: it can read rows it can NAME, never enumerate the table.
+      expect(actions).not.toContain("dynamodb:Query");
+    });
+
+    it("exposes exactly one URL, unauthenticated by design, scoped to that one function", () => {
+      const url = resources.ApprovalUrl!.Properties as { AuthType: string };
+      expect(url.AuthType).toBe("NONE"); // the single-use token in the path is the lock
+      const perm = resources.ApprovalUrlPermission!.Properties as {
+        Action: string; FunctionName: string; FunctionUrlAuthType: string; Principal: string;
+      };
+      expect(perm.Action).toBe("lambda:InvokeFunctionUrl");
+      expect(perm.FunctionName).toBe("CrewPoppyApproval");
+      expect(perm.FunctionUrlAuthType).toBe("NONE");
+      // The RUNNER must not gain a public URL from this change, ever.
+      expect(JSON.stringify(resources.ApprovalUrl)).not.toContain("CrewPoppyRunner");
+    });
+
+    it("hands the runner the URL so links can be minted without a lookup", () => {
+      const env = resources.RunnerFunction!.Properties.Environment.Variables as Record<string, unknown>;
+      expect(env.CREWPOPPY_APPROVAL_URL).toEqual({ "Fn::GetAtt": ["ApprovalUrl", "FunctionUrl"] });
+    });
+
+    it("gives the approval function a tagged, in-stack log group like every other resource", () => {
+      expect(resources.ApprovalLogGroup!.Properties.LogGroupName).toBe("/aws/lambda/CrewPoppyApproval");
+    });
   });
 
   describe("the schedule ticker (DESIGN §5b)", () => {
