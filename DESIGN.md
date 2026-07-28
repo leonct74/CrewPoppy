@@ -947,3 +947,26 @@ than a chat (§10b).
 
 **Next: P3** — schedules (an agent that runs itself), the live cost meter, the `--win32`
 build, packing, screenshots, and a final certify against the shipping stack.
+
+## P3 progress — schedules LIVE-VERIFIED ✅ (2026-07-28)
+
+An agent ran itself on its schedule and emailed the founder at the set time, unattended —
+the full chain: clock-aligned tick → heartbeat → due match in the owner's timezone →
+slot-id run → email delivered. It took five live failures to get there, each one a bug
+that was INVISIBLE by construction, each now recorded above with its fix and a test:
+
+1. the runner couldn't invoke itself (§5b) — runs written, never started, no error shown;
+2. `rate()` ticks aren't clock-aligned (§5b) — whether schedules worked depended on the
+   deploy minute;
+3. "update available" compared the template only (§5b) — the app swore it was current
+   while running old code, which hid every fix behind it;
+4. scheduled runs were invisible in the UI (§10b family) — success, failure and skip all
+   looked like silence;
+5. a corpse row from failure #1 made the no-stacking check skip the agent forever (§5b)
+   — the staleness rule existed but only ONE side applied it.
+
+The meta-lesson, worth carrying to every poppy: **every fix here added a way to SEE**
+(version tags on both artifacts, a heartbeat, run re-attachment, a shared staleness
+rule). A background system without built-in observability isn't done — it's undebuggable.
+
+**P3 still open:** live cost meter, `--win32` build, pack + screenshots, final certify.
