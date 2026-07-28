@@ -747,6 +747,45 @@ function AgentRow(props: {
     [agent.id, props],
   );
 
+  // Keep the freshest run reachable inside the idle checker without re-arming it.
+  const runRef = useRef<RunRecord | null>(null);
+  runRef.current = run;
+
+  // Scheduled runs happen with nobody watching (DESIGN §5b): re-attach to the newest run
+  // on mount and keep looking while idle. Without this, a run the ticker started —
+  // including one that failed — was completely invisible: the card only ever tracked
+  // runs begun from its own composer, and the founder stared at a silent card while
+  // "1 due" sat in the heartbeat line.
+  useEffect(() => {
+    let gone = false;
+    const attach = async () => {
+      try {
+        const { runs } = await api.listRuns(agent.id);
+        // Newest by START TIME, not list order: scheduled ids ("sched-…") and UI ids
+        // (uuids) interleave arbitrarily in the sort key.
+        const newest = runs.reduce<RunRecord | null>(
+          (a, b) => (!a || Date.parse(b.startedAt) > Date.parse(a.startedAt) ? b : a),
+          null,
+        );
+        if (!gone && newest && newest.runId !== runRef.current?.runId) {
+          setRun(newest);
+          void poll(newest.runId);
+        }
+      } catch {
+        /* transient — the next pass tries again */
+      }
+    };
+    void attach();
+    const t = window.setInterval(() => {
+      const r = runRef.current;
+      if (!r || (r.status !== "running" && r.status !== "waiting")) void attach();
+    }, 30_000);
+    return () => {
+      gone = true;
+      window.clearInterval(t);
+    };
+  }, [agent.id, poll]);
+
   // Poll only while a run is actually in flight.
   useEffect(() => {
     if (timer.current) {
