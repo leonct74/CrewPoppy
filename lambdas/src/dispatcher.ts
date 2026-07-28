@@ -116,7 +116,10 @@ export async function dispatch(
     return await run(ctx, name, args);
   } catch (e) {
     // Never leak an AWS error verbatim to the model: it can name buckets, tables and
-    // account ids, which is information the agent has no business learning.
+    // account ids, which is information the agent has no business learning. But it MUST
+    // reach CloudWatch — this catch once swallowed an AccessDenied whole, and the only
+    // visible symptom was a tool that "couldn't complete that request".
+    console.error(`[crewpoppy] tool ${name} failed:`, e);
     return { content: `The ${name} tool couldn't complete that request.`, isError: true };
   }
 }

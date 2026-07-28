@@ -153,10 +153,12 @@ describe("buildTemplate", () => {
     // Sending only, and only from identities the owner already proved they own. Anything
     // that could CREATE an identity would let an agent's mail come from an address the
     // owner never authorised — a different product with a different risk.
-    expect(mail.Action).toEqual(["ses:SendEmail"]);
+    // SendRawEmail is how IAM authorises an ATTACHMENT send (live failure 2026-07-28:
+    // without it, plain mail worked and every attachment was AccessDenied).
+    expect(mail.Action).toEqual(["ses:SendEmail", "ses:SendRawEmail"]);
     expect(mail.Resource).toBe("arn:aws:ses:*:*:identity/*");
     const ses = statements.flatMap((s) => s.Action).filter((a) => a.startsWith("ses:"));
-    expect(ses).toEqual(["ses:SendEmail"]);
+    expect(ses).toEqual(["ses:SendEmail", "ses:SendRawEmail"]);
   });
 
   it("never reads back a log-group ARN with Fn::GetAtt (the collection-API trap)", () => {

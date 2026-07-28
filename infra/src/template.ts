@@ -268,7 +268,12 @@ export function buildTemplate(): CfnTemplate {
                     // bound; the gate is the control.
                     Sid: "SendMail",
                     Effect: "Allow",
-                    Action: ["ses:SendEmail"],
+                    // 🪤 BOTH actions (live failure, 2026-07-28): an email WITH an
+                    // attachment goes out as raw MIME, and IAM authorises that as
+                    // ses:SendRawEmail — a different action from plain SendEmail. With
+                    // only the first, plain mail worked and every attachment send was
+                    // AccessDenied. Same identity scope for both; no new reach.
+                    Action: ["ses:SendEmail", "ses:SendRawEmail"],
                     Resource: "arn:aws:ses:*:*:identity/*",
                   },
                 ],
