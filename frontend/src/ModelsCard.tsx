@@ -21,8 +21,20 @@ import type { ModelCatalogue } from "./types";
  */
 const POLL_MS = 8_000;
 
-export function ModelsCard({ onModels }: { onModels?: (m: ModelCatalogue["models"]) => void } = {}) {
+/**
+ * `quiet` — the crew already exists, so this whole panel is reference material, not the
+ * task at hand (founder note, 2026-07-28: it "occupies a large portion of the screen"
+ * and its button competed with the buttons that matter). Quiet mode collapses it to one
+ * line with the AWS page as a plain link; the full detail is one click away. First run —
+ * no agents yet — keeps the full panel, because then choosing a model IS the task.
+ */
+export function ModelsCard({
+  onModels,
+  quiet = false,
+}: { onModels?: (m: ModelCatalogue["models"]) => void; quiet?: boolean } = {}) {
   const [data, setData] = useState<ModelCatalogue | null>(null);
+  // null = the user hasn't said; quiet decides. A click is remembered for the session.
+  const [opened, setOpened] = useState<boolean | null>(null);
   const timer = useRef<number | null>(null);
 
   const load = useCallback(async () => {
@@ -59,14 +71,54 @@ export function ModelsCard({ onModels }: { onModels?: (m: ModelCatalogue["models
 
   const ready = data.models.filter((m) => m.ready);
   const needsSetup = data.models.filter((m) => !m.ready);
+  const open = opened ?? !quiet;
+
+  // The one thing a settled user still wants from here, demoted to a link on purpose —
+  // it must never outrank Run, Approve or Stop in the visual order.
+  const consoleLink = data.consoleUrl && (
+    <button
+      className="btn btn-ghost btn-sm"
+      onClick={() => void host.openExternal(data.consoleUrl!)}
+    >
+      AWS model page ↗
+    </button>
+  );
+
+  if (!open) {
+    return (
+      <div className="card">
+        <div className="spread">
+          <div className="row" style={{ gap: 8 }}>
+            <strong>Models</strong>
+            <span className={`badge ${ready.length ? "ok" : "warn"}`}>
+              <span className="dot" /> {ready.length} ready
+            </span>
+          </div>
+          <div className="row" style={{ gap: 4 }}>
+            {consoleLink}
+            <button className="btn btn-ghost btn-sm" onClick={() => setOpened(true)}>
+              Show
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="card stack">
       <div className="spread">
         <strong>Models your crew can think with</strong>
-        <span className={`badge ${ready.length ? "ok" : "warn"}`}>
-          <span className="dot" /> {ready.length} ready now
-        </span>
+        <div className="row" style={{ gap: 8 }}>
+          <span className={`badge ${ready.length ? "ok" : "warn"}`}>
+            <span className="dot" /> {ready.length} ready now
+          </span>
+          {quiet && (
+            <button className="btn btn-ghost btn-sm" onClick={() => setOpened(false)}>
+              Hide
+            </button>
+          )}
+        </div>
       </div>
       <p className="muted" style={{ margin: 0 }}>
         Every model here runs inside your own AWS and bills to your own account. You'll pick one
@@ -136,15 +188,21 @@ export function ModelsCard({ onModels }: { onModels?: (m: ModelCatalogue["models
             <li>Fill in the short form that appears, and submit it.</li>
           </ol>
           <div className="row">
-            <Button
-              className="btn btn-primary"
-              busyLabel="Opening…"
-              onClick={async () => {
-                if (data.consoleUrl) await host.openExternal(data.consoleUrl);
-              }}
-            >
-              Open the AWS page
-            </Button>
+            {/* First run: this IS the task, so it earns a real button. Settled crew:
+                a link — it must not compete with Run/Approve/Stop for attention. */}
+            {quiet ? (
+              consoleLink
+            ) : (
+              <Button
+                className="btn btn-primary"
+                busyLabel="Opening…"
+                onClick={async () => {
+                  if (data.consoleUrl) await host.openExternal(data.consoleUrl);
+                }}
+              >
+                Open the AWS page
+              </Button>
+            )}
           </div>
           {/* Set the expectation BEFORE the user wonders, rather than answering "not yet"
               after they press something. Measured: the form registers immediately, but the

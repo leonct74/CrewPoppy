@@ -656,6 +656,19 @@ These are **not tools** and never reach the dispatcher. The wording must name th
 obstacle: "needs MailPoppy" would imply installing MailPoppy switches reading on, and it does
 not — mail bodies are sealed to the recipient's key, and that work is MailPoppy-side (§15c).
 
+### 10d. Panels earn their size by the user's CURRENT task (founder note, 2026-07-28)
+
+The models panel dominated the screen long after it had done its job, and its primary
+button competed with Run/Approve/Stop. The rule now: **a panel's prominence follows the
+user's current task, not the panel's own importance.**
+
+- **First run (no agents):** the models panel is the task — full detail, real button.
+- **Crew exists:** it collapses to one line ("Models · N ready · AWS model page ↗ · Show"),
+  with the console link demoted to a ghost link — still there, never competing. One click
+  expands; the choice is remembered for the session.
+- Same logic already applies elsewhere: the ticker line only appears when something is
+  scheduled, the email-address field only when an email tool is chosen.
+
 ## 11. Reuse map (read-only references)
 
 - `~/Projects/mailpoppy/apps/desktop/node-sidecar` — embedded-template CFN deploy pipeline;

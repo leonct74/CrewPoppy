@@ -75,7 +75,11 @@ function money(usd: number | undefined): string {
   return usd < 0.01 ? `$${usd.toFixed(4)}` : `$${usd.toFixed(2)}`;
 }
 
-export function CrewCard(props: { models: ModelChoice[] }) {
+export function CrewCard(props: {
+  models: ModelChoice[];
+  /** Lets the page demote reference panels once a crew actually exists. */
+  onCrewSize?: (n: number) => void;
+}) {
   const [agents, setAgents] = useState<AgentSummary[] | null>(null);
   const [catalogue, setCatalogue] = useState<ToolCatalogue | null>(null);
   const [owner, setOwner] = useState<OwnerEmail>({});
@@ -105,6 +109,11 @@ export function CrewCard(props: { models: ModelChoice[] }) {
     void refreshOwner();
     void api.listTools().then(setCatalogue).catch(() => {});
   }, [refresh, refreshOwner]);
+
+  const { onCrewSize } = props;
+  useEffect(() => {
+    if (agents) onCrewSize?.(agents.length);
+  }, [agents, onCrewSize]);
 
   // Only asked when it can matter — an install with no schedules has no ticker to judge.
   const anyScheduled = (agents ?? []).some((a) => a.schedule?.enabled);

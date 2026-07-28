@@ -96,3 +96,37 @@ describe("the model catalogue", () => {
     expect(container).toBeEmptyDOMElement();
   });
 });
+
+// Founder note (2026-07-28): once a crew exists this panel is reference, not the task —
+// it was dominating the screen, and its primary button competed with Run/Approve/Stop.
+describe("quiet mode — a crew already exists", () => {
+  it("collapses to one line, with the AWS page as a plain link", async () => {
+    vi.spyOn(api, "models").mockResolvedValue(catalogue());
+    render(<ModelsCard quiet />);
+    expect(await screen.findByText("Models")).toBeTruthy();
+    // The detail is gone…
+    expect(screen.queryByText(/models your crew can think with/i)).toBeNull();
+    expect(screen.queryByText(qwen.goodAt)).toBeNull();
+    // …no primary call-to-action survives…
+    expect(screen.queryByRole("button", { name: /open the aws page/i })).toBeNull();
+    // …but the one still-useful thing remains, demoted to a link.
+    expect(screen.getByRole("button", { name: /aws model page/i }).className).toMatch(/btn-ghost/);
+  });
+
+  it("is one click from the full detail, and one click back", async () => {
+    const user = userEvent.setup();
+    vi.spyOn(api, "models").mockResolvedValue(catalogue());
+    render(<ModelsCard quiet />);
+    await user.click(await screen.findByRole("button", { name: /show/i }));
+    expect(screen.getByText(qwen.goodAt)).toBeTruthy();
+    await user.click(screen.getByRole("button", { name: /hide/i }));
+    expect(screen.queryByText(qwen.goodAt)).toBeNull();
+  });
+
+  it("stays FULLY open on first run — choosing a model is the task then", async () => {
+    vi.spyOn(api, "models").mockResolvedValue(catalogue());
+    render(<ModelsCard />);
+    expect(await screen.findByText(/models your crew can think with/i)).toBeTruthy();
+    expect(screen.getByText(qwen.goodAt)).toBeTruthy();
+  });
+});

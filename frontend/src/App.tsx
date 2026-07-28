@@ -23,6 +23,7 @@ export function App() {
   const [err, setErr] = useState<string | null>(null);
   const [showDetails, setShowDetails] = useState(false);
   const [models, setModels] = useState<ModelChoice[]>([]);
+  const [crewSize, setCrewSize] = useState(0);
   const pollRef = useRef<number | null>(null);
 
   /**
@@ -225,9 +226,11 @@ export function App() {
             </div>
           )}
           {/* Only meaningful once the stack exists — an agent needs both a home and a brain. */}
-          <CrewCard models={models} />
+          <CrewCard models={models} onCrewSize={setCrewSize} />
           <EmailCard />
-          <ModelsCard onModels={setModels} />
+          {/* Reference once a crew exists — collapsed, with the AWS page as a plain
+              link. On first run it stays the full panel: choosing a model IS the task. */}
+          <ModelsCard onModels={setModels} quiet={crewSize > 0} />
         </>
       )}
 
