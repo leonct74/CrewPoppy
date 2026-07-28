@@ -336,7 +336,7 @@ describe("clearing an agent's history", () => {
     expect(out.ok).toBe(true);
     expect(out.removed?.runs).toBe(1);
     // The record is gone…
-    expect(rows.find((r) => String(r.sk).startsWith("run#") && r.agentId === "a1")).toBeFalsy();
+    expect(rows.find((r) => r.pk === agentPk("a1") && String(r.sk).startsWith("run#"))).toBeFalsy();
     expect(rows.find((r) => r.pk === transcriptPk("r1"))).toBeFalsy();
     expect(rows.find((r) => r.pk === checkpointPk("r1"))).toBeFalsy();
     // …and everything of lasting value stays: definition, memory, and the SPEND COUNTER,
@@ -351,7 +351,7 @@ describe("clearing an agent's history", () => {
     const out = await clearHistory(ddb, "T", "a1", now);
     expect(out.ok).toBe(false);
     expect(out.reason).toMatch(/working right now/i);
-    expect(rows.find((r) => String(r.sk).startsWith("run#") && r.agentId === "a1")).toBeTruthy();
+    expect(rows.find((r) => r.pk === agentPk("a1") && String(r.sk).startsWith("run#"))).toBeTruthy();
   });
 
   it("an agent with no history clears to a clean no-op", async () => {
