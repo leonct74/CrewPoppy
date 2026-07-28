@@ -6,7 +6,7 @@ import {
   type DynamoDBDocumentClient,
 } from "@aws-sdk/lib-dynamodb";
 import { DeleteObjectsCommand, ListObjectsV2Command, type S3Client } from "@aws-sdk/client-s3";
-import { deleteAgent, withStaleness } from "./agents";
+import { deleteAgent, listFiles, readFileContent, withStaleness } from "./agents";
 import {
   AGENTS_PK,
   CHECKPOINT_SK,
@@ -229,5 +229,61 @@ describe("deleting an agent", () => {
     const out = await deleteAgent(ddb, s3, "T", "bucket", "a1", now);
     expect(out.ok).toBe(true);
     expect(rows.find((r) => r.sk === agentSk("a1"))).toBeFalsy();
+  });
+});
+
+// The owner's window into the workspace. Same prefix rule as the dispatcher, same
+// traversal predicate — one rule, both sides.
+describe("reading an agent's files", () => {
+  it("lists only this agent's files, with the prefix stripped", async () => {
+    const s3 = {
+      send: vi.fn(async () => ({
+        Contents: [
+          { Key: "agents/a1/report.md", Size: 1200, LastModified: new Date("2026-07-28T08:00:00Z") },
+          { Key: "agents/a1/drafts/post.md", Size: 300 },
+          { Key: "agents/a1/", Size: 0 }, // a folder marker is not a file
+        ],
+        IsTruncated: false,
+      })),
+    } as unknown as S3Client;
+    const files = await listFiles(s3, "bucket", "a1");
+    expect(files.map((f) => f.path)).toEqual(["report.md", "drafts/post.md"]);
+    expect((s3.send as ReturnType<typeof vi.fn>).mock.calls[0]![0].input.Prefix).toBe("agents/a1/");
+  });
+
+  it("treats a bucket that doesn't exist yet as an empty folder", async () => {
+    const s3 = {
+      send: vi.fn(async () => {
+        throw Object.assign(new Error("gone"), { name: "NoSuchBucket" });
+      }),
+    } as unknown as S3Client;
+    expect(await listFiles(s3, "bucket", "a1")).toEqual([]);
+  });
+
+  it("refuses a traversal path without ever calling S3", async () => {
+    const s3 = { send: vi.fn() } as unknown as S3Client;
+    for (const path of ["../a2/secret.txt", "/etc/passwd", "a/../../b", ""]) {
+      expect(await readFileContent(s3, "bucket", "a1", path)).toBeNull();
+    }
+    expect(s3.send).not.toHaveBeenCalled();
+  });
+
+  it("reads a legitimate file from this agent's own prefix", async () => {
+    const s3 = {
+      send: vi.fn(async (c: { input: { Key: string } }) => ({
+        Body: { transformToString: async () => `contents of ${c.input.Key}` },
+      })),
+    } as unknown as S3Client;
+    const content = await readFileContent(s3, "bucket", "a1", "drafts/post.md");
+    expect(content).toBe("contents of agents/a1/drafts/post.md");
+  });
+
+  it("answers null, not an error, for a file that's gone", async () => {
+    const s3 = {
+      send: vi.fn(async () => {
+        throw Object.assign(new Error("no key"), { name: "NoSuchKey" });
+      }),
+    } as unknown as S3Client;
+    expect(await readFileContent(s3, "bucket", "a1", "gone.md")).toBeNull();
   });
 });

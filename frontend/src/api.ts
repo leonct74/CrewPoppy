@@ -5,7 +5,7 @@
 import { host, type BackendInvoke } from "./host";
 import type {
   AgentSummary, DeleteResult, DeploymentStatus, Meta, ModelAccess, ModelCatalogue, OwnerEmail,
-  RunRecord, RunView, SchedulePreview, TickerHealth, ToolCatalogue,
+  RunRecord, RunView, SchedulePreview, TickerHealth, ToolCatalogue, WorkspaceFile,
 } from "./types";
 
 /**
@@ -99,6 +99,13 @@ export const api = {
       path: `/agents/${id}/runs/${runId}/answer`,
       body: { answer, ...(approved ? { approved: true } : {}) },
     }),
+
+  /** The files this agent has written — the owner's window into its workspace. */
+  listFiles: (id: string): Promise<{ files: WorkspaceFile[] }> =>
+    invoke({ method: "GET", path: `/agents/${id}/files` }),
+
+  readFile: (id: string, path: string): Promise<{ path: string; content: string }> =>
+    invoke({ method: "GET", path: `/agents/${id}/files?path=${encodeURIComponent(path)}` }),
 
   /** The kill switch (DESIGN §7). */
   stopRun: (id: string, runId: string): Promise<RunRecord> =>

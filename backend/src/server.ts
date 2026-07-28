@@ -16,8 +16,8 @@ import {
   deploy, getStatus, teardown, runnerFunctionName, tableName, workspaceBucketName,
 } from "./stack";
 import {
-  answerRun, deleteAgent, getAgent, getPending, getRun, getTranscript, listAgents, listRuns,
-  saveAgent, startRun, stopRun, withStaleness,
+  answerRun, deleteAgent, getAgent, getPending, getRun, getTranscript, listAgents, listFiles,
+  listRuns, readFileContent, saveAgent, startRun, stopRun, withStaleness,
 } from "./agents";
 import { getOwnerEmail, isVerifiedSender, setOwnerEmail } from "./email";
 import { consoleUrl, getCatalogue, getModelAccess } from "./bedrock";
@@ -187,6 +187,19 @@ const server = createServer(async (req, res) => {
         );
         if (!outcome.ok) return json(res, 409, { error: outcome.reason });
         return json(res, 200, outcome);
+      }
+      // The agent's files — the owner's window into the workspace. No path = the list;
+      // ?path= = one file's content. The path rides in the QUERY because file names may
+      // contain slashes, and the route splitter must not be in the business of guessing.
+      if (method === "GET" && parts.length === 3 && parts[2] === "files") {
+        const bucket = workspaceBucketName(ctx.accountId, region);
+        const path = url.searchParams.get("path");
+        if (path === null) {
+          return json(res, 200, { files: await listFiles(s3, bucket, parts[1]!) });
+        }
+        const content = await readFileContent(s3, bucket, parts[1]!, path);
+        if (content === null) return json(res, 404, { error: "That file doesn't exist any more." });
+        return json(res, 200, { path, content });
       }
       // Start a run. Returns immediately — the Lambda carries on in their account.
       if (method === "POST" && parts.length === 3 && parts[2] === "runs") {

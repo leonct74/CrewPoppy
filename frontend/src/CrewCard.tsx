@@ -4,7 +4,7 @@ import { Button } from "./Button";
 import { describeSchedule } from "./schedule";
 import type {
   AgentSchedule, AgentSummary, ModelChoice, OwnerEmail, PendingSend, RunRecord, SchedulePreview,
-  TickerHealth, ToolCatalogue, TranscriptEntry,
+  TickerHealth, ToolCatalogue, TranscriptEntry, WorkspaceFile,
 } from "./types";
 
 /**
@@ -760,6 +760,98 @@ function DeleteAgent(props: { agent: AgentSummary; onDeleted: () => Promise<void
   );
 }
 
+/**
+ * The owner's window into one agent's workspace (DESIGN §3). Results an owner can't
+ * open aren't results — an agent could "save the report" forever and the owner would
+ * never see a byte of it. Loaded only when opened: files are the exception, not the
+ * default, and an idle disclosure costs nothing.
+ */
+function FilesPanel(props: { agent: AgentSummary }) {
+  const [files, setFiles] = useState<WorkspaceFile[] | null>(null);
+  const [viewing, setViewing] = useState<{ path: string; content: string } | null>(null);
+  const [copied, setCopied] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  useEffect(() => {
+    void api.listFiles(props.agent.id).then((r) => setFiles(r.files)).catch((e) => setErr((e as Error).message));
+  }, [props.agent.id]);
+
+  const kb = (n: number) => (n < 1024 ? `${n} B` : `${(n / 1024).toFixed(1)} KB`);
+
+  if (err) return <div className="banner err" style={{ marginTop: 8 }}>{err}</div>;
+  if (!files) {
+    return (
+      <p className="row muted" style={{ margin: "8px 0 0", fontSize: 12 }}>
+        <span className="spinner" /> Looking in {props.agent.name}'s folder…
+      </p>
+    );
+  }
+  if (files.length === 0) {
+    return (
+      <p className="muted" style={{ margin: "8px 0 0", fontSize: 12 }}>
+        {props.agent.name} hasn't saved any files yet.
+      </p>
+    );
+  }
+
+  return (
+    <div className="stack" style={{ marginTop: 8 }}>
+      {files.map((f) => (
+        <div key={f.path} className="spread">
+          <button
+            className="btn btn-ghost btn-sm mono"
+            onClick={async () => {
+              setErr(null);
+              setCopied(false);
+              try {
+                setViewing(await api.readFile(props.agent.id, f.path));
+              } catch (e) {
+                setErr((e as Error).message);
+              }
+            }}
+          >
+            {f.path}
+          </button>
+          <span className="muted-2" style={{ fontSize: 12 }}>
+            {kb(f.size)}
+            {f.modified ? ` · ${new Date(f.modified).toLocaleString()}` : ""}
+          </span>
+        </div>
+      ))}
+
+      {viewing && (
+        <div className="card" style={{ margin: 0 }}>
+          <div className="spread" style={{ marginBottom: 6 }}>
+            <strong className="mono" style={{ fontSize: 13 }}>{viewing.path}</strong>
+            <div className="row" style={{ gap: 4 }}>
+              {/* Copy, not download: the sandboxed webview has no file-save dialog, and a
+                  copy button that works beats a download button that silently doesn't. */}
+              <button
+                className="btn btn-ghost btn-sm"
+                onClick={async () => {
+                  await navigator.clipboard.writeText(viewing.content);
+                  setCopied(true);
+                }}
+              >
+                {copied ? "Copied ✓" : "Copy contents"}
+              </button>
+              <button className="btn btn-ghost btn-sm" onClick={() => setViewing(null)}>
+                Close
+              </button>
+            </div>
+          </div>
+          <pre
+            className="mono"
+            style={{ margin: 0, whiteSpace: "pre-wrap", overflowWrap: "anywhere", fontSize: 12, maxHeight: 280, overflowY: "auto" }}
+          >
+            {viewing.content}
+          </pre>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function AgentRow(props: {
   agent: AgentSummary;
   models: ModelChoice[];
@@ -769,6 +861,7 @@ function AgentRow(props: {
 }) {
   const { agent } = props;
   const [editing, setEditing] = useState(false);
+  const [showFiles, setShowFiles] = useState(false);
   // Which brain this agent thinks with. Chosen once at creation and then invisible —
   // nobody remembers weeks later, and it drives both quality and cost, so it belongs on
   // the card. Fall back to the raw id if the catalogue has moved on.
@@ -907,12 +1000,17 @@ function AgentRow(props: {
           </span>
           {/* Capabilities can be taken back as well as given — a grant you can't revoke
               isn't really a grant. */}
+          <button className="btn btn-ghost" onClick={() => setShowFiles((v) => !v)}>
+            Files{showFiles ? " ▾" : "…"}
+          </button>
           <button className="btn btn-ghost" onClick={() => setEditing(true)}>
             Edit…
           </button>
           <DeleteAgent agent={agent} onDeleted={props.onChanged} />
         </div>
       </div>
+
+      {showFiles && <FilesPanel agent={agent} />}
 
       {editing && (
         <div style={{ marginTop: 10 }}>

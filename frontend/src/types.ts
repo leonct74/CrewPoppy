@@ -180,6 +180,13 @@ export interface AgentSchedule {
   enabled: boolean;
 }
 
+/** One file an agent wrote into its workspace. */
+export interface WorkspaceFile {
+  path: string;
+  size: number;
+  modified?: string;
+}
+
 /** What a schedule means, answered by the backend so the UI never does its own maths. */
 export interface SchedulePreview {
   schedule?: AgentSchedule;

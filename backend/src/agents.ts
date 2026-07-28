@@ -18,6 +18,7 @@ import {
 import { InvokeCommand, type LambdaClient } from "@aws-sdk/client-lambda";
 import {
   DeleteObjectsCommand,
+  GetObjectCommand,
   ListObjectsV2Command,
   type S3Client,
 } from "@aws-sdk/client-s3";
@@ -29,6 +30,7 @@ import {
   agentSk,
   checkpointPk,
   isEmailAddress,
+  isSafeRelativePath,
   isToolName,
   memoryPk,
   monthKeyOf,
@@ -41,6 +43,7 @@ import {
   spendPk,
   spendSk,
   transcriptPk,
+  workspaceKeyFor,
   workspacePrefixFor,
   type AgentCaps,
   type AgentDef,
@@ -483,6 +486,68 @@ export async function getPending(
     new GetCommand({ TableName: table, Key: { pk: checkpointPk(runId), sk: CHECKPOINT_SK } }),
   );
   return (r.Item as { pending?: PendingSend } | undefined)?.pending;
+}
+
+// ---- the owner's window into an agent's workspace (DESIGN §3, 2026-07-28) ----------
+// An agent that writes files nobody can open hasn't produced results, it has produced
+// exhaust. These are the OWNER's reads — same bucket, same per-agent prefix rule as the
+// dispatcher, enforced with the same shared predicate.
+
+export interface WorkspaceFile {
+  path: string;
+  size: number;
+  modified?: string;
+}
+
+/** Every file this agent has written. A bucket that doesn't exist yet is an empty list. */
+export async function listFiles(
+  s3: S3Client,
+  bucket: string,
+  agentId: string,
+): Promise<WorkspaceFile[]> {
+  const Prefix = workspacePrefixFor(agentId);
+  const files: WorkspaceFile[] = [];
+  let token: string | undefined;
+  try {
+    do {
+      const page = await s3.send(
+        new ListObjectsV2Command({ Bucket: bucket, Prefix, ContinuationToken: token }),
+      );
+      for (const o of page.Contents ?? []) {
+        const path = (o.Key ?? "").slice(Prefix.length);
+        if (path) files.push({ path, size: o.Size ?? 0, modified: o.LastModified?.toISOString() });
+      }
+      token = page.IsTruncated ? page.NextContinuationToken : undefined;
+    } while (token);
+  } catch (e) {
+    const name = (e as { name?: string })?.name ?? "";
+    if (name !== "NoSuchBucket" && name !== "NotFound") throw e;
+  }
+  return files;
+}
+
+/**
+ * One file's content, or null when it doesn't exist. The path is validated with the SAME
+ * rule the dispatcher applies to the model — the owner is trusted, but the URL a request
+ * arrives on is a string like any other, and one traversal rule is better than two.
+ */
+export async function readFileContent(
+  s3: S3Client,
+  bucket: string,
+  agentId: string,
+  path: unknown,
+): Promise<string | null> {
+  if (!isSafeRelativePath(path)) return null;
+  try {
+    const r = await s3.send(
+      new GetObjectCommand({ Bucket: bucket, Key: workspaceKeyFor(agentId, path) }),
+    );
+    return (await r.Body?.transformToString()) ?? "";
+  } catch (e) {
+    const name = (e as { name?: string })?.name ?? "";
+    if (name === "NoSuchKey" || name === "NoSuchBucket" || name === "NotFound") return null;
+    throw e;
+  }
 }
 
 /** The run's transcript, in order. */
