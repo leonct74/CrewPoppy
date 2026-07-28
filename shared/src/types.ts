@@ -118,6 +118,12 @@ export interface PendingSend {
   to: string;
   subject: string;
   body: string;
+  /**
+   * Workspace file to attach, by name. The BYTES are fetched at send time from the
+   * agent's own prefix — the approval card links to the same file, so what the owner
+   * opened and what goes out are the same object in the same bucket.
+   */
+  attach?: string;
 }
 
 /**

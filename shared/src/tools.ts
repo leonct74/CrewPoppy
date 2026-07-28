@@ -293,6 +293,10 @@ export const TOOL_SPECS: Record<ToolName, ToolSpec> = {
       properties: {
         subject: { type: "string", description: "The subject line." },
         body: { type: "string", description: "The message, in plain text." },
+        attach: {
+          type: "string",
+          description: "Optional: the name of a file in your workspace to attach — e.g. an invoice PDF you just saved.",
+        },
       },
       required: ["subject", "body"],
     },
@@ -307,6 +311,10 @@ export const TOOL_SPECS: Record<ToolName, ToolSpec> = {
         to: { type: "string", description: "One recipient address." },
         subject: { type: "string", description: "The subject line." },
         body: { type: "string", description: "The full message, ready to send, in plain text." },
+        attach: {
+          type: "string",
+          description: "Optional: the name of a file in your workspace to attach. Your owner sees and can open it before approving.",
+        },
       },
       required: ["to", "subject", "body"],
     },

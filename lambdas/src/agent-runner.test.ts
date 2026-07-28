@@ -437,3 +437,56 @@ describe("the ticker", () => {
     expect(state.invocations).toHaveLength(0); // no model call, no tokens, no cost
   });
 });
+
+// The attachment completes the founder's core use case (2026-07-28): the approved offer
+// PDF actually rides on the approved email.
+describe("an approved send with an attachment", () => {
+  it("fetches the file from the agent's own prefix and sends raw MIME", async () => {
+    const sent: Record<string, any>[] = [];
+    const s3Keys: string[] = [];
+    const ctx = {
+      ddb: { send: async () => ({}) },
+      s3: {
+        send: async (c: { input: { Key: string } }) => {
+          s3Keys.push(c.input.Key);
+          return { Body: { transformToByteArray: async () => new TextEncoder().encode("%PDF-1.4 x") } };
+        },
+      },
+      ses: { send: async (c: { input: Record<string, any> }) => { sent.push(c.input); return {}; } },
+      table: "T", bucket: "b", agentId: "a1", agentName: "Postie",
+      enabled: ["send_email"], ownerEmail: "marco@example.com", maxEmailsPerDay: 50,
+      now: () => Date.parse("2026-07-28T10:00:00.000Z"),
+    } as never;
+
+    const text = await settlePending(
+      { runId: "r1", agentId: "a1", input: "x", tableName: "T", answer: "Yes", approved: true } as never,
+      { kind: "send_email", to: "jane@customer.test", subject: "Offer", body: "Attached.", attach: "offer-acme.pdf" },
+      ctx,
+      async () => {},
+    );
+    expect(s3Keys).toEqual(["agents/a1/offer-acme.pdf"]);
+    expect(sent[0]!.Content.Raw).toBeTruthy();
+    expect(Buffer.from(sent[0]!.Content.Raw.Data).toString("utf8")).toContain('filename="offer-acme.pdf"');
+    expect(text).toMatch(/has been sent to jane@customer.test/i);
+  });
+
+  it("fails gracefully when the file vanished between approval and send", async () => {
+    const ctx = {
+      ddb: { send: async () => ({}) },
+      s3: { send: async () => { throw Object.assign(new Error("gone"), { name: "NoSuchKey" }); } },
+      ses: { send: async () => ({}) },
+      table: "T", bucket: "b", agentId: "a1", agentName: "Postie",
+      enabled: ["send_email"], ownerEmail: "marco@example.com", maxEmailsPerDay: 50,
+      now: () => Date.parse("2026-07-28T10:00:00.000Z"),
+    } as never;
+    const log: string[] = [];
+    const text = await settlePending(
+      { runId: "r1", agentId: "a1", input: "x", tableName: "T", answer: "Yes", approved: true } as never,
+      { kind: "send_email", to: "jane@customer.test", subject: "Offer", body: "b", attach: "gone.pdf" },
+      ctx,
+      async (_r, t) => void log.push(t),
+    );
+    expect(text).toMatch(/sending it failed/i);
+    expect(log[0]).toMatch(/not sent/i);
+  });
+});

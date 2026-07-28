@@ -412,9 +412,17 @@ or invoices in a specific template."*
   pasted into instructions: it survives instruction edits, it's visible in the Files panel,
   and updating it doesn't touch the brief. Same traversal predicate and size limits as the
   agent's own writes — the owner is trusted, the string in the request is not.
-- **Open next:** attaching a workspace PDF to `send_email` (needs raw-MIME sending and the
-  approval card naming the attachment). Until then the flow is: agent produces the PDF and
-  emails you that it's ready; you open and forward it.
+- **Attachments — SHIPPED (same day):** both email tools take an optional `attach` — the name
+  of a file in the agent's OWN workspace, validated with the same traversal predicate at
+  propose time. Sending uses hand-rolled raw MIME (mime.ts, ~90 lines, same no-library
+  reasoning; every part base64 so a fixed boundary is provably safe; headers flattened to one
+  line so injection through a subject or filename is structurally impossible). **The approval
+  card names the attachment AND opens it** via the same signed-link path — approving an
+  attachment you haven't opened is not approval. Bytes are fetched at SEND time from the
+  agent's prefix; a file that vanished between approval and send fails gracefully. A missing
+  attachment never burns the day's send allowance. This completes the founder's core use case:
+  ask by email → agent builds the offer PDF from the template → proposes the send → owner
+  opens the exact PDF, approves → customer receives it attached.
 
 ### 4b. Knowledge vs. ability — "how does the agent know what to do without training?"
 

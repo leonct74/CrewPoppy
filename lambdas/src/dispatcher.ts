@@ -29,6 +29,7 @@ import {
 } from "@aws-sdk/client-s3";
 import { GetCommand, PutCommand, UpdateCommand, type DynamoDBDocumentClient } from "@aws-sdk/lib-dynamodb";
 import { renderPdf } from "./pdf";
+import { buildRawEmail, type MimeAttachment } from "./mime";
 import { SendEmailCommand, type SESv2Client } from "@aws-sdk/client-sesv2";
 import {
   dayKeyOf,
@@ -194,7 +195,7 @@ async function run(ctx: DispatchContext, name: ToolName, args: Record<string, un
       if (!subject) return { content: "email_owner needs a 'subject'.", isError: true };
       if (!body) return { content: "email_owner needs a 'body'.", isError: true };
       if (!ctx.ownerEmail) return { content: NO_OWNER_ADDRESS, isError: true };
-      return sendMail(ctx, ctx.ownerEmail, subject, body);
+      return sendMail(ctx, ctx.ownerEmail, subject, body, asShortString(args.attach) ?? undefined);
     }
 
     case "send_email": {
@@ -208,10 +209,15 @@ async function run(ctx: DispatchContext, name: ToolName, args: Record<string, un
       if (!body) return { content: "send_email needs a 'body'.", isError: true };
       if (!ctx.ownerEmail) return { content: NO_OWNER_ADDRESS, isError: true };
 
+      // An attachment is validated NOW, at propose time: a bad name should bounce back
+      // to the model immediately, not surface as a failure after the owner approved.
+      const attach = asShortString(args.attach) ?? undefined;
+      if (attach && !isSafeRelativePath(attach)) return { content: badPath(), isError: true };
+
       // Writing to your owner is not "reaching the outside world" — it's the same inbox
       // `email_owner` uses, so it doesn't need approving.
       if (normaliseEmail(to) === normaliseEmail(ctx.ownerEmail)) {
-        return sendMail(ctx, ctx.ownerEmail, subject, body);
+        return sendMail(ctx, ctx.ownerEmail, subject, body, attach);
       }
 
       // THE GATE (DESIGN §4c). Nothing is sent here. The message is handed to the runner
@@ -225,8 +231,8 @@ async function run(ctx: DispatchContext, name: ToolName, args: Record<string, un
         content: "Waiting for your owner to approve this message. It has not been sent.",
         suspend: {
           question: `${ctx.agentName} wants to email ${to}.`,
-          draft: `To: ${to}\nSubject: ${subject}\n\n${body}`,
-          pending: { kind: "send_email", to, subject, body },
+          draft: `To: ${to}\nSubject: ${subject}${attach ? `\nAttachment: ${attach}` : ""}\n\n${body}`,
+          pending: { kind: "send_email", to, subject, body, ...(attach ? { attach } : {}) },
         },
       };
     }
@@ -279,30 +285,82 @@ const NO_OWNER_ADDRESS =
  * — never straight from a model's request to a stranger. The daily ceiling is claimed
  * BEFORE the send: a counter incremented after the fact is not a limit, it's a tally.
  */
+const MAX_ATTACHMENT_BYTES = 7_000_000; // under SES's raw-message ceiling, with MIME room
+
+/** What a filename claims to be. The workspace only ever holds text and our own PDFs. */
+function contentTypeFor(name: string): string {
+  const lower = name.toLowerCase();
+  if (lower.endsWith(".pdf")) return "application/pdf";
+  if (lower.endsWith(".html")) return "text/html; charset=utf-8";
+  if (lower.endsWith(".csv")) return "text/csv; charset=utf-8";
+  return "text/plain; charset=utf-8";
+}
+
 export async function sendMail(
   ctx: DispatchContext,
   to: string,
   subject: string,
   body: string,
+  /** Workspace file name. Fetched HERE, from this agent's own prefix — never from args. */
+  attach?: string,
 ): Promise<ToolResult> {
   const from = ctx.fromAddress || ctx.ownerEmail;
   if (!from) return { content: NO_OWNER_ADDRESS, isError: true };
+
+  // The attachment is fetched BEFORE the daily allowance is claimed: a missing file must
+  // not burn one of the day's sends.
+  let attachment: MimeAttachment | undefined;
+  if (attach) {
+    if (!isSafeRelativePath(attach)) return { content: badPath(), isError: true };
+    try {
+      const r = await ctx.s3.send(
+        new GetObjectCommand({ Bucket: ctx.bucket, Key: workspaceKeyFor(ctx.agentId, attach) }),
+      );
+      const bytes = await r.Body?.transformToByteArray();
+      if (!bytes) throw new Error("empty");
+      if (bytes.length > MAX_ATTACHMENT_BYTES) {
+        return { content: `That attachment is too large to email (limit ${Math.floor(MAX_ATTACHMENT_BYTES / 1_000_000)} MB).`, isError: true };
+      }
+      attachment = {
+        filename: attach.split("/").pop() ?? "attachment",
+        content: bytes,
+        contentType: contentTypeFor(attach),
+      };
+    } catch {
+      return {
+        content: `There is no file called "${attach}" in your workspace, so nothing was sent. Save it first.`,
+        isError: true,
+      };
+    }
+  }
+
   if (!(await claimDailySend(ctx))) {
     return {
       content: `You have reached your limit of ${ctx.maxEmailsPerDay} emails today. Say so in your answer rather than trying again.`,
       isError: true,
     };
   }
+
+  // The display name is the agent's, the address is the owner's verified identity —
+  // warm, and still traceable to a real mailbox someone can reply to.
+  const fromHeader = `${sanitiseDisplayName(ctx.agentName)} <${from}>`;
   await ctx.ses.send(
-    new SendEmailCommand({
-      // The display name is the agent's, the address is the owner's verified identity —
-      // warm, and still traceable to a real mailbox someone can reply to.
-      FromEmailAddress: `${sanitiseDisplayName(ctx.agentName)} <${from}>`,
-      Destination: { ToAddresses: [to] },
-      Content: { Simple: { Subject: { Data: subject }, Body: { Text: { Data: body } } } },
-    }),
+    new SendEmailCommand(
+      attachment
+        ? {
+            // Attachments need the raw MIME path — SES's Simple content can't carry them.
+            FromEmailAddress: fromHeader,
+            Destination: { ToAddresses: [to] },
+            Content: { Raw: { Data: buildRawEmail({ from: fromHeader, to, subject, body, attachment }) } },
+          }
+        : {
+            FromEmailAddress: fromHeader,
+            Destination: { ToAddresses: [to] },
+            Content: { Simple: { Subject: { Data: subject }, Body: { Text: { Data: body } } } },
+          },
+    ),
   );
-  return { content: `Sent to ${to}.` };
+  return { content: attachment ? `Sent to ${to}, with ${attachment.filename} attached.` : `Sent to ${to}.` };
 }
 
 /**

@@ -1220,6 +1220,27 @@ function AgentRow(props: {
                 <span className="muted" style={{ fontSize: 12, minWidth: 56 }}>Subject</span>
                 <strong style={{ fontSize: 13 }}>{pending.subject}</strong>
               </div>
+              {pending.attach && (
+                <div className="row" style={{ gap: 8 }}>
+                  <span className="muted" style={{ fontSize: 12, minWidth: 56 }}>Attached</span>
+                  {/* Openable, not just named: approving an attachment you haven't
+                      opened is not approval. Same file, same bucket, same bytes the
+                      send will fetch. */}
+                  <button
+                    className="btn btn-ghost btn-sm mono"
+                    onClick={async () => {
+                      try {
+                        const { url } = await api.fileLink(agent.id, pending.attach!);
+                        await host.openExternal(url);
+                      } catch (e) {
+                        setErr((e as Error).message);
+                      }
+                    }}
+                  >
+                    {pending.attach} ↗
+                  </button>
+                </div>
+              )}
               <div style={{ whiteSpace: "pre-wrap", borderTop: "1px solid var(--poppy-border)", paddingTop: 8 }}>
                 {pending.body}
               </div>

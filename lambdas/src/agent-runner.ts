@@ -510,7 +510,7 @@ export async function settlePending(
   // and the owner needs to be told what happened rather than shown a stack trace.
   let failure: string | undefined;
   try {
-    const result = await sendMail(ctx, pending.to, pending.subject, pending.body);
+    const result = await sendMail(ctx, pending.to, pending.subject, pending.body, pending.attach);
     if (result.isError) failure = result.content;
   } catch (e) {
     failure = (e as Error)?.message ?? "AWS refused the message.";

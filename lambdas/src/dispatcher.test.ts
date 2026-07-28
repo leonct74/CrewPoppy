@@ -239,10 +239,12 @@ describe("emailing the owner", () => {
 
     expect(r.isError).toBeFalsy();
     expect(sentTo(ses)[0]?.Destination?.ToAddresses).toEqual(["marco@example.com"]);
-    // The schema has no recipient field at all — that IS the control.
+    // The schema has no recipient field at all — that IS the control. `attach` names a
+    // file in the agent's OWN workspace; it still cannot say where the mail goes.
     expect(Object.keys(TOOL_SPECS.email_owner.input_schema.properties as object)).toEqual([
       "subject",
       "body",
+      "attach",
     ]);
   });
 
@@ -387,5 +389,62 @@ describe("save_pdf", () => {
     const r = await dispatch(ctx, "save_pdf", { path: "x.pdf", body: "   " });
     expect(r.isError).toBe(true);
     expect(s3).toHaveLength(0);
+  });
+});
+
+describe("email attachments", () => {
+  const PDF = new TextEncoder().encode("%PDF-1.4 test");
+  const withFile = (opts: Parameters<typeof harness>[0] = {}) => {
+    const h = harness(opts);
+    (h.ctx.s3 as unknown as { send: unknown }).send = vi.fn(async (c: unknown) => {
+      h.s3.push(c);
+      if (c instanceof GetObjectCommand) return { Body: { transformToByteArray: async () => PDF } };
+      return {};
+    });
+    return h;
+  };
+
+  it("emails the owner with the workspace file attached, as raw MIME", async () => {
+    const { ctx, ses, s3 } = withFile();
+    const r = await dispatch(ctx, "email_owner", { subject: "Offer ready", body: "Attached.", attach: "offer.pdf" });
+    expect(r.isError).toBeFalsy();
+    expect(r.content).toMatch(/offer\.pdf attached/);
+    // Fetched from THIS agent's prefix, nowhere else.
+    expect((s3[0] as GetObjectCommand).input.Key).toBe("agents/a1/offer.pdf");
+    const cmd = ses[0] as SendEmailCommand;
+    expect(cmd.input.Content?.Raw?.Data).toBeTruthy();
+    expect(Buffer.from(cmd.input.Content!.Raw!.Data!).toString("utf8")).toContain("application/pdf");
+  });
+
+  it("a proposed external send carries the attachment name — and still sends NOTHING", async () => {
+    const { ctx, ses } = withFile();
+    const r = await dispatch(ctx, "send_email", {
+      to: "jane@customer.test", subject: "Offer", body: "See attached.", attach: "offer.pdf",
+    });
+    expect(ses).toHaveLength(0);
+    expect(r.suspend?.pending?.attach).toBe("offer.pdf");
+    expect(r.suspend?.draft).toContain("Attachment: offer.pdf");
+  });
+
+  it("refuses a traversal attachment name at PROPOSE time, before any approval", async () => {
+    const { ctx, ses } = withFile();
+    const r = await dispatch(ctx, "send_email", {
+      to: "jane@customer.test", subject: "s", body: "b", attach: "../a2/secrets.pdf",
+    });
+    expect(r.isError).toBe(true);
+    expect(r.suspend).toBeFalsy();
+    expect(ses).toHaveLength(0);
+  });
+
+  it("a missing file fails the send without burning the day's allowance", async () => {
+    const { ctx, ses, ddb } = harness();
+    (ctx.s3 as unknown as { send: unknown }).send = vi.fn(async () => {
+      throw Object.assign(new Error("no key"), { name: "NoSuchKey" });
+    });
+    const r = await dispatch(ctx, "email_owner", { subject: "s", body: "b", attach: "gone.pdf" });
+    expect(r.isError).toBe(true);
+    expect(r.content).toMatch(/no file called "gone\.pdf"/i);
+    expect(ses).toHaveLength(0);
+    expect(ddb.filter((c) => c instanceof UpdateCommand)).toHaveLength(0); // allowance untouched
   });
 });

@@ -218,4 +218,6 @@ export interface PendingSend {
   to: string;
   subject: string;
   body: string;
+  /** Workspace file that will be attached — openable from the approval card. */
+  attach?: string;
 }
