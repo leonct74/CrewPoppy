@@ -196,11 +196,8 @@ export function App() {
               Your crew's home base is live in {status?.region}. Everything an agent thinks, learns
               and produces stays in this account.
             </p>
-            <div className="banner info">
-              <strong>$0.00 so far — nothing is being billed.</strong> No agents exist yet, and an idle
-              crew costs nothing: you pay AWS only for what your agents actually do, with a hard spend
-              cap on every agent.
-            </div>
+            {/* The money line lives in CrewCard, which KNOWS the crew — a static banner
+                here once claimed "no agents exist yet" forever, spend and all. */}
           </div>
           {/* Without this there is NO WAY to ship new engine code to an existing
               deployment: the deploy button only shows when no stack exists, so a user

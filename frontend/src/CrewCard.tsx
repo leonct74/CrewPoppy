@@ -32,6 +32,43 @@ function timezones(current: string): string[] {
   return list.includes(current) ? list : [current, ...list];
 }
 
+/**
+ * The crew-level money line. Deliberately NOT the AWS Price List API: pricing:GetProducts
+ * cannot be resource-scoped, and a wildcard read would cost the manifest's "no findings"
+ * verdict — for a number our own counters already hold (DESIGN §2d, §7b). The honest
+ * caveat is shown, not hidden in a tooltip: for models without a published rate (all
+ * Claude, today) we count HIGH on purpose, so limits stop early rather than late.
+ */
+function MoneyStrip(props: { agents: AgentSummary[] }) {
+  const { agents } = props;
+  if (agents.length === 0) {
+    return (
+      <div className="banner info">
+        <strong>$0.00 — nothing is being billed.</strong> Creating agents is free; you pay AWS
+        only when one actually works, and every agent has a spending limit you set.
+      </div>
+    );
+  }
+  const spent = agents.reduce((s, a) => s + (a.monthSpendUsd ?? 0), 0);
+  const cap = agents.reduce((s, a) => s + a.caps.monthlySpendCapUsd, 0);
+  return (
+    <div className="banner info">
+      <div className="spread">
+        <span>
+          <strong>This month: ≈ {money(spent)}</strong> across {agents.length} agent
+          {agents.length === 1 ? "" : "s"}
+        </span>
+        <span className="muted">combined limits {money(cap)} — each agent stops at its own</span>
+      </div>
+      <p className="muted-2" style={{ margin: "4px 0 0", fontSize: 12 }}>
+        Counted by CrewPoppy from the tokens your agents actually used. Models without a
+        published price are counted high on purpose, so a limit stops you early, never late.
+        Your AWS bill is the final word.
+      </p>
+    </div>
+  );
+}
+
 function money(usd: number | undefined): string {
   if (usd === undefined) return "—";
   if (usd === 0) return "$0.00";
@@ -93,6 +130,11 @@ export function CrewCard(props: { models: ModelChoice[] }) {
       </div>
 
       {err && <div className="banner err">{err}</div>}
+
+      {/* Show the money (AGENTS.md §9) — the rule CrewPoppy exists to exemplify. One
+          line, always current, computed from the same spend counters the caps enforce,
+          so the number the user sees and the number that stops a run can never differ. */}
+      <MoneyStrip agents={agents} />
 
       {/* Says which half is broken. "AWS never woke us" and "it woke us and nothing was
           due" need completely different fixes and used to look identical — as a blank

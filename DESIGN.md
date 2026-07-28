@@ -560,6 +560,25 @@ the controls are **hard mechanisms**, not advice:
 - **One-off costs surfaced too:** avatar generation (§3c) is a one-time few-cents Bedrock image
   charge, shown when the owner generates a face — never a hidden line.
 
+### 7b. The cost meter — our own counters, never the pricing API (decided 2026-07-28)
+
+The §2d conflict is resolved by not taking the pricing grant at all. `pricing:GetProducts`
+cannot be resource-scoped, so it would cost the manifest's "no findings" verdict — for numbers
+our own spend counters already hold. The meter is therefore:
+
+- **One always-current line above the crew** — "This month: ≈ $X across N agents · combined
+  limits $Y" — computed from the SAME per-agent spend rows the caps enforce, so the number the
+  user sees and the number that stops a run can never differ.
+- **The caveat is visible, not tooltipped:** models without a published rate (all Claude,
+  today) are counted at the safety ceiling — high on purpose, so a limit stops early, never
+  late — and the AWS bill is named as the final word. A meter that looks like an invoice but
+  isn't one is worse than no meter.
+- Real per-token rates for Claude arrive only from a VERIFIED source (a measured Price List
+  row, or a founder-confirmed figure) — never hardcoded from memory. `costFor` returning
+  `usd: undefined` for unknown rates stays the rule: no guessed numbers, anywhere.
+- Fixed in the same change: the App-level "$0.00 — no agents exist yet" banner was static and
+  kept saying so forever, spend and all. The money line lives in CrewCard, which knows the crew.
+
 ## 8. Permission set & rating
 
 The widest set in the family so far — MailPoppy-class amber, name-scoped `MissionControlAgents*`:

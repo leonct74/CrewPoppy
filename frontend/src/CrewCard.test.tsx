@@ -129,3 +129,27 @@ describe("backend errors read as sentences", () => {
     expect(plainMessage("backend 502: upstream said no")).toBe("backend 502: upstream said no");
   });
 });
+
+// Show the money (AGENTS.md §9) — the rule CrewPoppy exists to exemplify.
+describe("the money line", () => {
+  it("shows this month's total and the combined limits, from live data", async () => {
+    mountWithOneAgent(); // emma: $0.42 spent, $10 limit
+    // Anchored to the strip's own wording — each agent row also says "this month".
+    expect((await screen.findByText(/This month: ≈/)).textContent).toMatch(/\$0\.42/);
+    expect(screen.getByText(/combined limits/i).textContent).toMatch(/\$10\.00/);
+  });
+
+  it("is honest that unpriced models are counted high on purpose", async () => {
+    mountWithOneAgent();
+    const note = await screen.findByText(/counted high on purpose/i);
+    expect(note.textContent).toMatch(/AWS bill is the final word/i);
+  });
+
+  it("says an empty crew bills nothing — and only an EMPTY crew", async () => {
+    vi.spyOn(api, "listAgents").mockResolvedValue({ agents: [] });
+    vi.spyOn(api, "listTools").mockResolvedValue({ tools: [], groups: [], needsEmail: [] });
+    vi.spyOn(api, "ownerEmail").mockResolvedValue({});
+    render(<CrewCard models={[model]} />);
+    expect((await screen.findByText(/nothing is being billed/i)).textContent).toMatch(/\$0\.00/);
+  });
+});
