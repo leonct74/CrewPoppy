@@ -164,6 +164,31 @@ async function tick(table: string, now: Date): Promise<{ ok: boolean; status: st
   const withSchedule = all.filter((a) => a.schedule?.enabled);
   const agents = withSchedule.filter((a) => isDue(a.schedule!, now));
 
+  // 🪤 Written BEFORE any agent is started, not after. Written last, a tick that woke and
+  // then threw was indistinguishable from a tick that never woke at all — which is the
+  // exact confusion this row exists to remove. Best-effort: never blocks a run.
+  const beat = async (started: number) => {
+    try {
+      await ddb.send(
+        new PutCommand({
+          TableName: table,
+          Item: {
+            pk: CONFIG_PK,
+            sk: LAST_TICK_SK,
+            at: now.toISOString(),
+            agents: all.length,
+            scheduled: withSchedule.length,
+            due: agents.length,
+            started,
+          },
+        }),
+      );
+    } catch (e) {
+      console.error("[crewpoppy] heartbeat failed:", e);
+    }
+  };
+  await beat(0);
+
   let started = 0;
   for (const agent of agents) {
     const runId = slotIdFor(agent.id, agent.schedule!, now);
@@ -220,27 +245,7 @@ async function tick(table: string, now: Date): Promise<{ ok: boolean; status: st
       }
     }
   }
-  // The heartbeat, written LAST so it also records what this tick decided. Best-effort:
-  // a failure here must never stop agents from running.
-  try {
-    await ddb.send(
-      new PutCommand({
-        TableName: table,
-        Item: {
-          pk: CONFIG_PK,
-          sk: LAST_TICK_SK,
-          at: now.toISOString(),
-          agents: all.length,
-          scheduled: withSchedule.length,
-          due: agents.length,
-          started,
-        },
-      }),
-    );
-  } catch (e) {
-    console.error("[crewpoppy] heartbeat failed:", e);
-  }
-
+  if (started) await beat(started); // second write only when there is news
   return { ok: true, status: `tick: ${started} started` };
 }
 

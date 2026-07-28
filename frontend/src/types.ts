@@ -19,6 +19,9 @@ export interface DeploymentStatus {
   failureReason?: string;
   deployedTemplateKey?: string;
   currentTemplateKey: string;
+  /** The agent-runner code deployed, vs. what this build ships — versioned separately. */
+  deployedLambdaKey?: string;
+  currentLambdaKey?: string;
   updateAvailable: boolean;
 }
 

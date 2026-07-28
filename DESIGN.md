@@ -496,6 +496,20 @@ Lambda invocation every five minutes, comfortably inside the free tier, and it b
   worst kind of bug — silent, intermittent across installs, and impossible to tell apart from
   "the schedule is wrong". Fixed with `cron(0/5 * * * ? *)`, which is aligned to the clock, so
   ticks are always :00/:05/:10 — exactly the minutes `sanitiseSchedule` snaps to.
+- **🪤 THE ONE THAT COST THE MOST: "update available" compared the TEMPLATE only.** The
+  template and the agent-runner code are two independently versioned artifacts, but `getStatus`
+  compared only `crewpoppy:templateKey`. So a **Lambda-only change was invisible** — the app
+  told the founder there was nothing to apply while the deployed runner was two changes behind.
+  Worst of all, the change it was hiding was the ticker's own heartbeat, so the diagnostic we
+  were both reading ("AWS has never woken CrewPoppy") was produced by code that had **never been
+  deployed**. It was true and meaningless at the same time. Fixed: the stack now also carries
+  `crewpoppy:lambdaCodeKey`, and EITHER half being stale — or the tag being absent, because
+  unknown is not the same as current — offers the update. Both versions are shown in Technical
+  details at all times, not only when an update is pending. Same family as CLAUDE.md gotcha #1
+  (a stale sidecar masking Lambda changes), one level further out.
+- **The heartbeat is written FIRST, before any agent is started.** Written last, a tick that
+  woke and then threw was indistinguishable from a tick that never woke — which is precisely the
+  confusion it exists to remove. A second write follows only when something actually started.
 - **🪤 And the clock was unverifiable.** The founder set 20:40 and had no way to tell whether
   that meant 20:40 where they were: the zone was captured from the browser and only shown, never
   editable, and nothing said when the next run would be. Fixed with a timezone picker **and** a

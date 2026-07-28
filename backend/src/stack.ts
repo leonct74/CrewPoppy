@@ -75,6 +75,9 @@ export interface DeploymentStatus {
   /** The template this deployment actually runs, vs. the one this build ships. */
   deployedTemplateKey?: string;
   currentTemplateKey: string;
+  /** The agent-runner code it actually runs, vs. the one this build ships. */
+  deployedLambdaKey?: string;
+  currentLambdaKey: string;
   updateAvailable: boolean;
 }
 
@@ -82,6 +85,21 @@ export type StackOperation = "CREATE" | "UPDATE" | "NO_CHANGE" | "RECREATE";
 
 /** The tag recording WHICH template a stack runs — the NO_CHANGE cross-check. */
 export const TEMPLATE_KEY_TAG = "crewpoppy:templateKey";
+
+/**
+ * The tag recording WHICH agent-runner code a stack runs.
+ *
+ * 🪤 LIVE FAILURE (2026-07-27): "update available" compared the TEMPLATE key only, so a
+ * change to the Lambda alone — the ticker's heartbeat, in this case — was completely
+ * invisible. The app told the founder there was nothing to apply while the deployed
+ * runner was two changes behind, and the diagnostic we were both reading was produced by
+ * code that had never been deployed. Hours went into that.
+ *
+ * The template and the code are two independently versioned things, so BOTH have to be
+ * compared. This is the same family as CLAUDE.md gotcha #1 (a stale sidecar masking
+ * Lambda changes) — one level further out.
+ */
+export const LAMBDA_KEY_TAG = "crewpoppy:lambdaCodeKey";
 
 /** CloudFormation statuses that mean "AWS is mid-operation, poll me". */
 const IN_PROGRESS = /_IN_PROGRESS$/;
@@ -132,6 +150,7 @@ export async function getStatus(cfn: CloudFormationClient, region: string): Prom
   const stackStatus = stack?.StackStatus;
   const phase = phaseOf(stackStatus);
   const deployedTemplateKey = stack?.Tags?.find((t) => t.Key === TEMPLATE_KEY_TAG)?.Value;
+  const deployedLambdaKey = stack?.Tags?.find((t) => t.Key === LAMBDA_KEY_TAG)?.Value;
 
   // On a failure, pull the actual reason from the stack's events so the details view
   // shows WHY (e.g. an AccessDenied on a specific action), not just "it rolled back".
@@ -148,10 +167,16 @@ export async function getStatus(cfn: CloudFormationClient, region: string): Prom
     message: phase === "failed" ? failureMessage(stackStatus) : undefined,
     failureReason,
     deployedTemplateKey,
+    deployedLambdaKey,
     currentTemplateKey: templateKey,
-    // Only meaningful once we know what's deployed; a stack from before this tag
-    // existed reports no key and we don't nag about an update we can't substantiate.
-    updateAvailable: !!deployedTemplateKey && deployedTemplateKey !== templateKey,
+    currentLambdaKey: lambdaCodeKey,
+    // EITHER half being stale means an update is waiting. A stack deployed before the
+    // lambda tag existed reports no key at all — and that is treated as "unknown, so
+    // offer it", because the alternative is what just happened: silently running old
+    // code while the app insists it is current. Applying a redundant update is free.
+    updateAvailable:
+      (!!deployedTemplateKey && deployedTemplateKey !== templateKey) ||
+      deployedLambdaKey !== lambdaCodeKey,
   };
 }
 
@@ -250,6 +275,9 @@ export async function deploy(
   const Tags = [
     ...stackTags({ ...ctx, sourceCommit: sourceCommit || undefined }),
     { Key: TEMPLATE_KEY_TAG, Value: templateKey },
+    // Recorded so the next status read can tell whether the RUNNER is current, not just
+    // the template — the two version independently.
+    { Key: LAMBDA_KEY_TAG, Value: lambdaCodeKey },
   ];
   const args = {
     StackName: stackName,

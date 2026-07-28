@@ -17,7 +17,9 @@ import {
   PutObjectCommand,
   type S3Client,
 } from "@aws-sdk/client-s3";
-import { deploy, getStatus, teardown, TEMPLATE_KEY_TAG, deployBucketName } from "./stack";
+import {
+  deploy, getStatus, teardown, TEMPLATE_KEY_TAG, LAMBDA_KEY_TAG, deployBucketName,
+} from "./stack";
 import { lambdaCodeKey, templateKey } from "./generated/backend-bundle";
 import { TAG_APP, TAG_ACCOUNT, TAG_CONNECTION } from "./tags";
 
@@ -176,11 +178,53 @@ describe("getStatus — state comes from AWS, never from memory (AGENTS.md §5)"
     expect(s.deployedTemplateKey).toBe("template-oldoldoldoldold");
   });
 
-  it("does not claim an update when the deployed template already matches", async () => {
+  it("does not claim an update when BOTH halves already match", async () => {
+    const { client } = fakeCfn({
+      describe: [
+        stackWith("CREATE_COMPLETE", [
+          { Key: TEMPLATE_KEY_TAG, Value: templateKey },
+          { Key: LAMBDA_KEY_TAG, Value: lambdaCodeKey },
+        ]),
+      ],
+    });
+    expect((await getStatus(client, REGION)).updateAvailable).toBe(false);
+  });
+
+  // 🪤 The live one (2026-07-27). The heartbeat was a Lambda-only change, so the template
+  // key still matched and the app reported "up to date" while the deployed runner was two
+  // changes behind — and the diagnostic we were both reading came from code that had
+  // never been deployed.
+  it("claims an update when only the RUNNER CODE is stale", async () => {
+    const { client } = fakeCfn({
+      describe: [
+        stackWith("CREATE_COMPLETE", [
+          { Key: TEMPLATE_KEY_TAG, Value: templateKey },
+          { Key: LAMBDA_KEY_TAG, Value: "lambda-code-something-older.zip" },
+        ]),
+      ],
+    });
+    const s = await getStatus(client, REGION);
+    expect(s.updateAvailable).toBe(true);
+    expect(s.deployedLambdaKey).toBe("lambda-code-something-older.zip");
+  });
+
+  it("offers the update when the stack predates the runner tag entirely", async () => {
+    // Unknown is not the same as current. Offering a redundant update is free; running
+    // old code while insisting it is current is what just cost hours.
     const { client } = fakeCfn({
       describe: [stackWith("CREATE_COMPLETE", [{ Key: TEMPLATE_KEY_TAG, Value: templateKey }])],
     });
-    expect((await getStatus(client, REGION)).updateAvailable).toBe(false);
+    expect((await getStatus(client, REGION)).updateAvailable).toBe(true);
+  });
+
+  it("records BOTH versions on every deploy, so the next read can compare them", async () => {
+    const { client: cfn, sent } = fakeCfn({ describe: [notFound] });
+    const { client: s3 } = fakeS3({});
+    await deploy(cfn, s3, ctx, REGION);
+    const create = sent.find((c) => c instanceof CreateStackCommand) as CreateStackCommand;
+    const tags = create.input.Tags ?? [];
+    expect(tags.find((t) => t.Key === TEMPLATE_KEY_TAG)?.Value).toBe(templateKey);
+    expect(tags.find((t) => t.Key === LAMBDA_KEY_TAG)?.Value).toBe(lambdaCodeKey);
   });
 });
 

@@ -216,8 +216,9 @@ export function App() {
               </div>
               <p className="muted" style={{ margin: 0 }}>
                 CrewPoppy's engine — the part that runs your agents inside your account — is newer
-                than the one deployed. Agents can't use new abilities until you apply it. It takes
-                about a minute and nothing your crew has learned is lost.
+                than the one deployed. Agents can't use new abilities until you apply it, and
+                scheduled runs won't pick up fixes either. It takes about a minute and nothing
+                your crew has learned is lost.
               </p>
               <div>
                 <Button className="btn btn-primary" busyLabel="Updating…" onClick={deploy}>
@@ -274,7 +275,12 @@ export function App() {
             <Detail label="DynamoDB table" value={status.tableName ?? "—"} />
             <Detail label="Agent runner" value={status.runnerFunctionName ?? "—"} />
             <Detail label="Template version" value={status.currentTemplateKey} />
-            {status.updateAvailable && <Detail label="Deployed version" value={status.deployedTemplateKey} />}
+            <Detail label="Deployed template" value={status.deployedTemplateKey ?? "unknown"} />
+            {/* Shown ALWAYS, not only when an update is pending: the runner and the
+                template version independently, and hiding one of them is how a stale
+                Lambda went unnoticed for hours. */}
+            <Detail label="Runner version" value={status.currentLambdaKey} />
+            <Detail label="Deployed runner" value={status.deployedLambdaKey ?? "unknown"} />
           </dl>
         </div>
       )}
