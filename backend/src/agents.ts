@@ -238,6 +238,45 @@ async function deleteWorkspace(s3: S3Client, bucket: string, agentId: string): P
 }
 
 /**
+ * Delete an agent's runs, transcripts and checkpoints — and nothing else (founder
+ * request, 2026-07-28: "clean the chat history, it takes too much space").
+ *
+ * Deliberately narrower than deleting the agent: memory, files and the definition stay,
+ * and so do the SPEND COUNTERS — clearing a chat must never reset a cost cap, or tidying
+ * up would double an agent's monthly budget. A live run refuses, same as delete.
+ */
+export async function clearHistory(
+  ddb: DynamoDBDocumentClient,
+  table: string,
+  id: string,
+  now: number,
+): Promise<DeleteAgentOutcome> {
+  const agent = await getAgent(ddb, table, id);
+  if (!agent) return { ok: true, removed: { runs: 0, memories: 0, files: 0 } };
+
+  const runs = (await listRuns(ddb, table, id)).map((r) => withStaleness(r, agent.caps, now));
+  const live = runs.find((r) => r.status === "running" || r.status === "waiting");
+  if (live) {
+    return {
+      ok: false,
+      reason:
+        live.status === "waiting"
+          ? `${agent.name} is waiting for your answer. Answer or stop that run first.`
+          : `${agent.name} is working right now. Stop the run first.`,
+    };
+  }
+
+  for (const r of runs) {
+    await deletePartition(ddb, table, transcriptPk(r.runId));
+    await ddb.send(
+      new DeleteCommand({ TableName: table, Key: { pk: checkpointPk(r.runId), sk: CHECKPOINT_SK } }),
+    );
+  }
+  const runCount = await deletePartition(ddb, table, agentPk(id));
+  return { ok: true, removed: { runs: runCount, memories: 0, files: 0 } };
+}
+
+/**
  * Remove an agent and everything that was only ever its own (DESIGN §3b).
  *
  * "Delete" has to mean it. An agent's memory is the thing most likely to hold something
@@ -265,27 +304,10 @@ export async function deleteAgent(
   const agent = await getAgent(ddb, table, id);
   if (!agent) return { ok: true, removed: { runs: 0, memories: 0, files: 0 } };
 
-  const runs = (await listRuns(ddb, table, id)).map((r) => withStaleness(r, agent.caps, now));
-  const live = runs.find((r) => r.status === "running" || r.status === "waiting");
-  if (live) {
-    return {
-      ok: false,
-      reason:
-        live.status === "waiting"
-          ? `${agent.name} is waiting for your answer. Answer or stop that run first, then delete.`
-          : `${agent.name} is working right now. Stop the run first, then delete.`,
-    };
-  }
-
-  // Transcripts and checkpoints hang off the RUN id, not the agent, so they need the run
-  // list — which is why this happens before the runs themselves go.
-  for (const r of runs) {
-    await deletePartition(ddb, table, transcriptPk(r.runId));
-    await ddb.send(
-      new DeleteCommand({ TableName: table, Key: { pk: checkpointPk(r.runId), sk: CHECKPOINT_SK } }),
-    );
-  }
-  const runCount = await deletePartition(ddb, table, agentPk(id));
+  // The history half is exactly clearHistory — including the live-run refusal.
+  const hist = await clearHistory(ddb, table, id, now);
+  if (!hist.ok) return { ...hist, reason: `${hist.reason} Then delete.` };
+  const runCount = hist.removed!.runs;
   const memories = await deletePartition(ddb, table, memoryPk(id));
   await deletePartition(ddb, table, spendPk(id));
   const files = await deleteWorkspace(s3, bucket, id);

@@ -956,6 +956,7 @@ function AgentRow(props: {
   const [transcript, setTranscript] = useState<TranscriptEntry[]>([]);
   /** The exact message waiting on approval, read from the run's checkpoint. */
   const [pending, setPending] = useState<PendingSend | null>(null);
+  const [confirmClear, setConfirmClear] = useState(false);
   const logRef = useRef<HTMLDivElement>(null);
   const [err, setErr] = useState<string | null>(null);
   const timer = useRef<number | null>(null);
@@ -1194,6 +1195,47 @@ function AgentRow(props: {
           )}
         </div>
       </div>
+      {/* Clear the conversation (founder request, 2026-07-28). Real deletion, so it gets
+          a real second step — inline, webview-safe — and an honest scope line: memory,
+          files and the month's spend all survive. Tidying up never resets a cap. */}
+      {(transcript.length > 0 || run) && (
+        <div className="row" style={{ justifyContent: "flex-end", marginTop: 4 }}>
+          {confirmClear ? (
+            <>
+              <span className="muted" style={{ fontSize: 12 }}>
+                Delete this whole conversation and its run history? {agent.name}'s memory, files
+                and spending record stay.
+              </span>
+              <Button
+                className="btn btn-danger btn-sm"
+                busyLabel="Clearing…"
+                onClick={async () => {
+                  setErr(null);
+                  try {
+                    await api.clearHistory(agent.id);
+                    setRun(null);
+                    setTranscript([]);
+                    setPending(null);
+                    setConfirmClear(false);
+                  } catch (e) {
+                    setErr((e as Error).message);
+                    setConfirmClear(false);
+                  }
+                }}
+              >
+                Yes, clear it
+              </Button>
+              <button className="btn btn-sm" onClick={() => setConfirmClear(false)}>
+                Keep
+              </button>
+            </>
+          ) : (
+            <button className="btn btn-ghost btn-sm" onClick={() => setConfirmClear(true)}>
+              Clear chat…
+            </button>
+          )}
+        </div>
+      )}
       {err && <div className="banner err" style={{ marginTop: 8 }}>{err}</div>}
 
       {run?.status === "waiting" && (

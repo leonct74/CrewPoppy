@@ -16,7 +16,7 @@ import {
   deploy, getStatus, teardown, runnerFunctionName, tableName, workspaceBucketName,
 } from "./stack";
 import {
-  answerRun, deleteAgent, fileLink, getAgent, getPending, getRun, getTranscript, listAgents,
+  answerRun, clearHistory, deleteAgent, fileLink, getAgent, getPending, getRun, getTranscript, listAgents,
   listFiles, listRuns, putOwnerFile, readFileContent, saveAgent, startRun, stopRun, withStaleness,
 } from "./agents";
 import { getOwnerEmail, isVerifiedSender, setOwnerEmail } from "./email";
@@ -200,6 +200,13 @@ const server = createServer(async (req, res) => {
         const content = await readFileContent(s3, bucket, parts[1]!, path);
         if (content === null) return json(res, 404, { error: "That file doesn't exist any more." });
         return json(res, 200, { path, content });
+      }
+      // Wipe the conversation history: runs, transcripts, checkpoints. Memory, files,
+      // the definition and the SPEND counters all stay — tidying up never resets a cap.
+      if (method === "DELETE" && parts.length === 3 && parts[2] === "history") {
+        const out = await clearHistory(ddb, tableName, parts[1]!, Date.now());
+        if (!out.ok) return json(res, 409, { error: out.reason });
+        return json(res, 200, out);
       }
       // The owner saves a file INTO the agent's workspace — templates, reference docs.
       if (method === "PUT" && parts.length === 3 && parts[2] === "files") {

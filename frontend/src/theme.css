@@ -98,3 +98,13 @@ textarea.input { font-family: var(--poppy-font-mono); font-size: 13px; min-heigh
 .scrim { position: fixed; inset: 0; background: color-mix(in srgb, var(--poppy-surface-0) 78%, transparent); display: flex; align-items: center; justify-content: center; padding: 20px; z-index: 50; }
 .modal { background: var(--poppy-surface-1); border: 1px solid var(--poppy-border-strong); border-radius: var(--poppy-radius); padding: 20px; max-width: 460px; width: 100%; }
 .chip { font-family: var(--poppy-font-mono); font-size: 12px; background: var(--poppy-surface-0); border: 1px solid var(--poppy-border); border-radius: 6px; padding: 2px 7px; }
+
+/* A tool step can be a whole template dump. Three lines is an audit trail; forty is a
+   wall. The full text stays in the record — this only clamps the display. */
+.msg.step .msg-body {
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.chat-log { overscroll-behavior: contain; }

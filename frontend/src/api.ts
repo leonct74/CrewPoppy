@@ -115,6 +115,10 @@ export const api = {
   fileLink: (id: string, path: string): Promise<{ url: string }> =>
     invoke({ method: "GET", path: `/agents/${id}/file-link?path=${encodeURIComponent(path)}` }),
 
+  /** Wipe the conversation: runs + transcripts. Memory, files and spend stay. */
+  clearHistory: (id: string): Promise<{ ok: true }> =>
+    invoke({ method: "DELETE", path: `/agents/${id}/history` }),
+
   /** The kill switch (DESIGN §7). */
   stopRun: (id: string, runId: string): Promise<RunRecord> =>
     invoke({ method: "POST", path: `/agents/${id}/runs/${runId}/stop` }),

@@ -7,7 +7,7 @@ import {
 } from "@aws-sdk/lib-dynamodb";
 import { DeleteObjectsCommand, ListObjectsV2Command, type S3Client } from "@aws-sdk/client-s3";
 import {
-  deleteAgent, fileLink, listFiles, putOwnerFile, readFileContent, withStaleness,
+  clearHistory, deleteAgent, fileLink, listFiles, putOwnerFile, readFileContent, withStaleness,
 } from "./agents";
 import {
   AGENTS_PK,
@@ -322,5 +322,40 @@ describe("signed file links", () => {
     const s3 = { send: vi.fn() } as unknown as S3Client;
     expect(await fileLink(s3, "bucket", "a1", "../a2/offer.pdf")).toBeNull();
     expect(await fileLink(s3, "bucket", "a1", "/etc/x")).toBeNull();
+  });
+});
+
+// "Clean the chat history" (founder, 2026-07-28). The point that must hold: clearing a
+// conversation removes the RECORD, never the agent's accumulated value or its cost cap.
+describe("clearing an agent's history", () => {
+  const now = at("2026-07-26T12:00:00.000Z");
+
+  it("removes runs, transcripts and checkpoints — and NOTHING else", async () => {
+    const { client: ddb, rows } = fakeDdb(world("succeeded"));
+    const out = await clearHistory(ddb, "T", "a1", now);
+    expect(out.ok).toBe(true);
+    expect(out.removed?.runs).toBe(1);
+    // The record is gone…
+    expect(rows.find((r) => String(r.sk).startsWith("run#") && r.agentId === "a1")).toBeFalsy();
+    expect(rows.find((r) => r.pk === transcriptPk("r1"))).toBeFalsy();
+    expect(rows.find((r) => r.pk === checkpointPk("r1"))).toBeFalsy();
+    // …and everything of lasting value stays: definition, memory, and the SPEND COUNTER,
+    // because tidying a chat must never reset a cost cap.
+    expect(rows.find((r) => r.sk === agentSk("a1"))).toBeTruthy();
+    expect(rows.filter((r) => r.pk === memoryPk("a1"))).toHaveLength(2);
+    expect(rows.find((r) => r.pk === spendPk("a1"))).toBeTruthy();
+  });
+
+  it("refuses while a run is live, same as delete", async () => {
+    const { client: ddb, rows } = fakeDdb(world("running", "2026-07-26T11:59:30.000Z"));
+    const out = await clearHistory(ddb, "T", "a1", now);
+    expect(out.ok).toBe(false);
+    expect(out.reason).toMatch(/working right now/i);
+    expect(rows.find((r) => String(r.sk).startsWith("run#") && r.agentId === "a1")).toBeTruthy();
+  });
+
+  it("an agent with no history clears to a clean no-op", async () => {
+    const { client: ddb } = fakeDdb(world());
+    expect((await clearHistory(ddb, "T", "a1", now)).ok).toBe(true);
   });
 });
