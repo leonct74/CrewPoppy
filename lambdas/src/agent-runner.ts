@@ -33,6 +33,7 @@ import {
   agentSk,
   capCostFor,
   isDue,
+  neverReportedBack,
   slotIdFor,
   checkStart,
   checkpointPk,
@@ -201,11 +202,19 @@ async function tick(table: string, now: Date): Promise<{ ok: boolean; status: st
           KeyConditionExpression: "pk = :pk AND begins_with(sk, :sk)",
           ExpressionAttributeValues: { ":pk": agentPk(agent.id), ":sk": "run#" },
           ScanIndexForward: false,
-          Limit: 5,
+          Limit: 25,
         }),
       );
+      // "Busy" must use the SAME staleness rule as the UI (shared/guardrails.ts).
+      // 🪤 LIVE BUG (2026-07-28): this read status raw, so ONE row stuck at "running" —
+      // written by a tick that then failed at the invoke, before InvokeSelf existed —
+      // made every later tick skip this agent, forever. The heartbeat said "1 due"
+      // while nothing ever started, and the owner stared at a silent card.
+      // A run genuinely waiting on the owner still blocks: that's the no-stacking rule.
       const busy = ((runs.Items ?? []) as RunRecord[]).some(
-        (r) => r.status === "running" || r.status === "waiting",
+        (r) =>
+          r.status === "waiting" ||
+          (r.status === "running" && !neverReportedBack(r, agent.caps, now.getTime())),
       );
       if (busy) continue;
 

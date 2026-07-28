@@ -510,6 +510,16 @@ Lambda invocation every five minutes, comfortably inside the free tier, and it b
 - **The heartbeat is written FIRST, before any agent is started.** Written last, a tick that
   woke and then threw was indistinguishable from a tick that never woke — which is precisely the
   confusion it exists to remove. A second write follows only when something actually started.
+- **🪤 THE ROOT CAUSE OF THE SILENT WEEK-END (found 2026-07-28): a corpse row blocked every
+  schedule.** Saturday's first ticks ran before `InvokeSelf` existed: each wrote its run row and
+  then FAILED at the invoke, leaving the row at "running" forever. The ticker's no-stacking
+  check read that status RAW — only the sidecar applied the staleness rule — so every later
+  tick counted the agent due and skipped it as "busy". The heartbeat said "1 due" while nothing
+  ever started, and the owner stared at a silent card. **Rule: any code that treats "running"
+  as meaningful MUST apply the shared staleness predicate** (`neverReportedBack`, now in
+  shared/guardrails.ts, used by both the sidecar and the ticker — they judged differently once,
+  and it cost a day). A run genuinely `waiting` on the owner still blocks: that's deliberate.
+  The ticker now has regression tests, including this exact corpse.
 - **🪤 And the clock was unverifiable.** The founder set 20:40 and had no way to tell whether
   that meant 20:40 where they were: the zone was captured from the browser and only shown, never
   editable, and nothing said when the next run would be. Fixed with a timezone picker **and** a

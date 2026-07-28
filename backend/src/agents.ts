@@ -32,6 +32,7 @@ import {
   isToolName,
   memoryPk,
   monthKeyOf,
+  neverReportedBack,
   nextRunAt,
   normaliseEmail,
   runSk,
@@ -339,10 +340,9 @@ export async function startRun(
  * existing rows without a migration and without a background job.
  */
 export function withStaleness(run: RunRecord, caps: AgentCaps | undefined, now: number): RunRecord {
-  if (run.status !== "running") return run;
-  const budgetMs = (caps?.maxWallClockMs ?? 120_000) + 90_000; // + Lambda cold start & margin
-  const age = now - Date.parse(run.startedAt);
-  if (!Number.isFinite(age) || age < budgetMs) return run;
+  // The shared predicate, so the UI and the TICKER judge staleness identically — they
+  // didn't once, and the difference cost a day (shared/guardrails.ts).
+  if (!neverReportedBack(run, caps, now)) return run;
   return {
     ...run,
     status: "failed",

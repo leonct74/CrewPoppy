@@ -3,13 +3,17 @@
 // already covers.
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { AGENTS_PK, PROVEN_SK, agentSk, provenPk, spendPk, spendSk, type AgentDef } from "@crewpoppy/shared";
+import {
+  AGENTS_PK, PROVEN_SK, agentPk, agentSk, provenPk, spendPk, spendSk, type AgentDef,
+} from "@crewpoppy/shared";
 
 const state = vi.hoisted(() => ({
   /** Fake table: "pk|sk" -> item */
   items: new Map<string, Record<string, unknown>>(),
   /** Every InvokeModel input, so we can assert the model was (or wasn't) called. */
   invocations: [] as Record<string, unknown>[],
+  /** Every self-invocation the ticker fired. */
+  lambdaInvokes: [] as Record<string, unknown>[],
   /** What Bedrock should do next. */
   modelReply: { text: "Here is your answer.", inputTokens: 100, outputTokens: 50 } as
     | { text: string; inputTokens: number; outputTokens: number }
@@ -40,6 +44,15 @@ vi.mock("@aws-sdk/lib-dynamodb", () => {
             state.items.set(key(cmd.input.Item.pk, cmd.input.Item.sk), cmd.input.Item);
             return {};
           }
+          if (n === "QueryCommand") {
+            const vals = cmd.input.ExpressionAttributeValues as Record<string, string>;
+            const pk = vals[":pk"];
+            const skPrefix = vals[":sk"];
+            const Items = [...state.items.values()].filter(
+              (i) => i.pk === pk && (!skPrefix || String(i.sk).startsWith(skPrefix)),
+            );
+            return { Items };
+          }
           if (n === "UpdateCommand") {
             // Only ADD is used, and only for spend — model it faithfully.
             const k = key(cmd.input.Key.pk, cmd.input.Key.sk);
@@ -51,6 +64,21 @@ vi.mock("@aws-sdk/lib-dynamodb", () => {
           return {};
         },
       }),
+    },
+  };
+});
+
+vi.mock("@aws-sdk/client-lambda", () => {
+  class InvokeCommand {
+    constructor(public input: Record<string, unknown>) {}
+  }
+  return {
+    InvokeCommand,
+    LambdaClient: class {
+      async send(cmd: InvokeCommand) {
+        state.lambdaInvokes.push(cmd.input);
+        return {};
+      }
     },
   };
 });
@@ -100,6 +128,7 @@ const runOf = (agentId = "a1") =>
 beforeEach(() => {
   state.items.clear();
   state.invocations = [];
+  state.lambdaInvokes = [];
   state.modelReply = { text: "Here is your answer.", inputTokens: 100, outputTokens: 50 };
   state.items.set(key(AGENTS_PK, agentSk("a1")), { pk: AGENTS_PK, sk: agentSk("a1"), ...agent });
 });
@@ -306,5 +335,105 @@ describe("settling a message that was waiting for approval", () => {
       async () => {},
     );
     expect(text).toBe("Use the shorter one.");
+  });
+});
+
+
+// ---------------------------------------------------------------------------
+// The ticker (DESIGN §5b). It had no tests, which is exactly how one stuck row blocked
+// every schedule for a day while the heartbeat said "1 due".
+
+describe("the ticker", () => {
+  // A schedule that is ALWAYS due at the moment the test runs: hourly, minute snapped to
+  // the tick slot we are currently inside. The tick reads the real clock, so the test
+  // meets it where it is rather than pretending to control it.
+  const dueNow = () => ({
+    kind: "hourly" as const,
+    hour: 9,
+    minute: Math.floor(new Date().getMinutes() / 5) * 5,
+    weekday: 1,
+    timezone: "UTC",
+    task: "Email me the overnight summary.",
+    enabled: true,
+  });
+
+  const seedScheduled = (over: Record<string, unknown> = {}) => {
+    state.items.set(key(AGENTS_PK, agentSk("s1")), {
+      pk: AGENTS_PK,
+      sk: agentSk("s1"),
+      ...agent,
+      id: "s1",
+      schedule: dueNow(),
+      ...over,
+    });
+  };
+  const scheduledRuns = () =>
+    [...state.items.values()].filter(
+      (i) => i.agentId === "s1" && String(i.sk).startsWith("run#sched-"),
+    );
+
+  beforeEach(() => {
+    process.env.CREWPOPPY_TABLE = TABLE;
+  });
+
+  it("starts a due agent with the SLOT id and hands it its own invocation", async () => {
+    seedScheduled();
+    const r = await handler({ kind: "tick" } as never);
+    expect(r.ok).toBe(true);
+    const runs = scheduledRuns();
+    expect(runs).toHaveLength(1);
+    expect(String(runs[0]!.runId)).toMatch(/^sched-s1-/); // the idempotency key
+    expect(runs[0]!.input).toBe("Email me the overnight summary.");
+    expect(state.lambdaInvokes).toHaveLength(1);
+  });
+
+  it("skips an agent whose run is genuinely still working", async () => {
+    seedScheduled();
+    state.items.set(key(agentPk("s1"), "run#live"), {
+      pk: agentPk("s1"), sk: "run#live", runId: "live", agentId: "s1",
+      status: "running", startedAt: new Date(Date.now() - 10_000).toISOString(),
+    });
+    await handler({ kind: "tick" } as never);
+    expect(scheduledRuns()).toHaveLength(0); // the no-stacking rule
+  });
+
+  it("skips an agent waiting on the owner — an unanswered question is not a green light", async () => {
+    seedScheduled();
+    state.items.set(key(agentPk("s1"), "run#wait"), {
+      pk: agentPk("s1"), sk: "run#wait", runId: "wait", agentId: "s1",
+      status: "waiting", startedAt: new Date(Date.now() - 3_600_000).toISOString(),
+    });
+    await handler({ kind: "tick" } as never);
+    expect(scheduledRuns()).toHaveLength(0);
+  });
+
+  // THE LIVE BUG (2026-07-28). A tick wrote a run row and then failed at the invoke
+  // (missing InvokeSelf), leaving it at "running" forever — and every later tick read
+  // that status raw and skipped the agent as busy. Due every slot, started never.
+  it("is NOT blocked by a run that never reported back", async () => {
+    seedScheduled();
+    state.items.set(key(agentPk("s1"), "run#stuck"), {
+      pk: agentPk("s1"), sk: "run#stuck", runId: "stuck", agentId: "s1",
+      status: "running", startedAt: new Date(Date.now() - 3_600_000).toISOString(), // 1h silent
+    });
+    await handler({ kind: "tick" } as never);
+    expect(scheduledRuns()).toHaveLength(1); // the corpse no longer blocks
+  });
+
+  it("writes the heartbeat BEFORE starting anyone, so a crashing tick still leaves proof it woke", async () => {
+    seedScheduled();
+    await handler({ kind: "tick" } as never);
+    const beat = state.items.get(key("config", "last-tick")) as Record<string, unknown>;
+    expect(beat).toBeTruthy();
+    expect(beat.scheduled).toBe(1);
+    expect(beat.due).toBe(1);
+  });
+
+  it("does nothing at all on a quiet tick — an idle crew stays $0", async () => {
+    seedScheduled({ schedule: { ...dueNow(), enabled: false } });
+    const r = await handler({ kind: "tick" } as never);
+    expect(r.status).toMatch(/0 started/);
+    expect(scheduledRuns()).toHaveLength(0);
+    expect(state.invocations).toHaveLength(0); // no model call, no tokens, no cost
   });
 });

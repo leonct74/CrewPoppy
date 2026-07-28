@@ -107,3 +107,25 @@ export function sanitiseCaps(caps: Partial<AgentCaps>, defaults: AgentCaps): Age
     monthlySpendCapUsd: clamp(caps.monthlySpendCapUsd, defaults.monthlySpendCapUsd, 0, 10_000),
   };
 }
+
+/**
+ * True when a "running" run has been silent so long past its own wall-clock cap that it
+ * cannot still be alive — the Lambda errored before writing, was never invoked, or was
+ * the wrong version.
+ *
+ * Lives HERE, in shared, because BOTH sides must apply the same rule. 🪤 LIVE BUG
+ * (2026-07-28): only the sidecar applied it. The ticker read run status raw, so one row
+ * stuck at "running" — left behind when a tick wrote the row and then failed at the
+ * invoke, in the era before InvokeSelf — made every later tick skip that agent as
+ * "busy". Forever, silently: the heartbeat said "1 due" while nothing ever started.
+ */
+export function neverReportedBack(
+  run: { status: string; startedAt: string },
+  caps: AgentCaps | undefined,
+  nowMs: number,
+): boolean {
+  if (run.status !== "running") return false;
+  const budgetMs = (caps?.maxWallClockMs ?? 120_000) + 90_000; // + cold start & margin
+  const age = nowMs - Date.parse(run.startedAt);
+  return Number.isFinite(age) && age >= budgetMs;
+}
