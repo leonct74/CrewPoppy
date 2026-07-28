@@ -527,6 +527,24 @@ async function sendApprovalLink(
       ``,
       `Or open CrewPoppy on your computer — the request waits there too.`,
     ].join("\n");
+    // HTML alongside the text (founder-found, 2026-07-28): MailPoppy's clients render
+    // plain text without linkifying URLs, so a text-only approval mail had a link nobody
+    // could click. The HTML carries a real <a> button; the text stays as the fallback.
+    const esc = (t: string) =>
+      t.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+    const htmlBody = `<div style="font:15px/1.55 -apple-system,system-ui,sans-serif;color:#222;max-width:560px">
+      <p><strong>${esc(agent.name)} needs your approval.</strong></p>
+      <p>${esc(suspend.question)}</p>
+      ${p ? `<table style="font-size:14px;border-collapse:collapse">
+        <tr><td style="color:#777;padding-right:10px">To</td><td><strong>${esc(p.to)}</strong></td></tr>
+        <tr><td style="color:#777;padding-right:10px">Subject</td><td><strong>${esc(p.subject)}</strong></td></tr>
+        ${p.attach ? `<tr><td style="color:#777;padding-right:10px">Attached</td><td>${esc(p.attach)}</td></tr>` : ""}
+      </table>
+      <pre style="white-space:pre-wrap;overflow-wrap:anywhere;background:#f4f2ee;border:1px solid #ddd;border-radius:8px;padding:12px;font:13px/1.5 ui-monospace,monospace">${esc(p.body)}</pre>` : ""}
+      <p style="margin:20px 0"><a href="${esc(link)}" style="background:#2f8f82;color:#fff;text-decoration:none;font-weight:600;padding:12px 22px;border-radius:8px;display:inline-block">Review &amp; approve</a></p>
+      <p style="color:#777;font-size:13px">The link works once and expires in 24 hours. If the button doesn't work, copy this address into your browser:<br>${esc(link)}</p>
+      <p style="color:#777;font-size:13px">You can also answer in CrewPoppy on your computer.</p>
+    </div>`;
     await ses.send(
       new SendEmailCommand({
         FromEmailAddress: `CrewPoppy <${ownerEmail}>`,
@@ -534,7 +552,7 @@ async function sendApprovalLink(
         Content: {
           Simple: {
             Subject: { Data: `${agent.name} needs your approval` },
-            Body: { Text: { Data: body } },
+            Body: { Text: { Data: body }, Html: { Data: htmlBody } },
           },
         },
       }),
