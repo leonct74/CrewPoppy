@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "./api";
 import { Button } from "./Button";
+import { host } from "./host";
 import { describeSchedule } from "./schedule";
 import type {
   AgentSchedule, AgentSummary, ModelChoice, OwnerEmail, PendingSend, RunRecord, SchedulePreview,
@@ -770,33 +771,106 @@ function FilesPanel(props: { agent: AgentSummary }) {
   const [files, setFiles] = useState<WorkspaceFile[] | null>(null);
   const [viewing, setViewing] = useState<{ path: string; content: string } | null>(null);
   const [copied, setCopied] = useState(false);
+  const [adding, setAdding] = useState(false);
+  const [newName, setNewName] = useState("");
+  const [newContent, setNewContent] = useState("");
   const [err, setErr] = useState<string | null>(null);
 
+  const reload = useCallback(
+    () => api.listFiles(props.agent.id).then((r) => setFiles(r.files)).catch((e) => setErr((e as Error).message)),
+    [props.agent.id],
+  );
   useEffect(() => {
-    void api.listFiles(props.agent.id).then((r) => setFiles(r.files)).catch((e) => setErr((e as Error).message));
-  }, [props.agent.id]);
+    void reload();
+  }, [reload]);
 
   const kb = (n: number) => (n < 1024 ? `${n} B` : `${(n / 1024).toFixed(1)} KB`);
 
-  if (err) return <div className="banner err" style={{ marginTop: 8 }}>{err}</div>;
-  if (!files) {
+  if (!files && !err) {
     return (
       <p className="row muted" style={{ margin: "8px 0 0", fontSize: 12 }}>
         <span className="spinner" /> Looking in {props.agent.name}'s folder…
       </p>
     );
   }
-  if (files.length === 0) {
+
+  // The founder's template story (2026-07-28): put invoice-template.md in the agent's
+  // folder, tell it to follow that template, and it reads the file itself. The form is
+  // paste-a-text-file on purpose — the sandboxed webview has no file picker, and a
+  // template is text by nature.
+  const addForm = adding ? (
+    <div className="card" style={{ margin: 0 }}>
+      <label className="field">
+        <span>File name — e.g. invoice-template.md</span>
+        <input
+          className="input"
+          value={newName}
+          onChange={(e) => setNewName(e.target.value)}
+          placeholder="invoice-template.md"
+          autoComplete="off"
+          spellCheck={false}
+        />
+      </label>
+      <label className="field" style={{ margin: 0 }}>
+        <span>Contents</span>
+        <textarea
+          className="input"
+          value={newContent}
+          onChange={(e) => setNewContent(e.target.value)}
+          placeholder={"## Invoice {number}\n\n| Item | Qty | Price |\n|---|---|---|"}
+        />
+        <small className="muted" style={{ fontSize: 12 }}>
+          Lands in {props.agent.name}'s own folder. Tell {props.agent.name} in its instructions to
+          read this file and follow it — a template it can read beats one it has to remember.
+        </small>
+      </label>
+      <div className="row" style={{ marginTop: 8 }}>
+        <Button
+          className="btn btn-primary"
+          disabled={!newName.trim() || !newContent.trim()}
+          busyLabel="Saving…"
+          onClick={async () => {
+            setErr(null);
+            try {
+              await api.putFile(props.agent.id, newName.trim(), newContent);
+              setAdding(false);
+              setNewName("");
+              setNewContent("");
+              await reload();
+            } catch (e) {
+              setErr((e as Error).message);
+            }
+          }}
+        >
+          Save file
+        </Button>
+        <button className="btn" onClick={() => setAdding(false)}>Cancel</button>
+      </div>
+    </div>
+  ) : (
+    <div>
+      <button className="btn btn-ghost btn-sm" onClick={() => setAdding(true)}>
+        Add a file… <span className="muted-2">(a template, reference notes)</span>
+      </button>
+    </div>
+  );
+
+  if (files && files.length === 0) {
     return (
-      <p className="muted" style={{ margin: "8px 0 0", fontSize: 12 }}>
-        {props.agent.name} hasn't saved any files yet.
-      </p>
+      <div className="stack" style={{ marginTop: 8 }}>
+        {err && <div className="banner err">{err}</div>}
+        <p className="muted" style={{ margin: 0, fontSize: 12 }}>
+          {props.agent.name} hasn't saved any files yet.
+        </p>
+        {addForm}
+      </div>
     );
   }
 
   return (
     <div className="stack" style={{ marginTop: 8 }}>
-      {files.map((f) => (
+      {err && <div className="banner err">{err}</div>}
+      {(files ?? []).map((f) => (
         <div key={f.path} className="spread">
           <button
             className="btn btn-ghost btn-sm mono"
@@ -804,13 +878,21 @@ function FilesPanel(props: { agent: AgentSummary }) {
               setErr(null);
               setCopied(false);
               try {
-                setViewing(await api.readFile(props.agent.id, f.path));
+                // A PDF is bytes, not text: it opens in the browser via a five-minute
+                // signed link to the owner's own bucket. Text shows inline as before.
+                if (f.path.toLowerCase().endsWith(".pdf")) {
+                  const { url } = await api.fileLink(props.agent.id, f.path);
+                  await host.openExternal(url);
+                } else {
+                  setViewing(await api.readFile(props.agent.id, f.path));
+                }
               } catch (e) {
                 setErr((e as Error).message);
               }
             }}
           >
             {f.path}
+            {f.path.toLowerCase().endsWith(".pdf") ? " ↗" : ""}
           </button>
           <span className="muted-2" style={{ fontSize: 12 }}>
             {kb(f.size)}
@@ -818,6 +900,8 @@ function FilesPanel(props: { agent: AgentSummary }) {
           </span>
         </div>
       ))}
+
+      {addForm}
 
       {viewing && (
         <div className="card" style={{ margin: 0 }}>

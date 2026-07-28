@@ -28,6 +28,7 @@ import {
   type S3Client,
 } from "@aws-sdk/client-s3";
 import { GetCommand, PutCommand, UpdateCommand, type DynamoDBDocumentClient } from "@aws-sdk/lib-dynamodb";
+import { renderPdf } from "./pdf";
 import { SendEmailCommand, type SESv2Client } from "@aws-sdk/client-sesv2";
 import {
   dayKeyOf,
@@ -228,6 +229,30 @@ async function run(ctx: DispatchContext, name: ToolName, args: Record<string, un
           pending: { kind: "send_email", to, subject, body },
         },
       };
+    }
+
+    case "save_pdf": {
+      const path = args.path;
+      const body = typeof args.body === "string" ? args.body : "";
+      // The extension is part of the contract: the Files panel decides "open in the
+      // browser" vs "show as text" by it, and a PDF pretending to be .md helps nobody.
+      if (!isSafeRelativePath(path) || !path.toLowerCase().endsWith(".pdf")) {
+        return { content: "save_pdf needs a plain file name ending in .pdf, inside your workspace.", isError: true };
+      }
+      if (!body.trim()) return { content: "save_pdf needs a 'body' with the document's content.", isError: true };
+      if (body.length > 200_000) {
+        return { content: "That document is too long (limit 200,000 characters).", isError: true };
+      }
+      const bytes = renderPdf(body, asShortString(args.title) ?? undefined);
+      await ctx.s3.send(
+        new PutObjectCommand({
+          Bucket: ctx.bucket,
+          Key: workspaceKeyFor(ctx.agentId, path),
+          Body: Buffer.from(bytes),
+          ContentType: "application/pdf",
+        }),
+      );
+      return { content: `Saved ${path} as a PDF (${Math.ceil(bytes.length / 1024)} KB).` };
     }
 
     case "ask_user": {

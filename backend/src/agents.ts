@@ -16,10 +16,12 @@ import {
   QueryCommand,
 } from "@aws-sdk/lib-dynamodb";
 import { InvokeCommand, type LambdaClient } from "@aws-sdk/client-lambda";
+import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import {
   DeleteObjectsCommand,
   GetObjectCommand,
   ListObjectsV2Command,
+  PutObjectCommand,
   type S3Client,
 } from "@aws-sdk/client-s3";
 import {
@@ -548,6 +550,64 @@ export async function readFileContent(
     if (name === "NoSuchKey" || name === "NoSuchBucket" || name === "NotFound") return null;
     throw e;
   }
+}
+
+/**
+ * The OWNER saves a file into the agent's workspace (founder request, 2026-07-28) —
+ * the template story: put `invoice-template.md` in Emma's folder, tell her to follow it,
+ * and she reads it with her own workspace_read. Text only, same limits and the same
+ * traversal predicate as the agent's own writes: the owner is trusted, the string isn't.
+ */
+export async function putOwnerFile(
+  s3: S3Client,
+  bucket: string,
+  agentId: string,
+  path: unknown,
+  content: unknown,
+): Promise<{ ok: boolean; reason?: string }> {
+  if (!isSafeRelativePath(path)) {
+    return { ok: false, reason: "That file name isn't allowed. Use a plain name, no leading slash and no '..'." };
+  }
+  const text = typeof content === "string" ? content : "";
+  if (!text.trim()) return { ok: false, reason: "The file is empty — paste its contents first." };
+  if (Buffer.byteLength(text) > 500_000) {
+    return { ok: false, reason: "That file is too large (limit 500 KB)." };
+  }
+  await s3.send(
+    new PutObjectCommand({
+      Bucket: bucket,
+      Key: workspaceKeyFor(agentId, path),
+      Body: text,
+      ContentType: "text/plain; charset=utf-8",
+    }),
+  );
+  return { ok: true };
+}
+
+/**
+ * A short-lived, pre-signed URL for ONE file — how a PDF (or any binary) leaves the
+ * workspace. The owner's browser talks straight to their own bucket; nothing routes
+ * through us, and the link dies in five minutes. Same traversal predicate as everywhere.
+ */
+export async function fileLink(
+  s3: S3Client,
+  bucket: string,
+  agentId: string,
+  path: unknown,
+): Promise<string | null> {
+  if (!isSafeRelativePath(path)) return null;
+  // Strip anything that could break out of the quoted header value.
+  const filename = path.split("/").pop()!.replace(/["\\\r\n;]/g, "");
+  return getSignedUrl(
+    s3,
+    new GetObjectCommand({
+      Bucket: bucket,
+      Key: workspaceKeyFor(agentId, path),
+      // Download with the file's own name, whatever the browser decides to do with it.
+      ResponseContentDisposition: `attachment; filename="${filename}"`,
+    }),
+    { expiresIn: 300 },
+  );
 }
 
 /** The run's transcript, in order. */

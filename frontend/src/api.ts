@@ -107,6 +107,14 @@ export const api = {
   readFile: (id: string, path: string): Promise<{ path: string; content: string }> =>
     invoke({ method: "GET", path: `/agents/${id}/files?path=${encodeURIComponent(path)}` }),
 
+  /** Save a text file INTO the agent's workspace — templates, reference material. */
+  putFile: (id: string, path: string, content: string): Promise<{ ok: true }> =>
+    invoke({ method: "PUT", path: `/agents/${id}/files`, body: { path, content } }),
+
+  /** A five-minute signed link to one file — how a PDF reaches the owner's browser. */
+  fileLink: (id: string, path: string): Promise<{ url: string }> =>
+    invoke({ method: "GET", path: `/agents/${id}/file-link?path=${encodeURIComponent(path)}` }),
+
   /** The kill switch (DESIGN §7). */
   stopRun: (id: string, runId: string): Promise<RunRecord> =>
     invoke({ method: "POST", path: `/agents/${id}/runs/${runId}/stop` }),

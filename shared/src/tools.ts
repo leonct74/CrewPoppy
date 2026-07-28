@@ -23,6 +23,7 @@ export const TOOL_NAMES = [
   "workspace_list",
   "workspace_read",
   "workspace_write",
+  "save_pdf",
   "ask_user",
   "email_owner",
   "send_email",
@@ -76,6 +77,10 @@ export const TOOL_NOTES: Record<ToolName, ToolNote> = {
     label: "Write files",
     what: "Lets this agent save documents and results into its own private folder.",
   },
+  save_pdf: {
+    label: "Create PDF documents",
+    what: "Lets this agent produce real PDFs — offers, invoices, reports — saved into its own folder for you to open and send on.",
+  },
   ask_user: {
     label: "Ask you before acting",
     what: "Lets this agent pause and ask you a question, or get your approval, before doing something consequential.",
@@ -121,7 +126,7 @@ export const TOOL_GROUPS: ToolGroup[] = [
     key: "files",
     label: "Files",
     what: "Its own private folder. No agent can reach another's.",
-    tools: ["workspace_list", "workspace_read", "workspace_write"],
+    tools: ["workspace_list", "workspace_read", "workspace_write", "save_pdf"],
   },
   {
     key: "you",
@@ -244,6 +249,20 @@ export const TOOL_SPECS: Record<ToolName, ToolSpec> = {
         content: { type: "string", description: "The file's contents." },
       },
       required: ["path", "content"],
+    },
+  },
+  save_pdf: {
+    name: "save_pdf",
+    description:
+      "Create a PDF document in your workspace — an offer, an invoice, a report. Write the finished body in simple Markdown: # ## ### for headings, - for bullet items, | cell | cell | for table rows (put |---| after the first row to make it the header), --- alone for a horizontal line, blank lines between paragraphs. Currency symbols like € are fine. The file name must end in .pdf.",
+    input_schema: {
+      type: "object",
+      properties: {
+        path: { type: "string", description: "File name ending in .pdf, inside your workspace." },
+        title: { type: "string", description: "Optional document title, typeset at the top." },
+        body: { type: "string", description: "The full document, in the Markdown subset above." },
+      },
+      required: ["path", "body"],
     },
   },
   ask_user: {

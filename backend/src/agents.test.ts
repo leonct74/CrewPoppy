@@ -6,7 +6,9 @@ import {
   type DynamoDBDocumentClient,
 } from "@aws-sdk/lib-dynamodb";
 import { DeleteObjectsCommand, ListObjectsV2Command, type S3Client } from "@aws-sdk/client-s3";
-import { deleteAgent, listFiles, readFileContent, withStaleness } from "./agents";
+import {
+  deleteAgent, fileLink, listFiles, putOwnerFile, readFileContent, withStaleness,
+} from "./agents";
 import {
   AGENTS_PK,
   CHECKPOINT_SK,
@@ -285,5 +287,40 @@ describe("reading an agent's files", () => {
       }),
     } as unknown as S3Client;
     expect(await readFileContent(s3, "bucket", "a1", "gone.md")).toBeNull();
+  });
+});
+
+// The template story (founder, 2026-07-28): the owner puts invoice-template.md in the
+// agent's folder; the agent reads and follows it. Same rules as every other write.
+describe("the owner saving a file into the workspace", () => {
+  const fakePut = () => {
+    const sent: unknown[] = [];
+    const client = { send: vi.fn(async (c: unknown) => { sent.push(c); return {}; }) } as unknown as S3Client;
+    return { client, sent };
+  };
+
+  it("lands under the agent's own prefix, as text", async () => {
+    const { client, sent } = fakePut();
+    const out = await putOwnerFile(client, "bucket", "a1", "invoice-template.md", "## Invoice {n}");
+    expect(out.ok).toBe(true);
+    const put = sent[0] as { input: { Key: string; ContentType: string } };
+    expect(put.input.Key).toBe("agents/a1/invoice-template.md");
+    expect(put.input.ContentType).toMatch(/text\/plain/);
+  });
+
+  it("refuses traversal and emptiness without touching S3", async () => {
+    const { client, sent } = fakePut();
+    expect((await putOwnerFile(client, "b", "a1", "../a2/x.md", "hi")).ok).toBe(false);
+    expect((await putOwnerFile(client, "b", "a1", "x.md", "   ")).ok).toBe(false);
+    expect((await putOwnerFile(client, "b", "a1", "x.md", 42)).ok).toBe(false);
+    expect(sent).toHaveLength(0);
+  });
+});
+
+describe("signed file links", () => {
+  it("refuses a traversal path before any signing happens", async () => {
+    const s3 = { send: vi.fn() } as unknown as S3Client;
+    expect(await fileLink(s3, "bucket", "a1", "../a2/offer.pdf")).toBeNull();
+    expect(await fileLink(s3, "bucket", "a1", "/etc/x")).toBeNull();
   });
 });

@@ -389,6 +389,33 @@ to: …*" immediately above the button that grants it. Nothing is on by default.
 presentation only — **enforcement stays per-tool in the dispatcher**; a group is never something an
 agent holds. The same panel edits an existing agent, because a grant you can't revoke isn't a grant.
 
+### 4d. PDFs and templates (founder decisions, 2026-07-28 — shipped)
+
+*"PDFs are necessary — one of the most likely use cases is a sales offer sent to a customer,
+or invoices in a specific template."*
+
+- **`save_pdf` tool** (Files group): the agent writes the finished document in a Markdown
+  subset (# headings, - bullets, | tables | with the |---| header convention, --- rules), and
+  the runner typesets a real PDF into its workspace. **The renderer is hand-rolled — ~200
+  deterministic lines, no library**: the JS PDF packages drag optional browser dependencies
+  that fight the Lambda bundler, and offers/invoices are a bounded typesetting problem (same
+  reasoning as the hand-authored CFN template, §2b). PDF 1.4, built-in Helvetica pair, WinAnsi
+  encoding — **€ and £ work**, which invoices genuinely need. Deterministic output, so the
+  content-addressed zip stays stable. Sample fixture: pdf.test.ts writes
+  /tmp/crewpoppy-sample-invoice.pdf for eyeball checks.
+- **Getting a PDF out:** the Files panel opens it in the owner's browser via a **five-minute
+  pre-signed S3 URL** (`GET /agents/:id/file-link`) — their bucket, their browser, nothing
+  routed through us. Text files keep the inline view + copy.
+- **Templates:** the owner saves a text file INTO the agent's workspace from the Files panel
+  ("Add a file…", `PUT /agents/:id/files`) — e.g. `invoice-template.md` — and the agent reads
+  it with its own `workspace_read` and follows it. A template the agent can READ beats one
+  pasted into instructions: it survives instruction edits, it's visible in the Files panel,
+  and updating it doesn't touch the brief. Same traversal predicate and size limits as the
+  agent's own writes — the owner is trusted, the string in the request is not.
+- **Open next:** attaching a workspace PDF to `send_email` (needs raw-MIME sending and the
+  approval card naming the attachment). Until then the flow is: agent produces the PDF and
+  emails you that it's ready; you open and forward it.
+
 ### 4b. Knowledge vs. ability — "how does the agent know what to do without training?"
 
 The single most common misconception. Two different things hide inside "does the agent know what

@@ -16,8 +16,8 @@ import {
   deploy, getStatus, teardown, runnerFunctionName, tableName, workspaceBucketName,
 } from "./stack";
 import {
-  answerRun, deleteAgent, getAgent, getPending, getRun, getTranscript, listAgents, listFiles,
-  listRuns, readFileContent, saveAgent, startRun, stopRun, withStaleness,
+  answerRun, deleteAgent, fileLink, getAgent, getPending, getRun, getTranscript, listAgents,
+  listFiles, listRuns, putOwnerFile, readFileContent, saveAgent, startRun, stopRun, withStaleness,
 } from "./agents";
 import { getOwnerEmail, isVerifiedSender, setOwnerEmail } from "./email";
 import { consoleUrl, getCatalogue, getModelAccess } from "./bedrock";
@@ -200,6 +200,23 @@ const server = createServer(async (req, res) => {
         const content = await readFileContent(s3, bucket, parts[1]!, path);
         if (content === null) return json(res, 404, { error: "That file doesn't exist any more." });
         return json(res, 200, { path, content });
+      }
+      // The owner saves a file INTO the agent's workspace — templates, reference docs.
+      if (method === "PUT" && parts.length === 3 && parts[2] === "files") {
+        const body = await readJson(req);
+        const out = await putOwnerFile(
+          s3, workspaceBucketName(ctx.accountId, region), parts[1]!, body.path, body.content,
+        );
+        if (!out.ok) return json(res, 400, { error: out.reason });
+        return json(res, 200, { ok: true });
+      }
+      // A five-minute signed link to one file — how a PDF reaches the owner's browser.
+      if (method === "GET" && parts.length === 3 && parts[2] === "file-link") {
+        const link = await fileLink(
+          s3, workspaceBucketName(ctx.accountId, region), parts[1]!, url.searchParams.get("path") ?? "",
+        );
+        if (!link) return json(res, 404, { error: "That file doesn't exist any more." });
+        return json(res, 200, { url: link });
       }
       // Start a run. Returns immediately — the Lambda carries on in their account.
       if (method === "POST" && parts.length === 3 && parts[2] === "runs") {

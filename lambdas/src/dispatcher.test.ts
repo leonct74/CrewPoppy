@@ -356,3 +356,36 @@ describe("the daily send ceiling", () => {
     expect(ses).toHaveLength(0);
   });
 });
+
+describe("save_pdf", () => {
+  it("writes a real PDF under the agent's own prefix, as application/pdf", async () => {
+    const { ctx, s3 } = harness({ agentId: "a1" });
+    const r = await dispatch(ctx, "save_pdf", {
+      path: "offer.pdf",
+      title: "Sales offer",
+      body: "## Total\n\n| Item | Price |\n|---|---|\n| Setup | €450 |",
+    });
+    expect(r.isError).toBeFalsy();
+    const put = s3.find((c) => c instanceof PutObjectCommand) as PutObjectCommand;
+    expect(put.input.Key).toBe("agents/a1/offer.pdf");
+    expect(put.input.ContentType).toBe("application/pdf");
+    // The bytes are a PDF, not markdown wearing a .pdf name.
+    expect(Buffer.from(put.input.Body as Buffer).subarray(0, 5).toString()).toBe("%PDF-");
+  });
+
+  it("refuses a name that isn't .pdf, and every traversal shape, without touching S3", async () => {
+    const { ctx, s3 } = harness();
+    for (const path of ["offer.md", "../a2/offer.pdf", "/etc/x.pdf", "", 42]) {
+      const r = await dispatch(ctx, "save_pdf", { path, body: "hello" });
+      expect(r.isError, `should refuse: ${JSON.stringify(path)}`).toBe(true);
+    }
+    expect(s3).toHaveLength(0);
+  });
+
+  it("needs a body — an empty PDF is a mistake, not a document", async () => {
+    const { ctx, s3 } = harness();
+    const r = await dispatch(ctx, "save_pdf", { path: "x.pdf", body: "   " });
+    expect(r.isError).toBe(true);
+    expect(s3).toHaveLength(0);
+  });
+});
