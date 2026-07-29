@@ -261,6 +261,8 @@ function AgentForm(props: {
   const [ownerDraft, setOwnerDraft] = useState(props.owner.email ?? "");
   // Field 2's choices: MailPoppy mailboxes assigned to agents, reported over the bridge.
   const [mailboxes, setMailboxes] = useState<string[]>([]);
+  // Field 3: who may START this agent by mail. Default closed — owner only.
+  const [openInbox, setOpenInbox] = useState(props.agent?.openInbox ?? false);
   const [sched, setSched] = useState<AgentSchedule | null>(props.agent?.schedule ?? null);
 
   useEffect(() => {
@@ -273,7 +275,14 @@ function AgentForm(props: {
 
   const notes = new Map((props.catalogue?.tools ?? []).map((t) => [t.name, t]));
   const wantsEmail = (props.catalogue?.needsEmail ?? []).some((t) => chosen.includes(t));
-  const granted = chosen.map((t) => notes.get(t)?.label ?? t);
+  const granted = [
+    ...chosen.map((t) => notes.get(t)?.label ?? t),
+    // The open inbox is a grant like any other, so it appears in the same summary,
+    // right above the button that grants it.
+    ...(wantsEmail && emailFrom.trim() && openInbox
+      ? ["Be started by email from anyone — replies to outsiders still wait for your approval"]
+      : []),
+  ];
 
   // Ask the BACKEND what this schedule means — the same code the ticker runs. The
   // founder set 20:40 and had no way to know which clock that was in; a second
@@ -628,6 +637,26 @@ function AgentForm(props: {
                     " ⚠ Your AWS account hasn't verified this address, so mail from it would bounce."}
                 </small>
               </label>
+              {/* Only when there IS a door. Opening it widens who can start a run,
+                  never what a run may do — the copy says so where the choice is made. */}
+              {emailFrom.trim() !== "" && (
+                <label className="field" style={{ margin: "8px 0 0" }}>
+                  <span>3 · Who may email this agent?</span>
+                  <select
+                    className="select"
+                    value={openInbox ? "anyone" : "owner"}
+                    onChange={(e) => setOpenInbox(e.target.value === "anyone")}
+                  >
+                    <option value="owner">Only me — mail from anyone else is ignored</option>
+                    <option value="anyone">Anyone — customers and colleagues too</option>
+                  </select>
+                  <small className="muted" style={{ fontSize: 12 }}>
+                    {openInbox
+                      ? "Anyone's email can start this agent — right for a support@ or sales@ address. Its limits don't change: every reply to an outsider still waits for your approval, and the daily-mail and monthly-spend caps still apply."
+                      : "The safe default. Only mail from your approval address starts this agent."}
+                  </small>
+                </label>
+              )}
             </div>
           )}
 
@@ -677,6 +706,7 @@ function AgentForm(props: {
                 modelId,
                 tools: chosen,
                 emailFrom: emailFrom.trim(),
+                openInbox,
                 schedule: sched && sched.task.trim() ? sched : null,
                 caps: { ...(props.agent?.caps ?? {}), monthlySpendCapUsd: cap },
               });

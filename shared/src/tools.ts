@@ -171,8 +171,8 @@ export const COMING_CAPABILITIES: ComingCapability[] = [
   {
     key: "read_email",
     label: "Read your email",
-    what: "Would let this agent read messages sent to you — replying to enquiries, watching for something to arrive.",
-    why: "Not available yet, and installing MailPoppy won't switch it on. Your mail is encrypted so that only you can read it, which is the point of it — letting an agent in needs changes inside MailPoppy first.",
+    what: "Would let this agent read messages sent to YOU — watching your own inbox, noticing when something you're waiting for arrives.",
+    why: "Not available yet: your mail is encrypted so that only you can read it, and letting an agent into YOUR mailboxes needs changes inside MailPoppy first. What already works: give the agent an address of its OWN below, and it receives email there — including from customers, if you open its inbox to anyone.",
     group: "you",
   },
 ];

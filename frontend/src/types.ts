@@ -92,6 +92,8 @@ export interface AgentSummary {
   tools: string[];
   /** The verified address this agent sends from, if it has one of its own. */
   emailFrom?: string;
+  /** May anyone start this agent by emailing it, or only the owner (the default)? */
+  openInbox?: boolean;
   schedule?: AgentSchedule;
   /** When it next fires, computed by the ticker's own code. */
   nextRunAt?: string;

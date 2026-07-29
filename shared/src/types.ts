@@ -63,6 +63,14 @@ export interface AgentDef {
    */
   emailFrom?: string;
   /**
+   * Who may START this agent by emailing its address (DESIGN §15g). Absent/false —
+   * only the owner, the safe default. True — anyone: a customer's mail starts a run,
+   * but nothing widens about what the agent may DO: replies to outsiders still stop
+   * at the approval gate, and the daily-mail and monthly-spend caps still bound a
+   * flood. Never stored without `emailFrom` — a door flag with no door.
+   */
+  openInbox?: boolean;
+  /**
    * When this agent runs itself (DESIGN §5b). Data on the agent, not an AWS resource:
    * one ticker serves the whole install, so changing a schedule provisions nothing and
    * leaves nothing behind.

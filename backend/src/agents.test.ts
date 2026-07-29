@@ -7,7 +7,8 @@ import {
 } from "@aws-sdk/lib-dynamodb";
 import { DeleteObjectsCommand, ListObjectsV2Command, type S3Client } from "@aws-sdk/client-s3";
 import {
-  clearHistory, deleteAgent, fileLink, listFiles, putOwnerFile, readFileContent, withStaleness,
+  clearHistory, deleteAgent, fileLink, listFiles, putOwnerFile, readFileContent, saveAgent,
+  withStaleness,
 } from "./agents";
 import {
   AGENTS_PK,
@@ -159,6 +160,41 @@ function world(runStatus?: RunRecord["status"], startedAt = "2026-07-26T10:00:00
   }
   return rows;
 }
+
+// The open-inbox flag (DESIGN §15g) is a stored GRANT, so what survives the save
+// matters more than what the form sent.
+describe("who may email an agent", () => {
+  const NOW = "2026-07-26T12:00:00.000Z";
+  const input = {
+    name: "Emma", role: "Support", instructions: "…", modelId: "m",
+    emailFrom: "support@ollydigital.com",
+  };
+
+  it("opens only on the literal true", async () => {
+    const { client } = fakeDdb([]);
+    expect((await saveAgent(client, "t", "a1", { ...input, openInbox: true }, NOW)).openInbox).toBe(true);
+    for (const v of [false, "true", 1, null, undefined]) {
+      const d = await saveAgent(client, "t", "a1", { ...input, openInbox: v }, NOW);
+      expect(d.openInbox).toBeUndefined();
+    }
+  });
+
+  it("stays open across an edit that doesn't mention it, and closes on false", async () => {
+    const open = { pk: AGENTS_PK, sk: agentSk("a1"), ...AGENT, emailFrom: "support@ollydigital.com", openInbox: true };
+    const kept = await saveAgent(fakeDdb([open]).client, "t", "a1", input, NOW);
+    expect(kept.openInbox).toBe(true);
+    const closed = await saveAgent(fakeDdb([open]).client, "t", "a1", { ...input, openInbox: false }, NOW);
+    expect(closed.openInbox).toBeUndefined();
+  });
+
+  it("never survives without an address — a door flag with no door", async () => {
+    const d = await saveAgent(
+      fakeDdb([]).client, "t", "a1", { ...input, emailFrom: "", openInbox: true }, NOW,
+    );
+    expect(d.emailFrom).toBeUndefined();
+    expect(d.openInbox).toBeUndefined();
+  });
+});
 
 describe("deleting an agent", () => {
   const now = at("2026-07-26T12:00:00.000Z");

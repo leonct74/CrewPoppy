@@ -64,6 +64,8 @@ export interface AgentInput {
   tools?: unknown;
   /** An address the owner verified, "" to clear it, or absent to leave it as it was. */
   emailFrom?: unknown;
+  /** May anyone start this agent by mail? Only literal true opens it (DESIGN §15g). */
+  openInbox?: unknown;
   /** When it runs itself. null clears it; absent leaves it alone. */
   schedule?: unknown;
   caps?: Partial<AgentCaps>;
@@ -113,6 +115,14 @@ export async function saveAgent(
         : existing?.emailFrom
           ? { emailFrom: existing.emailFrom }
           : {}),
+    // "Who may email this agent?" Only the literal boolean opens the door; anything
+    // else the client sends closes it or leaves it as it was. Cleared below if the
+    // agent ends up with no address — a door flag with no door confuses forever.
+    ...(input.openInbox === true
+      ? { openInbox: true }
+      : input.openInbox === undefined && existing?.openInbox
+        ? { openInbox: true }
+        : {}),
     // Same rule as caps and tools: nothing the client sends is stored raw. A schedule
     // with no task, an hour of 99, or a timezone that doesn't exist becomes either a
     // safe value or no schedule at all (DESIGN §5b).
@@ -132,6 +142,7 @@ export async function saveAgent(
     createdAt: existing?.createdAt ?? now,
     updatedAt: now,
   };
+  if (!def.emailFrom) delete def.openInbox;
   await ddb.send(new PutCommand({ TableName: table, Item: { pk: AGENTS_PK, sk: agentSk(id), ...def } }));
   return def;
 }

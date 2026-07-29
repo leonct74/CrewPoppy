@@ -582,8 +582,58 @@ describe("mail arriving for an agent-owned mailbox", () => {
       pk: AGENTS_PK, sk: agentSk("m1"), ...agent, id: "m1", emailFrom: "postie@ollydigital.com",
     });
     const r = await handler(mail() as never);
-    expect(r.status).toBe("mail: dropped (sender)");
+    expect(r.status).toBe("mail: dropped (no approver)");
     expect(mailRuns()).toHaveLength(0);
+  });
+
+  // The open inbox (DESIGN §15g): a per-agent choice that widens who may START a run,
+  // and provably nothing else.
+  describe("when the agent's inbox is open to anyone", () => {
+    const openWorld = () => {
+      seedMailWorld();
+      state.items.set(key(AGENTS_PK, agentSk("m1")), {
+        ...state.items.get(key(AGENTS_PK, agentSk("m1")))!,
+        openInbox: true,
+      });
+    };
+
+    it("starts a run for a customer's email, framed as an OUTSIDE request", async () => {
+      openWorld();
+      const r = await handler(mail({ from: "customer@buyer.example" }) as never);
+      expect(r.status).toBe("mail: started");
+      const input = String(mailRuns()[0]!.input);
+      expect(input).toContain("customer@buyer.example");
+      expect(input).toContain("outside sender");
+      expect(input).not.toContain("Email from you");
+    });
+
+    it("still frames the owner's own mail as the owner's", async () => {
+      openWorld();
+      const r = await handler(mail() as never);
+      expect(r.status).toBe("mail: started");
+      expect(String(mailRuns()[0]!.input)).toContain("Email from you");
+    });
+
+    it("still drops a customer whose mail fails the verdicts — open is not gullible", async () => {
+      openWorld();
+      const r = await handler(
+        mail({ from: "customer@buyer.example", verdicts: { spf: "PASS", dkim: "PASS", spam: "FAIL" } }) as never,
+      );
+      expect(r.status).toBe("mail: dropped (verdicts)");
+      expect(mailRuns()).toHaveLength(0);
+    });
+
+    it("stays owner-only for every OTHER agent — the flag is per agent, never global", async () => {
+      openWorld();
+      state.items.set(key(AGENTS_PK, agentSk("m2")), {
+        pk: AGENTS_PK, sk: agentSk("m2"), ...agent, id: "m2", name: "Closed",
+        emailFrom: "closed@ollydigital.com",
+      });
+      const r = await handler(
+        mail({ to: "closed@ollydigital.com", from: "customer@buyer.example" }) as never,
+      );
+      expect(r.status).toBe("mail: dropped (sender)");
+    });
   });
 });
 
