@@ -1091,3 +1091,20 @@ The meta-lesson, worth carrying to every poppy: **every fix here added a way to 
 rule). A background system without built-in observability isn't done — it's undebuggable.
 
 **P3 still open:** live cost meter, `--win32` build, pack + screenshots, final certify.
+
+## P3 progress — the FULL EMAIL LOOP LIVE-VERIFIED ✅ (2026-07-29)
+
+The §15c/§15e story is now real, end to end, on the founder's account: the founder
+emailed the agent's own MailPoppy address → the bridge invoked the runner → the agent
+did the work, produced the file, and delivered it to the owner's inbox — no approval
+asked, **which is the design**: mail to the OWNER is the safe channel and never gates
+(§4c; the owner IS the approver). The other half verified too: a task naming an
+OUTSIDE recipient suspended at the gate and waited for the button/link. The founder's
+verdict: *"its design is even better than the one I originally thought."*
+
+Also live along the way: the two-field agent editor (approver address + a SELECT of
+real MailPoppy-assigned mailboxes fed by the registry), approve-by-email links, and
+PDF attachments on outgoing mail.
+
+**P3 still open:** `--win32` build, pack + screenshots, final certify (must cover the
+approval endpoint + EventBridge, which didn't exist at the P2 cert).
