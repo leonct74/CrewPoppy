@@ -1162,6 +1162,23 @@ PDF attachments on outgoing mail.
 **P3 still open:** `--win32` build, pack + screenshots, final certify (must cover the
 approval endpoint + EventBridge, which didn't exist at the P2 cert).
 
+**2026-07-29, night: FINAL CERTIFY PASSED ✅ — after two real platform findings.**
+`passed: true`, zero problems, zero warnings, `residualsAfter: []`, hook ran, footprint of
+8 (incl. the approval endpoint + EventBridge ticker that postdate the P2 cert). The two
+findings, both fixed the same night:
+1. **The platform's cleanup backstop couldn't delete EventBridge rules** — the operator
+   user's HostResidualCleanup list predates schedules (CrewPoppy is the first poppy with
+   a rule). Five `events:` actions added to role-template.ts + the stored policy, and the
+   founder updated the live IAM policy (agentspoppy repo, commit 7508426; the operator's
+   live policy is now stored verbatim as infra/policies/agentspoppy-operator-policy.json).
+2. **The teardown hook silently never ran after the node22 conversion** — certify runs
+   the poppy FROM THE REPO at the manifest's entry path, and the bundle lived at
+   backend/build/index.cjs while the manifest said backend/index.cjs. Every failure in
+   the hook chain is a silent `.catch(() => {})`, so this surfaced only as the backstop
+   hitting missing permissions. Bundle now builds AT the manifest path (MailPoppy's
+   convention, for the same reason). 🪤 Platform note for AGENTS.md: a certify that
+   skips the hook should SAY so loudly — two of tonight's three failed runs were this.
+
 **2026-07-29: PACKAGED — and the pipeline changed under us, for the better.** The packer
 now enforces RUNTIMES.md R1 (a poppy must never ship a runtime), so the Node-SEA sidecar
 died at the pack gate. Converted to the MailPoppy shape: `backend/build/index.cjs` (esbuild
