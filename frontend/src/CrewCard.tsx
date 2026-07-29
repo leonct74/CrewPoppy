@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "./api";
+import { Avatar, AvatarPicker } from "./avatars";
 import { Button } from "./Button";
 import { host } from "./host";
 import { describeSchedule } from "./schedule";
@@ -76,6 +77,16 @@ function money(usd: number | undefined): string {
   return usd < 0.01 ? `$${usd.toFixed(4)}` : `$${usd.toFixed(2)}`;
 }
 
+/**
+ * The three views (founder, 2026-07-29). A column of full chat cards was fine for two
+ * agents and unbearable at ten — each chat pushed the next agent off screen. Now:
+ *   crew — the whole team at a glance, one compact tile per agent, a grid that grows
+ *          in rows instead of pushing everything down;
+ *   create — the granting ceremony gets the page to itself;
+ *   chat — one agent, full width: the conversation, files, edit, delete.
+ */
+type CrewView = { kind: "crew" } | { kind: "create" } | { kind: "chat"; id: string };
+
 export function CrewCard(props: {
   models: ModelChoice[];
   /** Lets the page demote reference panels once a crew actually exists. */
@@ -85,7 +96,7 @@ export function CrewCard(props: {
   const [catalogue, setCatalogue] = useState<ToolCatalogue | null>(null);
   const [owner, setOwner] = useState<OwnerEmail>({});
   const [ticker, setTicker] = useState<TickerHealth | null>(null);
-  const [creating, setCreating] = useState(false);
+  const [view, setView] = useState<CrewView>({ kind: "crew" });
   const [err, setErr] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
@@ -127,6 +138,50 @@ export function CrewCard(props: {
   }, [anyScheduled]);
 
   if (!agents) return null;
+
+  // Deep views resolve their agent from the live list, so a refresh (or a delete from
+  // another path) can never leave the page talking to a ghost.
+  const chatAgent = view.kind === "chat" ? agents.find((a) => a.id === view.id) : undefined;
+  if (view.kind === "chat" && !chatAgent) {
+    setView({ kind: "crew" });
+    return null;
+  }
+
+  if (view.kind === "chat" && chatAgent) {
+    return (
+      <div className="card stack">
+        {err && <div className="banner err">{err}</div>}
+        <AgentRow
+          agent={chatAgent}
+          models={props.models}
+          catalogue={catalogue}
+          owner={owner}
+          onChanged={refresh}
+          onBack={() => setView({ kind: "crew" })}
+        />
+      </div>
+    );
+  }
+
+  if (view.kind === "create") {
+    return (
+      <div className="card stack">
+        <button className="btn btn-ghost" style={{ alignSelf: "flex-start" }} onClick={() => setView({ kind: "crew" })}>
+          ← Your crew
+        </button>
+        <AgentForm
+          models={props.models}
+          catalogue={catalogue}
+          owner={owner}
+          onCancel={() => setView({ kind: "crew" })}
+          onSaved={async () => {
+            await refresh();
+            setView({ kind: "crew" });
+          }}
+        />
+      </div>
+    );
+  }
 
   return (
     <div className="card stack">
@@ -173,10 +228,10 @@ export function CrewCard(props: {
         </p>
       )}
 
-      {agents.length === 0 && !creating && (
+      {agents.length === 0 && (
         <>
           <p style={{ margin: 0 }}>
-            An AI teammate that does one job well, in your own cloud. Give it a name, a job title
+            An AI teammate that does one job well, in your own cloud. Give it a name, a role
             and instructions — then hand it work.
           </p>
           <p className="muted" style={{ margin: 0 }}>
@@ -186,35 +241,76 @@ export function CrewCard(props: {
         </>
       )}
 
-      {agents.map((a) => (
-        <AgentRow
-          key={a.id}
-          agent={a}
-          models={props.models}
-          catalogue={catalogue}
-          owner={owner}
-          onChanged={refresh}
-        />
-      ))}
-
-      {creating ? (
-        <AgentForm
-          models={props.models}
-          catalogue={catalogue}
-          owner={owner}
-          onCancel={() => setCreating(false)}
-          onSaved={async () => {
-            setCreating(false);
-            await refresh();
-          }}
-        />
-      ) : (
-        <div>
-          <Button className="btn btn-primary" onClick={() => setCreating(true)}>
-            {agents.length === 0 ? "Create your first agent" : "Add another agent"}
-          </Button>
+      {agents.length > 0 && (
+        <div className="crew-grid">
+          {agents.map((a) => (
+            <AgentTile key={a.id} agent={a} models={props.models} onOpen={() => setView({ kind: "chat", id: a.id })} />
+          ))}
         </div>
       )}
+
+      <div>
+        <Button className="btn btn-primary" onClick={() => setView({ kind: "create" })}>
+          {agents.length === 0 ? "Create your first agent" : "Add another agent"}
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * One agent in the crew grid: face, name, role, and the brief — truncated, because ten
+ * briefs at full length is a wall, but expandable in place, because a summary you can't
+ * check is a summary you can't trust. The whole tile opens the conversation.
+ */
+function AgentTile(props: { agent: AgentSummary; models: ModelChoice[]; onOpen: () => void }) {
+  const { agent } = props;
+  const [expanded, setExpanded] = useState(false);
+  const model = props.models.find((m) => m.id === agent.modelId);
+  const spent = agent.monthSpendUsd ?? 0;
+  const atCap = spent >= agent.caps.monthlySpendCapUsd;
+
+  return (
+    <div
+      className="tile"
+      role="button"
+      tabIndex={0}
+      aria-label={`Open ${agent.name}`}
+      onClick={props.onOpen}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          props.onOpen();
+        }
+      }}
+    >
+      <div className="row" style={{ gap: 10, flexWrap: "nowrap", alignItems: "flex-start" }}>
+        <Avatar id={agent.avatar} name={agent.name} size={44} />
+        <div style={{ minWidth: 0, flex: 1 }}>
+          <strong style={{ display: "block" }}>{agent.name}</strong>
+          <span className="muted" style={{ fontSize: 12 }}>{agent.role}</span>
+        </div>
+        <span className={`badge ${atCap ? "warn" : "ok"}`}>
+          <span className="dot" /> {atCap ? "At limit" : "Ready"}
+        </span>
+      </div>
+      <p className={`tile-brief${expanded ? "" : " clamped"}`}>{agent.instructions}</p>
+      <div className="spread" style={{ marginTop: "auto" }}>
+        <button
+          className="btn btn-ghost btn-sm"
+          onClick={(e) => {
+            e.stopPropagation();
+            setExpanded((v) => !v);
+          }}
+          aria-expanded={expanded}
+        >
+          {expanded ? "Less" : "Full instructions"}
+        </button>
+        <span className="muted-2" style={{ fontSize: 12 }}>
+          {agent.schedule?.enabled ? "⏱ " : ""}
+          {model?.label ?? agent.modelId} · {money(spent)}
+        </span>
+      </div>
     </div>
   );
 }
@@ -255,6 +351,7 @@ function AgentForm(props: {
   // every ability is something the owner deliberately grants (DESIGN §1b).
   const [chosen, setChosen] = useState<string[]>(props.agent?.tools ?? []);
   const [emailFrom, setEmailFrom] = useState(props.agent?.emailFrom ?? "");
+  const [avatar, setAvatar] = useState<string | undefined>(props.agent?.avatar);
   // Field 1 of the founder's two-field design (2026-07-29): the approval address, shown
   // HERE because this is where people look for it — but stored install-wide, one address
   // for the whole crew. Saving the agent saves a change to it too.
@@ -319,9 +416,17 @@ function AgentForm(props: {
           <input className="input" value={name} onChange={(e) => setName(e.target.value)} placeholder="Emma" />
         </label>
         <label className="field">
-          <span>Job title</span>
+          {/* "Role", never "Job title" (founder, 2026-07-29): a person doing this same
+              work reads this screen too, and "job title" on a machine lands badly. */}
+          <span>Role — the work it does</span>
           <input className="input" value={role} onChange={(e) => setRole(e.target.value)} placeholder="Research Assistant" />
         </label>
+      </div>
+      <div className="field">
+        <span style={{ display: "block", fontSize: 12, color: "var(--poppy-muted-2)", marginBottom: 5 }}>
+          Pick a face — it's how you'll spot {name.trim() || "this agent"} in the crew
+        </span>
+        <AvatarPicker value={avatar} name={name} onPick={setAvatar} />
       </div>
       <label className="field">
         <span>Instructions — the brief: what they do, and how</span>
@@ -707,6 +812,7 @@ function AgentForm(props: {
                 tools: chosen,
                 emailFrom: emailFrom.trim(),
                 openInbox,
+                avatar: avatar ?? "",
                 schedule: sched && sched.task.trim() ? sched : null,
                 caps: { ...(props.agent?.caps ?? {}), monthlySpendCapUsd: cap },
               });
@@ -1013,6 +1119,8 @@ function AgentRow(props: {
   catalogue: ToolCatalogue | null;
   owner: OwnerEmail;
   onChanged: () => Promise<void>;
+  /** The way home — this row is now a full page, not one card in a column. */
+  onBack: () => void;
 }) {
   const { agent } = props;
   const [editing, setEditing] = useState(false);
@@ -1130,8 +1238,15 @@ function AgentRow(props: {
 
   return (
     <div className="card card-2" style={{ margin: 0 }}>
-      <div className="spread" style={{ alignItems: "flex-start" }}>
-        <div>
+      <div>
+        <button className="btn btn-ghost btn-sm" onClick={props.onBack}>
+          ← Your crew
+        </button>
+      </div>
+      <div className="spread" style={{ alignItems: "flex-start", marginTop: 8 }}>
+        <div className="row" style={{ gap: 10, flexWrap: "nowrap", alignItems: "flex-start" }}>
+          <Avatar id={agent.avatar} name={agent.name} size={44} />
+          <div>
           <div className="row" style={{ gap: 8 }}>
             <strong>{agent.name}</strong>
             <span className="muted" style={{ fontSize: 12 }}>
@@ -1149,6 +1264,7 @@ function AgentRow(props: {
             {model ? ` (${model.cost})` : ""} · this month: {money(spent)} of $
             {agent.caps.monthlySpendCapUsd.toFixed(2)} limit
           </p>
+          </div>
         </div>
         <div className="row" style={{ gap: 8 }}>
           <span className={`badge ${atCap ? "warn" : "ok"}`}>

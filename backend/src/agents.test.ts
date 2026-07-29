@@ -187,6 +187,18 @@ describe("who may email an agent", () => {
     expect(closed.openInbox).toBeUndefined();
   });
 
+  it("stores a face only when it's a catalogue id, and '' takes it away", async () => {
+    const { client } = fakeDdb([]);
+    expect((await saveAgent(client, "t", "a1", { ...input, avatar: "av-17" }, NOW)).avatar).toBe("av-17");
+    for (const v of ["av-999", "portrait.png", 17, { id: "av-17" }]) {
+      expect((await saveAgent(client, "t", "a1", { ...input, avatar: v }, NOW)).avatar).toBeUndefined();
+    }
+    const withFace = { pk: AGENTS_PK, sk: agentSk("a1"), ...AGENT, avatar: "av-03" };
+    expect((await saveAgent(fakeDdb([withFace]).client, "t", "a1", input, NOW)).avatar).toBe("av-03");
+    expect((await saveAgent(fakeDdb([withFace]).client, "t", "a1", { ...input, avatar: "" }, NOW)).avatar)
+      .toBeUndefined();
+  });
+
   it("never survives without an address — a door flag with no door", async () => {
     const d = await saveAgent(
       fakeDdb([]).client, "t", "a1", { ...input, emailFrom: "", openInbox: true }, NOW,

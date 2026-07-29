@@ -33,11 +33,13 @@ function mountWithOneAgent() {
   vi.spyOn(api, "listAgents").mockResolvedValue({ agents: [emma] });
   vi.spyOn(api, "listTools").mockResolvedValue({ tools: [], groups: [], needsEmail: [] });
   vi.spyOn(api, "ownerEmail").mockResolvedValue({});
+  vi.spyOn(api, "listRuns").mockResolvedValue({ runs: [] });
   return render(<CrewCard models={[model]} />);
 }
 
-/** Open the delete dialog for Emma. */
+/** Go to Emma's page (the crew shows tiles now), then open the delete dialog. */
 async function openDialog(user: ReturnType<typeof userEvent.setup>) {
+  await user.click(await screen.findByRole("button", { name: /open emma/i }));
   await user.click(await screen.findByRole("button", { name: /delete emma/i }));
   return screen.getByRole("dialog");
 }
@@ -50,7 +52,7 @@ describe("deleting an agent", () => {
     const del = vi.spyOn(api, "deleteAgent");
     mountWithOneAgent();
 
-    await user.click(await screen.findByRole("button", { name: /delete emma/i }));
+    await openDialog(user);
 
     expect(screen.getByRole("dialog")).toBeTruthy();
     expect(del).not.toHaveBeenCalled();
@@ -127,6 +129,39 @@ describe("backend errors read as sentences", () => {
       "AgentsPoppy didn't respond in time (invokeBackend).",
     );
     expect(plainMessage("backend 502: upstream said no")).toBe("backend 502: upstream said no");
+  });
+});
+
+// The crew grid (founder, 2026-07-29): the team at a glance, one tile per agent, chat
+// one click deeper — a column of full chats stopped scaling at three agents.
+describe("the crew grid", () => {
+  it("shows the tile essentials — name, role, and the brief, clamped but expandable", async () => {
+    const user = userEvent.setup();
+    mountWithOneAgent();
+
+    const tile = await screen.findByRole("button", { name: /open emma/i });
+    expect(tile.textContent).toMatch(/Emma/);
+    expect(tile.textContent).toMatch(/Research Assistant/);
+    expect(tile.textContent).toMatch(/Research things and answer briefly/);
+
+    // Expanding reads in place, without leaving the grid.
+    const expand = screen.getByRole("button", { name: /full instructions/i });
+    await user.click(expand);
+    expect(screen.getByRole("button", { name: /less/i })).toBeTruthy();
+    expect(screen.queryByRole("dialog")).toBeNull(); // still the grid, no navigation
+  });
+
+  it("opens the conversation from a tile, and the way back is visible", async () => {
+    const user = userEvent.setup();
+    mountWithOneAgent();
+
+    await user.click(await screen.findByRole("button", { name: /open emma/i }));
+
+    // The chat page: composer plus the road home.
+    expect(await screen.findByLabelText(/message emma/i)).toBeTruthy();
+    const back = screen.getByRole("button", { name: /your crew/i });
+    await user.click(back);
+    expect(await screen.findByRole("button", { name: /open emma/i })).toBeTruthy();
   });
 });
 

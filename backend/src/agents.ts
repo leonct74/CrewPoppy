@@ -66,6 +66,8 @@ export interface AgentInput {
   emailFrom?: unknown;
   /** May anyone start this agent by mail? Only literal true opens it (DESIGN §15g). */
   openInbox?: unknown;
+  /** A catalogue face id ("av-01"…"av-50"); "" clears it, absent leaves it alone. */
+  avatar?: unknown;
   /** When it runs itself. null clears it; absent leaves it alone. */
   schedule?: unknown;
   caps?: Partial<AgentCaps>;
@@ -114,6 +116,15 @@ export async function saveAgent(
         ? {}
         : existing?.emailFrom
           ? { emailFrom: existing.emailFrom }
+          : {}),
+    // A face is an id into the app's own catalogue — nothing else is worth storing,
+    // and a malformed one would just render as a broken face forever.
+    ...(typeof input.avatar === "string" && /^av-\d{2}$/.test(input.avatar)
+      ? { avatar: input.avatar }
+      : input.avatar === "" || input.avatar === null
+        ? {}
+        : existing?.avatar
+          ? { avatar: existing.avatar }
           : {}),
     // "Who may email this agent?" Only the literal boolean opens the door; anything
     // else the client sends closes it or leaves it as it was. Cleared below if the

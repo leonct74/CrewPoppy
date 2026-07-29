@@ -88,6 +88,8 @@ export interface AgentSummary {
   name: string;
   role: string;
   instructions: string;
+  /** A face from the built-in catalogue ("av-01"…); absent means initials. */
+  avatar?: string;
   modelId: string;
   tools: string[];
   /** The verified address this agent sends from, if it has one of its own. */

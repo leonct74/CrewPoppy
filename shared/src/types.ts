@@ -47,6 +47,12 @@ export interface AgentDef {
   role: string;
   /** The system prompt — the brief. */
   instructions: string;
+  /**
+   * A face from the frontend's built-in catalogue ("av-01"…"av-50"). An id, never
+   * image data: the catalogue ships with the app so choosing a face costs nothing
+   * (founder, 2026-07-29 — no tokens billed before the first chat). Absent = initials.
+   */
+  avatar?: string;
   /** A bare foundation-model id from the catalogue. */
   modelId: string;
   /**

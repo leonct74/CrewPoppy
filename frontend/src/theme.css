@@ -99,6 +99,70 @@ textarea.input { font-family: var(--poppy-font-mono); font-size: 13px; min-heigh
 .modal { background: var(--poppy-surface-1); border: 1px solid var(--poppy-border-strong); border-radius: var(--poppy-radius); padding: 20px; max-width: 460px; width: 100%; }
 .chip { font-family: var(--poppy-font-mono); font-size: 12px; background: var(--poppy-surface-0); border: 1px solid var(--poppy-border); border-radius: 6px; padding: 2px 7px; }
 
+/* The crew grid (founder, 2026-07-29): the whole team at a glance. Columns as the
+   window allows, rows without limit — ten agents scroll DOWN a little rather than
+   burying each other. */
+.crew-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
+  gap: 10px;
+}
+.tile {
+  display: flex; flex-direction: column; gap: 8px;
+  background: var(--poppy-surface-2);
+  border: 1px solid var(--poppy-border);
+  border-radius: var(--poppy-radius);
+  padding: 12px;
+  cursor: pointer;
+  transition: border-color 120ms ease, background 120ms ease;
+}
+.tile:hover, .tile:focus-visible { border-color: var(--poppy-accent); background: var(--poppy-surface-3); outline: none; }
+.tile-brief { margin: 0; font-size: 12px; color: var(--poppy-muted); white-space: pre-wrap; overflow-wrap: anywhere; }
+.tile-brief.clamped {
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+/* Faces */
+.avatar { display: inline-flex; flex: none; border-radius: 50%; overflow: hidden; }
+.avatar-initials { align-items: center; justify-content: center; font-weight: 650; }
+.avatar-picker { display: flex; flex-wrap: wrap; gap: 4px; }
+.avatar-choice {
+  padding: 3px; border-radius: 50%; border: 2px solid transparent;
+  background: transparent; cursor: pointer; line-height: 0;
+}
+.avatar-choice:hover { border-color: var(--poppy-border-strong); }
+.avatar-choice.picked { border-color: var(--poppy-accent); }
+
+/* The conversation, now a full page: bubbles that read as a chat, not a log. */
+.chat-log {
+  overscroll-behavior: contain;
+  max-height: 420px; overflow-y: auto;
+  display: flex; flex-direction: column; gap: 8px;
+  padding: 4px 2px;
+}
+.chat-empty { color: var(--poppy-muted-2); font-size: 13px; margin: 8px 0; }
+.msg { max-width: 82%; }
+.msg.you { align-self: flex-end; text-align: right; }
+.msg.agent { align-self: flex-start; }
+.msg.step { align-self: center; max-width: 94%; }
+.msg-who { display: block; font-size: 11px; color: var(--poppy-muted-2); margin: 0 4px 2px; }
+.msg-body {
+  display: inline-block; text-align: left;
+  background: var(--poppy-surface-2); border: 1px solid var(--poppy-border);
+  border-radius: 12px; padding: 7px 11px; font-size: 13px;
+  white-space: pre-wrap; overflow-wrap: anywhere;
+}
+.msg.you .msg-body {
+  background: color-mix(in srgb, var(--poppy-accent) 22%, var(--poppy-surface-2));
+  border-color: color-mix(in srgb, var(--poppy-accent) 40%, var(--poppy-border));
+}
+.msg.step .msg-body { font-size: 12px; color: var(--poppy-muted-2); background: transparent; border-style: dashed; }
+.chat-composer { display: flex; gap: 8px; margin-top: 10px; align-items: flex-end; }
+.chat-composer textarea.input { min-height: 44px; }
+
 /* A tool step can be a whole template dump. Three lines is an audit trail; forty is a
    wall. The full text stays in the record — this only clamps the display. */
 .msg.step .msg-body {
@@ -107,4 +171,3 @@ textarea.input { font-family: var(--poppy-font-mono); font-size: 13px; min-heigh
   -webkit-box-orient: vertical;
   overflow: hidden;
 }
-.chat-log { overscroll-behavior: contain; }

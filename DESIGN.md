@@ -1162,6 +1162,19 @@ PDF attachments on outgoing mail.
 **P3 still open:** `--win32` build, pack + screenshots, final certify (must cover the
 approval endpoint + EventBridge, which didn't exist at the P2 cert).
 
+**2026-07-29: the three-view desktop (founder request).** The column of full chat cards
+stopped scaling at three agents — every conversation pushed the next agent off screen.
+Now: (1) the **crew grid** — one compact tile per agent (face, name, role, the brief
+clamped to three lines but expandable in place), columns as the window allows, rows
+without limit; (2) the **editor** as its own page — the granting ceremony deserves the
+room; (3) the **chat** as its own page, one agent full-width, with files/edit/delete and
+a visible way back. Wording rule (founder): the label is **"Role", never "Job title"** —
+a person doing the same work reads that screen too. Faces: a **built-in catalogue of 50
+illustrated faces** (drawn as code, ids "av-01"…"av-50"), picked in the editor —
+deliberately NOT generated per user, which would bill tokens before the first chat.
+An agent stores only the id, so the artwork can be upgraded wholesale later; no face
+chosen renders as initials, never a broken image.
+
 **2026-07-29, later: the open inbox (§15g) LIVE-VERIFIED.** An outside sender's email
 started a run, and the reply to that outsider stopped at the approval gate as designed —
 the full support@ scenario, same day it was asked for.
