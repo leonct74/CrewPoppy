@@ -27,6 +27,8 @@ import {
 import {
   AGENTS_PK,
   CHECKPOINT_SK,
+  CONFIG_PK,
+  MAILBOX_SK_PREFIX,
   DEFAULT_CAPS,
   agentPk,
   agentSk,
@@ -510,6 +512,21 @@ export async function getPending(
     new GetCommand({ TableName: table, Key: { pk: checkpointPk(runId), sk: CHECKPOINT_SK } }),
   );
   return (r.Item as { pending?: PendingSend } | undefined)?.pending;
+}
+
+/** The MailPoppy mailboxes assigned to agents — what the editor's SELECT offers. */
+export async function listAgentMailboxes(
+  ddb: DynamoDBDocumentClient,
+  table: string,
+): Promise<string[]> {
+  const r = await ddb.send(
+    new QueryCommand({
+      TableName: table,
+      KeyConditionExpression: "pk = :pk AND begins_with(sk, :sk)",
+      ExpressionAttributeValues: { ":pk": CONFIG_PK, ":sk": MAILBOX_SK_PREFIX },
+    }),
+  );
+  return ((r.Items ?? []) as { email?: string }[]).map((i) => i.email ?? "").filter(Boolean).sort();
 }
 
 // ---- the owner's window into an agent's workspace (DESIGN §3, 2026-07-28) ----------

@@ -33,10 +33,15 @@ vi.mock("@aws-sdk/lib-dynamodb", () => {
     PutCommand: class extends Cmd {},
     UpdateCommand: class extends Cmd {},
     QueryCommand: class extends Cmd {},
+    DeleteCommand: class extends Cmd {},
     DynamoDBDocumentClient: {
       from: () => ({
         async send(cmd: Cmd) {
           const n = cmd.constructor.name;
+          if (n === "DeleteCommand") {
+            state.items.delete(key(cmd.input.Key.pk, cmd.input.Key.sk));
+            return {};
+          }
           if (n === "GetCommand") {
             return { Item: state.items.get(key(cmd.input.Key.pk, cmd.input.Key.sk)) };
           }
@@ -579,5 +584,43 @@ describe("mail arriving for an agent-owned mailbox", () => {
     const r = await handler(mail() as never);
     expect(r.status).toBe("mail: dropped (sender)");
     expect(mailRuns()).toHaveLength(0);
+  });
+});
+
+// The assignable-mailbox registry (founder, 2026-07-29): MailPoppy reports toggles over
+// the bridge; the editor's SELECT reads what lands here.
+describe("mailbox registry events", () => {
+  beforeEach(() => {
+    process.env.CREWPOPPY_TABLE = TABLE;
+  });
+
+  it("registers on assign and releases on unassign, normalised", async () => {
+    const on = await handler({ kind: "mailbox", email: "  Postie@AgentsPoppy.com ", agentOwned: true } as never);
+    expect(on.status).toBe("mailbox: registered");
+    expect(state.items.get(key("config", "mailbox#postie@agentspoppy.com"))).toBeTruthy();
+
+    const off = await handler({ kind: "mailbox", email: "postie@agentspoppy.com", agentOwned: false } as never);
+    expect(off.status).toBe("mailbox: released");
+    expect(state.items.get(key("config", "mailbox#postie@agentspoppy.com"))).toBeFalsy();
+  });
+
+  it("refuses a malformed address rather than storing junk", async () => {
+    const r = await handler({ kind: "mailbox", email: "not an address", agentOwned: true } as never);
+    expect(r.ok).toBe(false);
+    expect([...state.items.keys()].filter((k) => k.includes("mailbox#"))).toHaveLength(0);
+  });
+
+  it("an arriving mail self-heals the registry even without a toggle event", async () => {
+    // A mailbox flagged before the registry existed must still appear in the SELECT.
+    state.items.set(key("config", "owner-email"), { pk: "config", sk: "owner-email", email: "marco@example.com" });
+    state.items.set(key(AGENTS_PK, agentSk("m1")), {
+      pk: AGENTS_PK, sk: agentSk("m1"), ...agent, id: "m1", emailFrom: "postie@agentspoppy.com",
+    });
+    await handler({
+      kind: "mail", to: "postie@agentspoppy.com", from: "marco@example.com",
+      text: "hello", messageId: "heal-1",
+      verdicts: { spf: "PASS", dkim: "PASS", spam: "PASS" },
+    } as never);
+    expect(state.items.get(key("config", "mailbox#postie@agentspoppy.com"))).toBeTruthy();
   });
 });

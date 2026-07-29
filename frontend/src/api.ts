@@ -59,6 +59,10 @@ export const api = {
   /** Is AWS actually waking CrewPoppy to check schedules? */
   ticker: (): Promise<TickerHealth> => invoke({ method: "GET", path: "/ticker" }),
 
+  /** MailPoppy mailboxes assigned to agents — the editor's address choices. */
+  agentMailboxes: (): Promise<{ mailboxes: string[] }> =>
+    invoke({ method: "GET", path: "/agent-mailboxes" }),
+
   /** The one address agents email you at. Re-checked against SES on every read. */
   ownerEmail: (): Promise<OwnerEmail> => invoke({ method: "GET", path: "/owner-email" }),
 

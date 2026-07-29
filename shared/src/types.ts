@@ -213,5 +213,12 @@ export interface MailEvent {
   verdicts?: { spf?: string; dkim?: string; spam?: string; virus?: string };
 }
 
+/** MailPoppy telling us a mailbox was assigned to (or released from) agents. */
+export interface MailboxEvent {
+  kind: "mailbox";
+  email: string;
+  agentOwned: boolean;
+}
+
 /** How long a phone-approval link, and the waiting run behind it, stay valid. */
 export const CHECKPOINT_TTL_SECONDS = 7 * 24 * 60 * 60;

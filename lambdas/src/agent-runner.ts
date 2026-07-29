@@ -14,7 +14,7 @@
 
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
 import {
-  DynamoDBDocumentClient, GetCommand, PutCommand, QueryCommand, UpdateCommand,
+  DeleteCommand, DynamoDBDocumentClient, GetCommand, PutCommand, QueryCommand, UpdateCommand,
 } from "@aws-sdk/lib-dynamodb";
 import { InvokeCommand, LambdaClient } from "@aws-sdk/client-lambda";
 import { S3Client } from "@aws-sdk/client-s3";
@@ -40,6 +40,8 @@ import {
   checkpointPk,
   costFor,
   inferenceProfileFor,
+  isEmailAddress,
+  mailboxSk,
   monthKeyOf,
   normaliseEmail,
   provenPk,
@@ -49,6 +51,7 @@ import {
   transcriptPk,
   transcriptSk,
   type AgentDef,
+  type MailboxEvent,
   type MailEvent,
   type PendingSend,
   type RunCheckpoint,
@@ -306,6 +309,17 @@ async function mailIntake(table: string, ev: MailEvent): Promise<{ ok: boolean; 
       ExpressionAttributeValues: { ":pk": AGENTS_PK },
     }),
   );
+  // Self-heal the registry: an arriving hand-off PROVES this mailbox is assigned, even
+  // if it was toggled before the registry existed. Best-effort.
+  try {
+    await ddb.send(
+      new PutCommand({
+        TableName: table,
+        Item: { pk: CONFIG_PK, sk: mailboxSk(normaliseEmail(to)), email: normaliseEmail(to) },
+      }),
+    );
+  } catch { /* registry only */ }
+
   const agent = ((listed.Items ?? []) as AgentDef[]).find(
     (a) => a.emailFrom && normaliseEmail(a.emailFrom) === normaliseEmail(to),
   );
@@ -380,12 +394,29 @@ ${text}`;
   return { ok: true, status: "mail: started" };
 }
 
+/** MailPoppy flipped a mailbox's agent toggle — keep the assignable-address registry. */
+async function mailboxIntake(table: string, ev: MailboxEvent): Promise<{ ok: boolean; status: string }> {
+  if (!isEmailAddress(ev.email)) return { ok: false, status: "mailbox: malformed" };
+  const email = normaliseEmail(ev.email);
+  if (ev.agentOwned) {
+    await ddb.send(
+      new PutCommand({ TableName: table, Item: { pk: CONFIG_PK, sk: mailboxSk(email), email } }),
+    );
+    return { ok: true, status: "mailbox: registered" };
+  }
+  await ddb.send(
+    new DeleteCommand({ TableName: table, Key: { pk: CONFIG_PK, sk: mailboxSk(email) } }),
+  );
+  return { ok: true, status: "mailbox: released" };
+}
+
 export async function handler(
-  event: RunnerEvent | { kind: "tick" } | MailEvent,
+  event: RunnerEvent | { kind: "tick" } | MailEvent | MailboxEvent,
 ): Promise<{ ok: boolean; status: string }> {
   const kind = (event as { kind?: string }).kind;
   if (kind === "tick") return tick(process.env.CREWPOPPY_TABLE || "", new Date());
   if (kind === "mail") return mailIntake(process.env.CREWPOPPY_TABLE || "", event as MailEvent);
+  if (kind === "mailbox") return mailboxIntake(process.env.CREWPOPPY_TABLE || "", event as MailboxEvent);
   return runSegment(event as RunnerEvent);
 }
 

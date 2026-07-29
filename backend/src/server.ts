@@ -17,7 +17,8 @@ import {
 } from "./stack";
 import {
   answerRun, clearHistory, deleteAgent, fileLink, getAgent, getPending, getRun, getTranscript, listAgents,
-  listFiles, listRuns, putOwnerFile, readFileContent, saveAgent, startRun, stopRun, withStaleness,
+  listAgentMailboxes, listFiles, listRuns, putOwnerFile, readFileContent, saveAgent, startRun,
+  stopRun, withStaleness,
 } from "./agents";
 import { getOwnerEmail, isVerifiedSender, setOwnerEmail } from "./email";
 import { consoleUrl, getCatalogue, getModelAccess } from "./bedrock";
@@ -140,6 +141,11 @@ const server = createServer(async (req, res) => {
         healthy: ageMs !== undefined && ageMs < 3 * TICK_MINUTES * 60_000,
         everRan: !!beat?.at,
       });
+    }
+
+    // The MailPoppy mailboxes assigned to agents — populates the editor's address SELECT.
+    if (method === "GET" && parts[0] === "agent-mailboxes" && parts.length === 1) {
+      return json(res, 200, { mailboxes: await listAgentMailboxes(ddb, tableName) });
     }
 
     // The tool catalogue, with the plain-language note shown beside each checkbox.

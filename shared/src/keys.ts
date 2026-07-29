@@ -58,6 +58,16 @@ export const OWNER_EMAIL_SK = "owner-email";
 export const LAST_TICK_SK = "last-tick";
 
 /**
+ * The registry of MailPoppy mailboxes assigned to agents (founder, 2026-07-29). Written
+ * when MailPoppy notifies us over the bridge (kind:"mailbox"), and self-healed on every
+ * arriving mail — so the agent editor can offer a SELECT of real, assignable addresses
+ * instead of a text field the user must not typo. CrewPoppy never reads MailPoppy's
+ * data; MailPoppy tells us. That direction is the whole isolation story.
+ */
+export const MAILBOX_SK_PREFIX = "mailbox#";
+export const mailboxSk = (email: string) => `${MAILBOX_SK_PREFIX}${email}`;
+
+/**
  * Per-agent, per-DAY email counter. The same atomic-ADD shape as spend, for the same
  * reason: an approved workflow that goes wrong must hit a hard ceiling rather than a
  * polite intention (DESIGN §7 — caps are mechanisms, never advice).

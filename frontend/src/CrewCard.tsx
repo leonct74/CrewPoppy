@@ -255,7 +255,17 @@ function AgentForm(props: {
   // every ability is something the owner deliberately grants (DESIGN §1b).
   const [chosen, setChosen] = useState<string[]>(props.agent?.tools ?? []);
   const [emailFrom, setEmailFrom] = useState(props.agent?.emailFrom ?? "");
+  // Field 1 of the founder's two-field design (2026-07-29): the approval address, shown
+  // HERE because this is where people look for it — but stored install-wide, one address
+  // for the whole crew. Saving the agent saves a change to it too.
+  const [ownerDraft, setOwnerDraft] = useState(props.owner.email ?? "");
+  // Field 2's choices: MailPoppy mailboxes assigned to agents, reported over the bridge.
+  const [mailboxes, setMailboxes] = useState<string[]>([]);
   const [sched, setSched] = useState<AgentSchedule | null>(props.agent?.schedule ?? null);
+
+  useEffect(() => {
+    void api.agentMailboxes().then((r) => setMailboxes(r.mailboxes)).catch(() => {});
+  }, []);
   const [preview, setPreview] = useState<SchedulePreview | null>(null);
   const [senderState, setSenderState] = useState<"unknown" | "checking" | "ok" | "bad">("unknown");
   const [err, setErr] = useState<string | null>(null);
@@ -563,35 +573,61 @@ function AgentForm(props: {
           ))}
 
           {/* Only asked once email is actually wanted — an address field on an agent that
-              never emails is a question with no purpose. */}
+              never emails is a question with no purpose. Two DISTINCT addresses (founder,
+              2026-07-29): where approvals go (yours), and what the agent owns (its own). */}
           {wantsEmail && (
             <div className="card" style={{ margin: "0 0 8px", padding: 10 }}>
-              <label className="field" style={{ margin: 0 }}>
-                <span>Does {name.trim() || "this agent"} have an email address of its own?</span>
+              <label className="field">
+                <span>1 · The email address you use to approve agent tasks</span>
                 <input
                   className="input"
-                  value={emailFrom}
-                  onChange={(e) => setEmailFrom(e.target.value)}
-                  placeholder={props.owner.email ? `Leave empty to send from ${props.owner.email}` : "emma@yourdomain.com"}
+                  value={ownerDraft}
+                  onChange={(e) => setOwnerDraft(e.target.value)}
+                  placeholder="you@yourdomain.com"
                   autoComplete="off"
                   spellCheck={false}
                 />
                 <small className="muted" style={{ fontSize: 12 }}>
-                  {senderState === "checking" && "Checking your AWS account…"}
-                  {senderState === "ok" && "✓ Your AWS account can send from this address."}
-                  {senderState === "bad" &&
-                    "Your AWS account hasn't verified this address, so mail from it would bounce. Verify it (or its domain) in SES first — MailPoppy addresses already are."}
-                  {senderState === "unknown" &&
-                    "Optional. Leave it empty and it sends from your own address instead."}
+                  Approval requests and agent reports come here. One address for your whole crew —
+                  changing it here changes it everywhere.
                 </small>
               </label>
-            </div>
-          )}
-
-          {!props.owner.email && wantsEmail && (
-            <div className="banner warn">
-              No address is set for CrewPoppy yet, so the email abilities won't do anything. Set one
-              under "Email" above the crew list first — you can still save this agent now.
+              <label className="field" style={{ margin: 0 }}>
+                <span>2 · The email address this agent owns</span>
+                {mailboxes.length > 0 ? (
+                  /* A SELECT of real, assignable addresses — the MailPoppy mailboxes you
+                     assigned to agents. No typos, no guessing. A previously saved address
+                     that MailPoppy hasn't reported stays selectable rather than vanishing. */
+                  <select
+                    className="select"
+                    value={emailFrom}
+                    onChange={(e) => setEmailFrom(e.target.value)}
+                  >
+                    <option value="">None — it sends from your address, and can't be emailed</option>
+                    {[...new Set([...mailboxes, ...(emailFrom ? [emailFrom] : [])])].sort().map((m) => (
+                      <option key={m} value={m}>{m}</option>
+                    ))}
+                  </select>
+                ) : (
+                  <input
+                    className="input"
+                    value={emailFrom}
+                    onChange={(e) => setEmailFrom(e.target.value)}
+                    placeholder="agent@yourdomain.com"
+                    autoComplete="off"
+                    spellCheck={false}
+                  />
+                )}
+                <small className="muted" style={{ fontSize: 12 }}>
+                  {mailboxes.length > 0
+                    ? "These are the MailPoppy mailboxes you've assigned to AI agents. Mail sent to the chosen address starts this agent, and it sends from it too."
+                    : "No MailPoppy mailbox is assigned to agents yet. In MailPoppy, open a mailbox and choose 'Assign this mailbox to an AI agent' — it will appear here. Or type a verified address to send from only."}
+                  {emailFrom.trim() && senderState === "checking" && " Checking your AWS account…"}
+                  {emailFrom.trim() && senderState === "ok" && " ✓ Your AWS account can send from this address."}
+                  {emailFrom.trim() && senderState === "bad" &&
+                    " ⚠ Your AWS account hasn't verified this address, so mail from it would bounce."}
+                </small>
+              </label>
             </div>
           )}
 
@@ -628,6 +664,11 @@ function AgentForm(props: {
           onClick={async () => {
             setErr(null);
             try {
+              // The approval address is install-wide; a change here is saved first, with
+              // the same SES verification as the Email card, so it can't silently rot.
+              if (ownerDraft.trim() && ownerDraft.trim() !== (props.owner.email ?? "")) {
+                await api.setOwnerEmail(ownerDraft.trim());
+              }
               await api.saveAgent({
                 ...(props.agent ? { id: props.agent.id } : {}),
                 name,
