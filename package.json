@@ -16,12 +16,11 @@
     "typecheck": "npm run typecheck --workspaces --if-present",
     "test": "npm run test --workspaces --if-present",
     "gen:backend": "node scripts/build-backend-bundle.mjs",
-    "build": "npm run build:frontend && npm run build:sidecar",
+    "build": "npm run build:frontend && npm run build:bundle",
     "build:frontend": "npm run build -w @crewpoppy/frontend",
-    "prebuild:sidecar": "npm run gen:backend",
-    "build:sidecar": "node scripts/build-sidecar.mjs",
+    "build:bundle": "node scripts/build-node-bundle.mjs",
     "validate-manifest": "node scripts/validate-manifest.mjs",
-    "install-dev": "node ${AGENTSPOPPY_REPO:-../agentspoppy}/scripts/install-dev-extension.mjs --src . --frontend frontend/dist --backend backend/crewpoppy-sidecar",
+    "install-dev": "node ${AGENTSPOPPY_REPO:-../agentspoppy}/scripts/install-dev-extension.mjs --src . --frontend frontend/dist --backend backend/build/index.cjs",
     "certify": "npm --prefix ${AGENTSPOPPY_REPO:-../agentspoppy} run certify -- --extension $PWD"
   },
   "devDependencies": {

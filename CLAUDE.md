@@ -99,9 +99,10 @@ and phases P0–P4: `DESIGN.md`.
 - `npm run typecheck` · `npm run test` — all workspaces (50 tests at P0).
 - `npm run gen:backend` — infra + lambdas → `backend/src/generated/backend-bundle.ts`
   (template JSON + content-addressed runner zip; runs automatically before typecheck/test/build).
-- `npm run build` = `build:frontend` + `build:sidecar` (SEA → `backend/crewpoppy-sidecar`;
-  add `-- --win32` for the Windows binary). **Rebuild + restart AgentsPoppy after any
-  infra/lambdas/backend change** (gotcha #1).
+- `npm run build` = `build:frontend` + `build:bundle` (esbuild CJS → `backend/build/index.cjs`,
+  run by AgentsPoppy's shared node22 runtime — RUNTIMES.md R1: poppies never ship a runtime;
+  one platform-neutral package, no win32 cross-build). **Rebuild + restart AgentsPoppy after
+  any infra/lambdas/backend change** (gotcha #1 — the bundle embeds the template + Lambda zip).
 - `npm run validate-manifest` — SDK structural check + the REAL `assessPermissionSet`; fails the
   build unless the rating is amber/green with zero unscoped findings.
 - `npm run install-dev` — install into `~/.agentspoppy/extensions/com.crewpoppy.desktop`.

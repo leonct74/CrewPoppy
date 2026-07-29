@@ -1162,6 +1162,14 @@ PDF attachments on outgoing mail.
 **P3 still open:** `--win32` build, pack + screenshots, final certify (must cover the
 approval endpoint + EventBridge, which didn't exist at the P2 cert).
 
+**2026-07-29: PACKAGED — and the pipeline changed under us, for the better.** The packer
+now enforces RUNTIMES.md R1 (a poppy must never ship a runtime), so the Node-SEA sidecar
+died at the pack gate. Converted to the MailPoppy shape: `backend/build/index.cjs` (esbuild
+CJS, 4.7 MB), `extension.json` declares `runtime: "node22"`, AgentsPoppy provides Node.
+Wins: ~115 MB/platform → **4.9 MB total**, ONE platform-neutral package (`-any.zip`,
+minHost 0.3.0), and the `--win32` cross-build ceased to exist as a concept. Gotcha #1
+survives unchanged — the bundle still embeds the template + Lambda zip.
+
 **2026-07-29: the three-view desktop (founder request).** The column of full chat cards
 stopped scaling at three agents — every conversation pushed the next agent off screen.
 Now: (1) the **crew grid** — one compact tile per agent (face, name, role, the brief

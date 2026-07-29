@@ -145,8 +145,9 @@
     "entry": "frontend/index.html"
   },
   "backend": {
-    "entry": "backend/crewpoppy-sidecar",
-    "transport": "http"
+    "entry": "backend/index.cjs",
+    "transport": "http",
+    "runtime": "node22"
   },
   "teardown": {
     "endpoint": "/teardown"
