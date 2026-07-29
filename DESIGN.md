@@ -801,6 +801,17 @@ they are infrastructure capabilities, and the doctrine says we don't paywall tho
 - Sold per deployment as an AgentsPoppy first-party product (`kind=subscription`), like MailPoppy
   mobile. **Price: founder to confirm in §13** — anchor **$19.99/yr** (above VPN-Poppy's $14.99,
   below business-SaaS; covers app-store costs + push infrastructure).
+- **Scope rule (founder discussion, 2026-07-29): the phone USES the crew, only the desktop
+  EXPANDS its powers.** v1 mobile = task, approve, watch, kill. Creating agents stays on the
+  desktop: creation is a granting ceremony (capabilities, caps, addresses, templates) that
+  deserves a desk, and a phone left on a table must never be able to mint a new agent or
+  widen one's reach. Pocket-sized later additions: pause, nudge a spend cap, clone an
+  existing agent (reusing a deliberate grant, not composing a new one).
+- **Voice input (founder, 2026-07-29): dictate tasks, hold-to-talk.** Day one comes free —
+  the keyboard mic dictates into the chat field, on-device. A built-in button follows the
+  doctrine: audio NEVER touches our servers — on-device speech recognition first, Amazon
+  Transcribe in the USER'S account as the upgrade path. No voice-assistant mode (no TTS
+  replies, no wake word) — the value is firing off a task while walking, dictation covers it.
 - **Store positioning (founder, 2026-07-29): never call it a "chat app".** The interaction is
   ONLY with the user's own agents in their own deployment — no user-to-user messaging, no
   public AI chatbot, nothing without a login to your own cloud. List it as a *companion app to
