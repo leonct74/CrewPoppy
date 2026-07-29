@@ -22,5 +22,6 @@
     "@aws-sdk/client-sesv2": "^3.1095.0",
     "@aws-sdk/lib-dynamodb": "^3.1095.0",
     "@crewpoppy/shared": "^0.1.0"
-  }
+  },
+  "license": "PolyForm-Shield-1.0.0"
 }
