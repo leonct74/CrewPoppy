@@ -801,6 +801,14 @@ they are infrastructure capabilities, and the doctrine says we don't paywall tho
 - Sold per deployment as an AgentsPoppy first-party product (`kind=subscription`), like MailPoppy
   mobile. **Price: founder to confirm in §13** — anchor **$19.99/yr** (above VPN-Poppy's $14.99,
   below business-SaaS; covers app-store costs + push infrastructure).
+- **Store positioning (founder, 2026-07-29): never call it a "chat app".** The interaction is
+  ONLY with the user's own agents in their own deployment — no user-to-user messaging, no
+  public AI chatbot, nothing without a login to your own cloud. List it as a *companion app to
+  your own AWS deployment* (the AWS-Console-app category). That framing also answers Apple's
+  AI-content-moderation questions with the strongest possible fact: single user, own agents,
+  own data, nothing generated for strangers. The store risk that actually needs managing is
+  the PAYMENT rule (subscription sold outside Apple) — MailPoppy mobile's store runbooks are
+  the reference for that.
 
 ### 15c. The MailPoppy bridge — investigated 2026-07-26, and why it's MailPoppy-side work
 
@@ -1142,3 +1150,7 @@ PDF attachments on outgoing mail.
 
 **P3 still open:** `--win32` build, pack + screenshots, final certify (must cover the
 approval endpoint + EventBridge, which didn't exist at the P2 cert).
+
+**2026-07-29, later: the open inbox (§15g) LIVE-VERIFIED.** An outside sender's email
+started a run, and the reply to that outsider stopped at the approval gate as designed —
+the full support@ scenario, same day it was asked for.
