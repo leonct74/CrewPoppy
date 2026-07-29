@@ -17,7 +17,10 @@ import { fileURLToPath } from "node:url";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const repoRoot = resolve(here, "..");
-const outfile = join(repoRoot, "backend", "build", "index.cjs");
+// At the path the manifest declares, IN the repo: certify runs the poppy from the repo
+// root, so entry path and build output must coincide (the teardown hook silently never
+// ran when the bundle lived in backend/build/ — 2026-07-29).
+const outfile = join(repoRoot, "backend", "index.cjs");
 
 console.log("[1/2] regenerate embedded backend bundle (template + lambda zip)");
 execFileSync(process.execPath, [join(here, "build-backend-bundle.mjs")], { stdio: "inherit" });

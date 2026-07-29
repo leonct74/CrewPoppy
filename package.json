@@ -20,7 +20,7 @@
     "build:frontend": "npm run build -w @crewpoppy/frontend",
     "build:bundle": "node scripts/build-node-bundle.mjs",
     "validate-manifest": "node scripts/validate-manifest.mjs",
-    "install-dev": "node ${AGENTSPOPPY_REPO:-../agentspoppy}/scripts/install-dev-extension.mjs --src . --frontend frontend/dist --backend backend/build/index.cjs",
+    "install-dev": "node ${AGENTSPOPPY_REPO:-../agentspoppy}/scripts/install-dev-extension.mjs --src . --frontend frontend/dist --backend backend/index.cjs",
     "certify": "npm --prefix ${AGENTSPOPPY_REPO:-../agentspoppy} run certify -- --extension $PWD"
   },
   "devDependencies": {
