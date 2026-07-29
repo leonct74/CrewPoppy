@@ -490,3 +490,94 @@ describe("an approved send with an attachment", () => {
     expect(log[0]).toMatch(/not sent/i);
   });
 });
+
+// The mail intake (docs/mailpoppy-bridge-spec.md) — the receiving side of the trust
+// boundary. Every gate is tested as a gate: what it lets through matters less than what
+// it refuses.
+describe("mail arriving for an agent-owned mailbox", () => {
+  const mail = (over: Record<string, unknown> = {}) => ({
+    kind: "mail" as const,
+    to: "postie@ollydigital.com",
+    from: "marco@example.com",
+    subject: "Offer for XYZ",
+    text: "Please make an offer for XYZ: 2 days consulting.",
+    messageId: "ses-msg-001",
+    verdicts: { spf: "PASS", dkim: "PASS", spam: "PASS", virus: "PASS" },
+    ...over,
+  });
+
+  const seedMailWorld = () => {
+    process.env.CREWPOPPY_TABLE = TABLE;
+    state.items.set(key("config", "owner-email"), { pk: "config", sk: "owner-email", email: "marco@example.com" });
+    state.items.set(key(AGENTS_PK, agentSk("m1")), {
+      pk: AGENTS_PK, sk: agentSk("m1"), ...agent, id: "m1", name: "Postie",
+      emailFrom: "postie@ollydigital.com",
+    });
+  };
+  const mailRuns = () =>
+    [...state.items.values()].filter((i) => i.agentId === "m1" && String(i.sk).startsWith("run#mail-"));
+
+  it("starts ONE run for the owner's email, idempotently across redelivery", async () => {
+    seedMailWorld();
+    const r1 = await handler(mail() as never);
+    expect(r1.status).toBe("mail: started");
+    const r2 = await handler(mail() as never); // SES redelivers the same messageId
+    expect(r2.status).toBe("mail: already handled");
+    expect(mailRuns()).toHaveLength(1);
+    expect(state.lambdaInvokes).toHaveLength(1);
+    expect(String(mailRuns()[0]!.input)).toContain("Offer for XYZ");
+  });
+
+  it("drops a forged sender — anyone can type a From line", async () => {
+    seedMailWorld();
+    const r = await handler(mail({ from: "attacker@evil.test" }) as never);
+    expect(r.status).toBe("mail: dropped (sender)");
+    expect(mailRuns()).toHaveLength(0);
+    expect(state.lambdaInvokes).toHaveLength(0);
+  });
+
+  it("drops the owner's OWN address when the verdicts don't prove it", async () => {
+    // The whole point of checking verdicts: a spoof of the owner passes the From
+    // comparison and must still die here.
+    seedMailWorld();
+    for (const verdicts of [
+      { spf: "FAIL", dkim: "PASS", spam: "PASS" },
+      { spf: "PASS", dkim: "FAIL", spam: "PASS" },
+      { spf: "PASS", dkim: "PASS", spam: "FAIL" },
+      { spf: "PASS", dkim: "PASS", spam: "PASS", virus: "FAIL" },
+      undefined, // no verdicts at all is a drop, never a benefit of the doubt
+    ]) {
+      const r = await handler(mail({ verdicts, messageId: `m-${JSON.stringify(verdicts)}` }) as never);
+      expect(r.status).toBe("mail: dropped (verdicts)");
+    }
+    expect(mailRuns()).toHaveLength(0);
+  });
+
+  it("drops mail for an address no agent owns", async () => {
+    seedMailWorld();
+    const r = await handler(mail({ to: "nobody@ollydigital.com" }) as never);
+    expect(r.status).toBe("mail: dropped (no agent)");
+    expect(mailRuns()).toHaveLength(0);
+  });
+
+  it("skips, not queues, while the agent is busy — the email still sits in the mailbox", async () => {
+    seedMailWorld();
+    state.items.set(key(agentPk("m1"), "run#live"), {
+      pk: agentPk("m1"), sk: "run#live", runId: "live", agentId: "m1",
+      status: "running", startedAt: new Date(Date.now() - 5_000).toISOString(),
+    });
+    const r = await handler(mail() as never);
+    expect(r.status).toBe("mail: skipped (busy)");
+    expect(mailRuns()).toHaveLength(0);
+  });
+
+  it("does nothing at all when no owner address is configured", async () => {
+    process.env.CREWPOPPY_TABLE = TABLE;
+    state.items.set(key(AGENTS_PK, agentSk("m1")), {
+      pk: AGENTS_PK, sk: agentSk("m1"), ...agent, id: "m1", emailFrom: "postie@ollydigital.com",
+    });
+    const r = await handler(mail() as never);
+    expect(r.status).toBe("mail: dropped (sender)");
+    expect(mailRuns()).toHaveLength(0);
+  });
+});

@@ -41,6 +41,7 @@ import {
   costFor,
   inferenceProfileFor,
   monthKeyOf,
+  normaliseEmail,
   provenPk,
   runSk,
   spendPk,
@@ -48,6 +49,7 @@ import {
   transcriptPk,
   transcriptSk,
   type AgentDef,
+  type MailEvent,
   type PendingSend,
   type RunCheckpoint,
   type RunRecord,
@@ -259,12 +261,131 @@ async function tick(table: string, now: Date): Promise<{ ok: boolean; status: st
   return { ok: true, status: `tick: ${started} started` };
 }
 
-export async function handler(
-  event: RunnerEvent | { kind: "tick" },
-): Promise<{ ok: boolean; status: string }> {
-  if ((event as { kind?: string }).kind === "tick") {
-    return tick(process.env.CREWPOPPY_TABLE || "", new Date());
+/**
+ * Mail arriving for an agent-owned mailbox (docs/mailpoppy-bridge-spec.md). MailPoppy
+ * already filtered spam — but THIS side owns the decision to act, so every gate is
+ * enforced here again, on the receiving side of the trust boundary:
+ *
+ *  1. SENDER: only mail provably from the configured owner address may start a run.
+ *     Anyone can forge a From line; the SPF/DKIM/spam verdicts are what "provably"
+ *     means, and any missing or non-PASS verdict is a drop.
+ *  2. ADDRESSEE: the agent is found by ITS OWN address. No match, no run.
+ *  3. IDEMPOTENT: the run id is derived from the SES message id, written with
+ *     attribute_not_exists — a redelivered email cannot run twice (CLAUDE.md gotcha #3).
+ *  4. NO STACKING: a busy agent skips, same staleness-aware rule as the ticker. The
+ *     email itself still sits in the mailbox; nothing is lost.
+ *
+ * Drops are silent by design (log-only): answering a forged email would confirm the
+ * address exists, and the owner's real mail always lands in their mailbox regardless.
+ */
+async function mailIntake(table: string, ev: MailEvent): Promise<{ ok: boolean; status: string }> {
+  const str = (v: unknown) => (typeof v === "string" ? v.trim() : "");
+  const to = str(ev.to);
+  const from = str(ev.from);
+  const text = str(ev.text).slice(0, 20_000);
+  const messageId = str(ev.messageId);
+  if (!to || !from || !text || !messageId) return { ok: false, status: "mail: malformed" };
+
+  const ownerEmail = ((await get(table, CONFIG_PK, OWNER_EMAIL_SK)) as { email?: string } | undefined)
+    ?.email;
+  if (!ownerEmail || normaliseEmail(from) !== normaliseEmail(ownerEmail)) {
+    console.log(`[crewpoppy] mail dropped: sender is not the owner (${from})`);
+    return { ok: true, status: "mail: dropped (sender)" };
   }
+  const v = ev.verdicts ?? {};
+  const pass = (k: keyof typeof v) => String(v[k] ?? "").toUpperCase() === "PASS";
+  if (!pass("spf") || !pass("dkim") || !pass("spam") || (v.virus !== undefined && !pass("virus"))) {
+    console.log("[crewpoppy] mail dropped: verdicts not clean", v);
+    return { ok: true, status: "mail: dropped (verdicts)" };
+  }
+
+  const listed = await ddb.send(
+    new QueryCommand({
+      TableName: table,
+      KeyConditionExpression: "pk = :pk",
+      ExpressionAttributeValues: { ":pk": AGENTS_PK },
+    }),
+  );
+  const agent = ((listed.Items ?? []) as AgentDef[]).find(
+    (a) => a.emailFrom && normaliseEmail(a.emailFrom) === normaliseEmail(to),
+  );
+  if (!agent) {
+    console.log(`[crewpoppy] mail dropped: no agent owns ${to}`);
+    return { ok: true, status: "mail: dropped (no agent)" };
+  }
+
+  // Redelivery is recognised BEFORE the busy check: the run this very message started
+  // makes the agent busy, and answering "skipped" to a retry of a handled message would
+  // be wrong twice. The conditional write below stays as the atomic backstop.
+  const runId = `mail-${createHash("sha256").update(messageId).digest("hex").slice(0, 24)}`;
+  if (await get(table, agentPk(agent.id), runSk(runId))) {
+    return { ok: true, status: "mail: already handled" };
+  }
+
+  const runs = await ddb.send(
+    new QueryCommand({
+      TableName: table,
+      KeyConditionExpression: "pk = :pk AND begins_with(sk, :sk)",
+      ExpressionAttributeValues: { ":pk": agentPk(agent.id), ":sk": "run#" },
+      ScanIndexForward: false,
+      Limit: 25,
+    }),
+  );
+  const busy = ((runs.Items ?? []) as RunRecord[]).some(
+    (r) =>
+      r.status === "waiting" ||
+      (r.status === "running" && !neverReportedBack(r, agent.caps, Date.now())),
+  );
+  if (busy) {
+    console.log(`[crewpoppy] mail skipped: ${agent.name} is busy`);
+    return { ok: true, status: "mail: skipped (busy)" };
+  }
+  const subject = str(ev.subject);
+  const input = subject ? `Email from you — subject: ${subject}
+
+${text}` : `Email from you:
+
+${text}`;
+  const record: RunRecord = {
+    runId,
+    agentId: agent.id,
+    status: "running",
+    input,
+    cost: { usage: { inputTokens: 0, outputTokens: 0 } },
+    iterations: 0,
+    startedAt: new Date().toISOString(),
+    modelId: agent.modelId,
+  };
+  try {
+    await ddb.send(
+      new PutCommand({
+        TableName: table,
+        Item: { pk: agentPk(agent.id), sk: runSk(runId), ...record },
+        ConditionExpression: "attribute_not_exists(sk)",
+      }),
+    );
+  } catch (e) {
+    if ((e as { name?: string })?.name === "ConditionalCheckFailedException") {
+      return { ok: true, status: "mail: already handled" }; // SES redelivery — by design
+    }
+    throw e;
+  }
+  await lambda.send(
+    new InvokeCommand({
+      FunctionName: process.env.AWS_LAMBDA_FUNCTION_NAME ?? "CrewPoppyRunner",
+      InvocationType: "Event",
+      Payload: Buffer.from(JSON.stringify({ runId, agentId: agent.id, input, tableName: table })),
+    }),
+  );
+  return { ok: true, status: "mail: started" };
+}
+
+export async function handler(
+  event: RunnerEvent | { kind: "tick" } | MailEvent,
+): Promise<{ ok: boolean; status: string }> {
+  const kind = (event as { kind?: string }).kind;
+  if (kind === "tick") return tick(process.env.CREWPOPPY_TABLE || "", new Date());
+  if (kind === "mail") return mailIntake(process.env.CREWPOPPY_TABLE || "", event as MailEvent);
   return runSegment(event as RunnerEvent);
 }
 

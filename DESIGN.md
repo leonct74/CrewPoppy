@@ -939,7 +939,19 @@ and a link. Implementation of the §15e contract:
   against the agent's daily send cap, and a mail failure never breaks the wait — the desktop
   path always works.
 
-**The ask-by-email half stays MailPoppy-side (§15c), for a structural reason:** inbound mail
+**The ask-by-email half — CrewPoppy's receiving side SHIPPED (2026-07-28).** The founder
+chose the MailPoppy bridge; the cross-repo contract is `docs/mailpoppy-bridge-spec.md` and
+MailPoppy's half was built by its own session against it. The runner accepts `kind:"mail"`
+events and enforces every gate ON THIS SIDE of the trust boundary, regardless of what
+MailPoppy already checked: sender must equal the configured owner address AND carry
+all-PASS SPF/DKIM/spam verdicts (a spoofed From passes the comparison and must die on the
+verdicts — tested); the agent is found by its own `emailFrom`; runs are idempotent on the
+SES messageId (redelivery recognised even while the run it started is live); a busy agent
+skips rather than queues — the email still sits in the mailbox. Drops are log-only:
+answering a forged mail would confirm the address exists. All existing walls unchanged —
+caps, per-message approval for outbound, the kill switch.
+
+**Why it had to be MailPoppy-side at all (§15c), for the record:** inbound mail
 in AWS is SES receipt rules, and an account has exactly ONE active rule set — which MailPoppy
 owns in any account running both. CrewPoppy modifying it would break "only its own resources"
 for two poppies at once. When the §15c bridge lands, the loop closes: email in → agent works →

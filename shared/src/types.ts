@@ -195,5 +195,23 @@ export interface RunnerEvent {
   approved?: boolean;
 }
 
+/**
+ * What MailPoppy sends when mail arrives for an agent-owned mailbox — the receiving half
+ * of docs/mailpoppy-bridge-spec.md. This shape is a CROSS-REPO contract: changing it
+ * here without changing MailPoppy breaks the bridge silently.
+ */
+export interface MailEvent {
+  kind: "mail";
+  to: string;
+  from: string;
+  subject?: string;
+  text: string;
+  /** SES's stable message id — the idempotency key; a redelivery carries the same one. */
+  messageId: string;
+  receivedAt?: string;
+  /** SES receipt verdicts, passed through verbatim. */
+  verdicts?: { spf?: string; dkim?: string; spam?: string; virus?: string };
+}
+
 /** How long a phone-approval link, and the waiting run behind it, stay valid. */
 export const CHECKPOINT_TTL_SECONDS = 7 * 24 * 60 * 60;
