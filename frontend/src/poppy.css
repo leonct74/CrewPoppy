@@ -1,5 +1,5 @@
 /* Copyright 2026 Marco Tomasello (AgentsPoppy) */
-/* SPDX-License-Identifier: PolyForm-Shield-1.0.0 */
+/* SPDX-License-Identifier: LicenseRef-PolyForm-Perimeter-1.0.0 */
 
 /* ─────────────────────────────────────────────────────────────────────────
    AgentsPoppy poppy design kit — token sheet (v1)
@@ -57,3 +57,17 @@
   --poppy-font: -apple-system, BlinkMacSystemFont, "Segoe UI", "Inter Variable", Roboto, Helvetica, Arial, sans-serif;
   --poppy-font-mono: "JetBrains Mono Variable", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
 }
+
+/* ─────────────────────────────────────────────────────────────────────────
+   The ONE component class in the kit: the helper-prompt pulse (AGENTS.md §9,
+   REQUIRED on every poppy's primary creation surface). Shared here so every
+   poppy's helper button breathes at the same rhythm, in its own accent — and
+   holds perfectly still for users who asked their OS for reduced motion.
+   ───────────────────────────────────────────────────────────────────────── */
+.poppy-helper-pulse { animation: poppy-helper-pulse 2s ease-out infinite; }
+@keyframes poppy-helper-pulse {
+  0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--poppy-accent) 55%, transparent); }
+  70% { box-shadow: 0 0 0 11px transparent; }
+  100% { box-shadow: 0 0 0 0 transparent; }
+}
+@media (prefers-reduced-motion: reduce) { .poppy-helper-pulse { animation: none; } }

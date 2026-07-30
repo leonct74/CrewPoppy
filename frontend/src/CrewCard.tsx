@@ -426,7 +426,7 @@ function AgentForm(props: {
               everything to fill in below.
             </span>
             <button
-              className={`btn btn-primary${helperUsed ? "" : " pulse"}`}
+              className={`btn btn-primary${helperUsed ? "" : " poppy-helper-pulse"}`}
               onClick={async () => {
                 await navigator.clipboard.writeText(
                   buildHelperPrompt(props.catalogue ?? { tools: [], groups: [], needsEmail: [] }, props.models),
