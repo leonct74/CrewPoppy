@@ -801,6 +801,24 @@ they are infrastructure capabilities, and the doctrine says we don't paywall tho
 - Sold per deployment as an AgentsPoppy first-party product (`kind=subscription`), like MailPoppy
   mobile. **Price: founder to confirm in §13** — anchor **$19.99/yr** (above VPN-Poppy's $14.99,
   below business-SaaS; covers app-store costs + push infrastructure).
+- **Monetisation shape — DECIDED 2026-07-30 (founder: "this is the only option"), replacing
+  the app-as-paywall assumption above.** The mobile app itself is **FREE and genuinely
+  functional**: log in, chat with agents, approve — everything works when you open it.
+  **Paid: the push channel** — "your crew can reach YOU": instant notifications the moment an
+  agent needs an approval or finishes work (live run streaming may join this tier if the offer
+  needs thickening). Why this line: (1) the push relay is the ONE component that can never
+  live in the user's AWS (APNs/FCM deliver only through the publisher's keys), so charging for
+  it never violates "never charge for what the user owns"; (2) entitlement enforced on OUR
+  relay, server-side — a public repo can't unlock it (the MailPoppy domain-unlock lesson, done
+  without moving any user data through our servers); (3) Apple-proof: the free app is fully
+  functional when opened (a store rule even REQUIRES apps to work without push), and the
+  subscription is buyable BOTH as in-app purchase (Apple's 15% small-business cut, priced in)
+  AND via AgentsPoppy — same entitlement. Considered and REJECTED: hosting the approval API
+  outside the user's AWS to make approvals lockable — it would put the most sensitive content
+  (the full proposed email) on our servers, make us a single point of failure for every
+  running crew, and paywall a safety mechanism. Generalised for all poppy developers in
+  agentspoppy docs/MARKETPLACE.md §3 ("Designing a mobile companion that survives the app
+  stores").
 - **Scope rule (founder discussion, 2026-07-29): the phone USES the crew, only the desktop
   EXPANDS its powers.** v1 mobile = task, approve, watch, kill. Creating agents stays on the
   desktop: creation is a granting ceremony (capabilities, caps, addresses, templates) that
