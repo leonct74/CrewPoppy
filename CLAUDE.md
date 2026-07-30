@@ -10,7 +10,7 @@ decisions live in DESIGN §14 and are final unless the founder revisits them.
 
 ## What this is
 
-**CrewPoppy** ("Mission Control for your AI crew") — create a fleet of task-specific AI agents that
+**CrewPoppy** ("the Crew HQ for your AI crew" — renamed from "Mission Control" 2026-07-30, name collision) — create a fleet of task-specific AI agents that
 run **entirely in the owner's own AWS**: their prompts, memory, outputs, and token spend all in the
 user's cloud, via Amazon Bedrock. Give an agent a persona (name, role), instructions, and a bounded
 set of tools; run it on demand or on a schedule; approve its consequential actions; watch exactly
@@ -99,7 +99,7 @@ and phases P0–P4: `DESIGN.md`.
 - `npm run typecheck` · `npm run test` — all workspaces (50 tests at P0).
 - `npm run gen:backend` — infra + lambdas → `backend/src/generated/backend-bundle.ts`
   (template JSON + content-addressed runner zip; runs automatically before typecheck/test/build).
-- `npm run build` = `build:frontend` + `build:bundle` (esbuild CJS → `backend/build/index.cjs`,
+- `npm run build` = `build:frontend` + `build:bundle` (esbuild CJS → `backend/index.cjs`,
   run by AgentsPoppy's shared node22 runtime — RUNTIMES.md R1: poppies never ship a runtime;
   one platform-neutral package, no win32 cross-build). **Rebuild + restart AgentsPoppy after
   any infra/lambdas/backend change** (gotcha #1 — the bundle embeds the template + Lambda zip).

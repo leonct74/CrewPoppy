@@ -2,7 +2,7 @@
   "id": "com.crewpoppy.desktop",
   "name": "CrewPoppy",
   "version": "0.1.0",
-  "description": "Mission Control for your AI crew — task-specific AI agents that run entirely in your own AWS, with hard spend caps and every action visible.",
+  "description": "The HQ for your AI crew — task-specific AI agents that run entirely in your own AWS, with hard spend caps and every action visible.",
   "icon": "frontend/crewpoppy-icon.png",
   "permissionSet": {
     "id": "crewpoppy-backend",

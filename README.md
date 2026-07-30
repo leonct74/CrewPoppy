@@ -1,6 +1,6 @@
 # CrewPoppy
 
-*Mission Control for your AI crew.* A fleet of task-specific AI agents that run **entirely in your
+*The Crew HQ for your AI crew.* A fleet of task-specific AI agents that run **entirely in your
 own AWS account** — an [AgentsPoppy](https://agentspoppy.com) poppy.
 
 - **Your agents, your cloud.** Prompts, memory, outputs, logs, and token spend all live in your own

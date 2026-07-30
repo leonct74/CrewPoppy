@@ -1,6 +1,6 @@
 # CrewPoppy — DESIGN
 
-*Product name locked 2026-07-19: **CrewPoppy**, tagline "Mission Control for your AI crew."*
+*Product name locked 2026-07-19: **CrewPoppy**. Tagline since 2026-07-30: **"the Crew HQ for your AI crew"** — the founder found another product using "Mission Control"; "Crew HQ" says an office of skilled employees, not a room of machines.*
 
 Create a fleet of task-specific AI agents that run **entirely in your own AWS account** — their
 prompts, their memory, their outputs, their token spend, all in your cloud. Give an agent
@@ -72,7 +72,7 @@ AgentsPoppy container (the dashboard)        Your AWS account (chosen region)
 - **One deploy, VM-Poppy/MailPoppy-style**, via the embedded-template CloudFormation pipeline
   (MailPoppy's `backend-bundle`): DynamoDB + S3 + the runner/dispatcher Lambdas + EventBridge +
   the Bedrock permission + a Cognito plane for the dashboard/API (like MailPoppy's access API).
-- **The poppy screen IS Mission Control:** define agents, run them, watch cost, read transcripts.
+- **The poppy screen IS the Crew HQ:** define agents, run them, watch cost, read transcripts.
 
 ### 2b. P0 implementation decisions (implementation session, 2026-07-20)
 
@@ -730,7 +730,7 @@ triggers · owner-API-key models · cross-poppy tools · agent template library 
 
 ## 14. Locked decisions (founder, 2026-07-19) — final for the implementation session
 
-1. **Name: CrewPoppy** — family convention kept; "Mission Control for your AI crew" is the tagline.
+1. **Name: CrewPoppy** — family convention kept; tagline now "the Crew HQ for your AI crew" (renamed from "Mission Control" 2026-07-30 — collision with another product).
    ("MyCrewPoppy" considered; "Crew" already implies ownership on a your-own-cloud platform.)
 2. **Inference: Bedrock-first.** Tokens bill to the user's AWS; IAM auth (no API key to store or
    leak); region choice = data residency; corporate-friendly (no new vendor/DPA); auditable in

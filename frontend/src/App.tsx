@@ -153,7 +153,7 @@ export function App() {
 
       {phaseKey === "none" && (
         <div className="card stack">
-          <h2 className="section-title">Set up Mission Control</h2>
+          <h2 className="section-title">Set up your Crew HQ</h2>
           <p style={{ margin: 0 }}>
             One click builds your crew's home base inside your own AWS account in{" "}
             <strong>{meta?.account.region}</strong>: a place for their instructions and memory, a
@@ -188,7 +188,7 @@ export function App() {
         <>
           <div className="card stack">
             <div className="spread">
-              <strong>Mission Control is set up</strong>
+              <strong>Your Crew HQ is set up</strong>
               <span className="badge ok">
                 <span className="dot" /> Ready
               </span>
@@ -295,7 +295,7 @@ function Header() {
         <img src={icon} alt="" />
         <h1>CrewPoppy</h1>
       </div>
-      <p className="app-sub">Mission Control for your AI crew — agents that run in your own AWS account.</p>
+      <p className="app-sub">The headquarters of your AI crew — agents that run in your own AWS account.</p>
     </>
   );
 }
