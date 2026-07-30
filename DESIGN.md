@@ -1064,6 +1064,51 @@ recommends options the form doesn't have would be worse than none. It ends mid-s
 ("MY AGENT SHOULD: ") so the user's next words are the job description. Shown only when
 CREATING — an edit is a correction, not an onboarding moment.
 
+## 15h. P4 — CrewPoppy Mobile: the plan (drafted 2026-07-30, founder said GO)
+
+Everything below implements decisions already locked in §15: free app that genuinely
+works when opened; the PAID switch is the push channel on OUR relay; "the phone USES
+the crew, only the desktop EXPANDS it"; voice via on-device dictation; store-positioned
+as a companion app to your own deployment, never a "chat app".
+
+**M1 — The mobile door, in the USER'S AWS (no app yet).** The phone needs something to
+talk to, and it must live in the user's account like everything else: a Cognito user
+pool (single user: the owner) + a mobile API in front of the existing runner data —
+list agents (name/role/face/spend), runs + transcripts, start a run, answer/approve
+(approval stays a BUTTON FLAG, never words — same §4c contract), stop, spend meter.
+Reuse MailPoppy's access-api patterns (Cognito SRP, tenant isolation server-side from
+verified claims). ⚠️ The two live-deploy traps both fire here: cognito/apigateway
+actions will stress the STS packed-policy budget (use the broker's managed-policy
+splitting, don't trim), and the rating must stay "no beyond-own findings". Gate: curl
+the whole API end-to-end + re-certify (new resources = new teardown surface).
+**Pairing:** the desktop shows a QR (pool ids + api url + one-time password setup);
+the phone scans it — no typing ARNs on glass.
+
+**M2 — The free app.** Fork `mailpoppy/apps/mobile` (Expo RN, Cognito SRP auth,
+secure storage, store runbooks) into `mobile/`; swap the mail metaphor for the crew:
+the grid with faces → chat with an agent → the approval card (verbatim To/Subject/body,
+Send it / changes / Don't send) → run status + kill switch + cost line. Everything
+works when opened; nothing arrives on its own. Voice = the keyboard mic (free, on
+device, zero code). Gate: TestFlight build the founder can drive Postie from.
+
+**M3 — The paid switch: the push relay (OUR one server-side component).** Tiny vendor
+service: device tokens + entitlement flags + APNs/FCM delivery of MINIMAL payloads
+("Fatima needs your approval" — agent name and kind, never content; the app fetches
+truth from the user's own API). The user's runner POSTs the ping to the relay only
+when the owner has switched push ON (opt-in, documented — the §15 privacy note).
+Entitlement = AgentsPoppy subscription (like MailPoppy mobile) + Apple IAP mirroring
+the same entitlement (§15 store rules). Free tier: everything, minus the phone
+buzzing on its own.
+
+**M4 — The stores.** MailPoppy mobile's runbooks; listing copy per §15 positioning;
+Apple review notes state: single user, own agents, own cloud, no content generated
+for strangers; free tier fully functional (works without push, as their own rule
+demands).
+
+**Founder decisions needed before M1 code:** (1) confirm the price ($19.99/yr anchor,
+buys the push tier); (2) iOS first, Android after? (3) app product name on the store
+("CrewPoppy" alone, or "CrewPoppy Mobile").
+
 ## 16. Plan
 
 - **P0 — walking skeleton:** scaffold (vm-poppy layout) → manifest + permission set verified against
