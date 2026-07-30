@@ -1028,6 +1028,24 @@ Why "agents in your own AWS via Bedrock" beats agent-SaaS — the seven sellable
 7. **Zero extra onboarding** — every AgentsPoppy user already has AWS; one-time Bedrock
    model-access click and they're live. No new account, no card, no signup.
 
+### 10e. The helper prompt — onboarding by prompt, not by training (founder, 2026-07-30)
+
+The founder's insight: don't train users on the agent form — hand them a prompt that IS
+the training. The New-agent view offers "Copy the helper prompt": a text carrying every
+form field, every capability with the form's own label/note/risk line, the schedule and
+email options, and the product's non-negotiables (external sends always gate; instructions
+never grant abilities; caps are hard). The user pastes it into whatever AI they already
+use, adds one sentence about the job, and receives a recipe in a fixed shape: name, role,
+paste-ready instructions, which boxes to tick, schedule, email setup, spending limit, and
+draft template files where the job needs them. Each agent created this way teaches the
+product as a side effect.
+
+Rule that keeps it honest: the prompt is **built live from the same catalogue the form
+renders** (frontend/src/helper-prompt.ts) — never a hand-maintained text. A helper that
+recommends options the form doesn't have would be worse than none. It ends mid-sentence
+("MY AGENT SHOULD: ") so the user's next words are the job description. Shown only when
+CREATING — an edit is a correction, not an onboarding moment.
+
 ## 16. Plan
 
 - **P0 — walking skeleton:** scaffold (vm-poppy layout) → manifest + permission set verified against

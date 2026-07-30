@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "./api";
 import { Avatar, AvatarPicker } from "./avatars";
+import { buildHelperPrompt } from "./helper-prompt";
 import { Button } from "./Button";
 import { host } from "./host";
 import { describeSchedule } from "./schedule";
@@ -352,6 +353,7 @@ function AgentForm(props: {
   const [chosen, setChosen] = useState<string[]>(props.agent?.tools ?? []);
   const [emailFrom, setEmailFrom] = useState(props.agent?.emailFrom ?? "");
   const [avatar, setAvatar] = useState<string | undefined>(props.agent?.avatar);
+  const [helperCopied, setHelperCopied] = useState(false);
   // Field 1 of the founder's two-field design (2026-07-29): the approval address, shown
   // HERE because this is where people look for it — but stored install-wide, one address
   // for the whole crew. Saving the agent saves a change to it too.
@@ -410,6 +412,32 @@ function AgentForm(props: {
   return (
     <div className="card card-2" style={{ margin: 0 }}>
       <h3 className="section-title">{editing ? `Edit ${props.agent!.name}` : "New agent"}</h3>
+      {/* The AI helper prompt (founder, 2026-07-30): the training IS a prompt. Paste it
+          into any AI, add one sentence about the job, get back everything to fill in
+          here. Only on CREATE — an edit is a correction, not an onboarding moment. */}
+      {!editing && (
+        <div className="banner info" style={{ marginBottom: 12 }}>
+          <div className="spread">
+            <span>
+              <strong>New to this?</strong> Copy the helper prompt, paste it into any AI you use
+              (Claude, ChatGPT…), and tell it what your agent should do — it answers with
+              everything to fill in below.
+            </span>
+            <button
+              className="btn btn-sm"
+              onClick={async () => {
+                await navigator.clipboard.writeText(
+                  buildHelperPrompt(props.catalogue ?? { tools: [], groups: [], needsEmail: [] }, props.models),
+                );
+                setHelperCopied(true);
+                window.setTimeout(() => setHelperCopied(false), 2500);
+              }}
+            >
+              {helperCopied ? "Copied ✓" : "Copy the helper prompt"}
+            </button>
+          </div>
+        </div>
+      )}
       <div className="grid-2">
         <label className="field">
           <span>Name — what you'll call them</span>
