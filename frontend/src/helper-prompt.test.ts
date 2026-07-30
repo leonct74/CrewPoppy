@@ -42,7 +42,7 @@ describe("the AI helper prompt", () => {
     expect(p).toContain("created with MailPoppy");
     expect(p).toContain("Assign this mailbox to an AI agent");
     // …and stays honest: mail to the owner's own address needs no second poppy (DESIGN §15d).
-    expect(p).toMatch(/MY OWN address work without MailPoppy/);
+    expect(p).toMatch(/needs no MailPoppy: an agent that only SENDS me reports/);
   });
 
   it("states the non-negotiables the AI must plan within", () => {
