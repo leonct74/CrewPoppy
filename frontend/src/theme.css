@@ -139,7 +139,9 @@ textarea.input { font-family: var(--poppy-font-mono); font-size: 13px; min-heigh
 /* The conversation, now a full page: bubbles that read as a chat, not a log. */
 .chat-log {
   overscroll-behavior: contain;
-  max-height: 420px; overflow-y: auto;
+  /* Never taller than the window leaves room for: on a short frame the history
+     yields, so the composer below it stays reachable (founder bug, 2026-07-30). */
+  max-height: min(420px, 55vh); overflow-y: auto;
   display: flex; flex-direction: column; gap: 8px;
   padding: 4px 2px;
 }
@@ -160,7 +162,16 @@ textarea.input { font-family: var(--poppy-font-mono); font-size: 13px; min-heigh
   border-color: color-mix(in srgb, var(--poppy-accent) 40%, var(--poppy-border));
 }
 .msg.step .msg-body { font-size: 12px; color: var(--poppy-muted-2); background: transparent; border-style: dashed; }
-.chat-composer { display: flex; gap: 8px; margin-top: 10px; align-items: flex-end; }
+/* Sticky: while the conversation is on screen, the input rides the bottom of the
+   window — a chat whose reply box can scroll out of reach isn't a chat. Solid
+   background so history never shows through it. */
+.chat-composer {
+  display: flex; gap: 8px; align-items: flex-end;
+  position: sticky; bottom: 0; z-index: 5;
+  margin-top: 0; padding: 10px 0 6px;
+  background: var(--poppy-surface-2);
+  border-top: 1px solid var(--poppy-border);
+}
 .chat-composer textarea.input { min-height: 44px; }
 
 /* A tool step can be a whole template dump. Three lines is an audit trail; forty is a
