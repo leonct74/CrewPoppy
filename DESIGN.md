@@ -1120,12 +1120,17 @@ Implementation decisions, in the family record:
   approval endpoint proved live) with **in-code Cognito JWT verification** — RS256
   against the pool's JWKS, ~80 lines, zero AWS permissions needed to verify, zero new
   manifest actions beyond cognito-idp, zero packed-policy weight.
-- **🪤 NEW FAMILY TRAP: CloudFormation does NOT propagate stack tags to Cognito user
-  pools** (their tag property is a map, not the standard `Tags` list — CFN skips such
-  resources). An untagged pool is invisible to the host's sweep: a guaranteed certify
-  failure and an orphan after teardown. Fix: the two per-install values travel as
-  template PARAMETERS (`AttributionAccount`/`AttributionConnection`) and are stamped
-  explicitly in `UserPoolTags` — tags at birth, as the manifest's cognito reason states.
+- **🪤 NEW FAMILY TRAP (two halves, both live-verified 2026-07-30): Cognito pools and
+  CloudFormation tags.** (1) CFN does NOT propagate stack tags to user pools (their tag
+  property is a map, not the standard `Tags` list) — so the two per-install values
+  travel as template PARAMETERS (`AttributionAccount`/`AttributionConnection`) and are
+  stamped explicitly in `UserPoolTags`. (2) Even then, CFN's Cognito handler applies
+  `UserPoolTags` with a SEPARATE `cognito-idp:TagResource` call after CreateUserPool —
+  the first live update rolled back on `not authorized: cognito-idp:TagResource` because
+  the manifest deliberately lacked it. Fix: grant `TagResource`/`UntagResource` scoped
+  to `userpool/*` (rates clean — it was the LITERAL `*` scope that produced the earlier
+  unscoped finding, not the tag actions themselves). Untagged pools would be invisible
+  to the host's sweep: a guaranteed certify failure and an orphan after teardown.
 - **The pool has no self-signup and no recovery channel** (`AdminCreateUserOnly`,
   recovery `admin_only`): the ONE user ("owner") exists only because desktop pairing
   created it. Lost phone/password = pair again (fresh 20-char password, previous code

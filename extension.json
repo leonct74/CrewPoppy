@@ -145,10 +145,12 @@
           "CreateUserPoolClient",
           "DescribeUserPool",
           "DescribeUserPoolClient",
-          "ListUsers"
+          "ListUsers",
+          "TagResource",
+          "UntagResource"
         ],
         "resourceScope": "arn:aws:cognito-idp:*:*:userpool/*",
-        "reason": "The mobile app's login (P4): one user pool holding ONE user \u2014 the owner. Creates carry the attribution tags at birth (CreateUserPool's own Tags field \u2014 no separate tagging action); pool ids are generated, so creates can't be name-scoped narrower."
+        "reason": "The mobile app's login (P4): one user pool holding ONE user \u2014 the owner. Pool ids are generated, so creates can't be name-scoped narrower. Tag/UntagResource are how CloudFormation's own Cognito handler applies the attribution tags: it creates the pool, then tags it in a SEPARATE call (live failure 2026-07-30 \u2014 without TagResource the deploy rolls back on AccessDenied)."
       },
       {
         "service": "cognito-idp",
