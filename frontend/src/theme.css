@@ -143,7 +143,9 @@ textarea.input { font-family: var(--poppy-font-mono); font-size: 13px; min-heigh
      yields, so the composer below it stays reachable (founder bug, 2026-07-30). */
   max-height: min(420px, 55vh); overflow-y: auto;
   display: flex; flex-direction: column; gap: 8px;
-  padding: 4px 2px;
+  /* Breathing room at the end, so the last line of the last message never sits
+     flush against (or slides under) the sticky composer. */
+  padding: 4px 2px 14px;
 }
 .chat-empty { color: var(--poppy-muted-2); font-size: 13px; margin: 8px 0; }
 .msg { max-width: 82%; }

@@ -1448,8 +1448,11 @@ function AgentRow(props: {
               </button>
             </>
           ) : (
-            <button className="btn btn-ghost btn-sm" onClick={() => setConfirmClear(true)}>
-              Clear chat…
+            {/* A real button, not whispered text (founder, 2026-07-30): tidying up is a
+                feature people need to FIND. Danger-styled because it deletes — the
+                inline second step above stays the actual guard. */}
+            <button className="btn btn-danger btn-sm" onClick={() => setConfirmClear(true)}>
+              🧹 Clear chat…
             </button>
           )}
         </div>
