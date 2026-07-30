@@ -125,6 +125,17 @@ textarea.input { font-family: var(--poppy-font-mono); font-size: 13px; min-heigh
   overflow: hidden;
 }
 
+/* The helper-prompt button pulses until first used: it's the door for exactly the
+   people who don't yet know what to look for. One ring every 2s, accent-coloured, and
+   perfectly still for anyone who asked their OS for reduced motion. */
+.pulse { animation: pulse-ring 2s ease-out infinite; }
+@keyframes pulse-ring {
+  0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--poppy-accent) 55%, transparent); }
+  70% { box-shadow: 0 0 0 11px transparent; }
+  100% { box-shadow: 0 0 0 0 transparent; }
+}
+@media (prefers-reduced-motion: reduce) { .pulse { animation: none; } }
+
 /* Faces */
 .avatar { display: inline-flex; flex: none; border-radius: 50%; overflow: hidden; }
 .avatar-initials { align-items: center; justify-content: center; font-weight: 650; }

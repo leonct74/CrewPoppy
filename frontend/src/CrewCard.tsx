@@ -354,6 +354,8 @@ function AgentForm(props: {
   const [emailFrom, setEmailFrom] = useState(props.agent?.emailFrom ?? "");
   const [avatar, setAvatar] = useState<string | undefined>(props.agent?.avatar);
   const [helperCopied, setHelperCopied] = useState(false);
+  // The pulse stops the moment the button is first used — an invitation, not an alarm.
+  const [helperUsed, setHelperUsed] = useState(false);
   // Field 1 of the founder's two-field design (2026-07-29): the approval address, shown
   // HERE because this is where people look for it — but stored install-wide, one address
   // for the whole crew. Saving the agent saves a change to it too.
@@ -424,16 +426,17 @@ function AgentForm(props: {
               everything to fill in below.
             </span>
             <button
-              className="btn btn-sm"
+              className={`btn btn-primary${helperUsed ? "" : " pulse"}`}
               onClick={async () => {
                 await navigator.clipboard.writeText(
                   buildHelperPrompt(props.catalogue ?? { tools: [], groups: [], needsEmail: [] }, props.models),
                 );
+                setHelperUsed(true);
                 setHelperCopied(true);
                 window.setTimeout(() => setHelperCopied(false), 2500);
               }}
             >
-              {helperCopied ? "Copied ✓" : "Copy the helper prompt"}
+              {helperCopied ? "Copied ✓" : "✨ Copy the helper prompt"}
             </button>
           </div>
         </div>
