@@ -3,6 +3,7 @@ import { api } from "./api";
 import { Avatar, AvatarPicker } from "./avatars";
 import { buildHelperPrompt } from "./helper-prompt";
 import { Button } from "./Button";
+import { PhonePane } from "./PhonePane";
 import { host } from "./host";
 import { describeSchedule } from "./schedule";
 import type {
@@ -86,7 +87,7 @@ function money(usd: number | undefined): string {
  *   create — the granting ceremony gets the page to itself;
  *   chat — one agent, full width: the conversation, files, edit, delete.
  */
-type CrewView = { kind: "crew" } | { kind: "create" } | { kind: "chat"; id: string };
+type CrewView = { kind: "crew" } | { kind: "create" } | { kind: "chat"; id: string } | { kind: "phone" };
 
 export function CrewCard(props: {
   models: ModelChoice[];
@@ -162,6 +163,10 @@ export function CrewCard(props: {
         />
       </div>
     );
+  }
+
+  if (view.kind === "phone") {
+    return <PhonePane onBack={() => setView({ kind: "crew" })} />;
   }
 
   if (view.kind === "create") {
@@ -250,10 +255,16 @@ export function CrewCard(props: {
         </div>
       )}
 
-      <div>
+      <div className="spread">
         <Button className="btn btn-primary" onClick={() => setView({ kind: "create" })}>
           {agents.length === 0 ? "Create your first agent" : "Add another agent"}
         </Button>
+        {/* The phone only matters once there's a crew to carry around. */}
+        {agents.length > 0 && (
+          <button className="btn btn-ghost" onClick={() => setView({ kind: "phone" })}>
+            📱 Phone app
+          </button>
+        )}
       </div>
     </div>
   );

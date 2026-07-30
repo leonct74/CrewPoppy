@@ -133,4 +133,33 @@ export const api = {
   /** Removes everything CrewPoppy created. Waits for AWS to finish. */
   teardown: (): Promise<{ ok: true; removed: string[] }> =>
     invoke({ method: "POST", path: "/teardown" }, 15 * 60_000),
+
+  // ---- the phone (DESIGN §15h M1) ------------------------------------------
+  /** Is the mobile door deployed, and does a phone login exist? Read live. */
+  mobileStatus: (): Promise<{ doorReady: boolean; paired: boolean }> =>
+    invoke({ method: "GET", path: "/mobile" }),
+
+  /**
+   * Mint (or re-key) the one phone login and get the QR payload. The password inside
+   * exists only in this response and in Cognito — nothing stores it, so the QR must be
+   * scanned while it's on screen. Pairing again always invalidates the previous code.
+   */
+  mobilePair: (): Promise<{ ok: true; payload: PairingPayload }> =>
+    invoke({ method: "POST", path: "/mobile/pair" }),
+
+  /** Sign the phone out for good — deletes the login. Re-pairing recreates it. */
+  mobileRevoke: (): Promise<{ ok: boolean }> =>
+    invoke({ method: "POST", path: "/mobile/revoke" }),
 };
+
+/** What the pairing QR encodes (backend/src/mobile.ts is the source of truth). */
+export interface PairingPayload {
+  kind: "crewpoppy-pair";
+  v: 1;
+  region: string;
+  poolId: string;
+  clientId: string;
+  apiUrl: string;
+  username: string;
+  password: string;
+}

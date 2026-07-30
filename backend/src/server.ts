@@ -21,6 +21,8 @@ import {
   stopRun, withStaleness,
 } from "./agents";
 import { getOwnerEmail, isVerifiedSender, setOwnerEmail } from "./email";
+import { getMobileStatus, pairMobile, revokeMobile } from "./mobile";
+import { CognitoIdentityProviderClient } from "@aws-sdk/client-cognito-identity-provider";
 import { consoleUrl, getCatalogue, getModelAccess } from "./bedrock";
 import {
   COMING_CAPABILITIES, EMAIL_TOOLS, TOOL_GROUPS, TOOL_NAMES, TOOL_NOTES,
@@ -37,6 +39,7 @@ const bedrock = new BedrockClient({ region, credentials });
 const ddb = DynamoDBDocumentClient.from(new DynamoDBClient({ region, credentials }));
 const lambda = new LambdaClient({ region, credentials });
 const ses = new SESv2Client({ region, credentials });
+const cognito = new CognitoIdentityProviderClient({ region, credentials });
 const ctx = { accountId: boot.account.accountId, connectionId: boot.connectionId };
 
 /** Read a JSON request body. An empty or malformed body is an empty object, not a crash. */
@@ -159,6 +162,22 @@ const server = createServer(async (req, res) => {
         // not just a menu of what happens to be possible.
         coming: COMING_CAPABILITIES,
       });
+    }
+
+    // ---- the phone (DESIGN §15h M1) ----------------------------------------
+    // Status is read live from the stack + pool on every call, like all deployment
+    // state. Pairing MINTS the one phone login and returns the QR payload — the
+    // password inside it is never stored and never appears in any later response.
+    if (method === "GET" && parts[0] === "mobile" && parts.length === 1) {
+      return json(res, 200, await getMobileStatus(cfn, cognito));
+    }
+    if (method === "POST" && parts[0] === "mobile" && parts[1] === "pair" && parts.length === 2) {
+      const out = await pairMobile(cfn, cognito, region);
+      if (!out.ok) return json(res, 409, { error: out.reason });
+      return json(res, 200, out);
+    }
+    if (method === "POST" && parts[0] === "mobile" && parts[1] === "revoke" && parts.length === 2) {
+      return json(res, 200, await revokeMobile(cfn, cognito));
     }
 
     // Start (or update) the deploy. Returns as soon as AWS accepts it — the work

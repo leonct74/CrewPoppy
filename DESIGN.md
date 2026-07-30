@@ -1108,6 +1108,42 @@ demands).
 **Founder decisions needed before M1 code:** (1) confirm the price ($19.99/yr anchor,
 buys the push tier); (2) iOS first, Android after? (3) app product name on the store
 ("CrewPoppy" alone, or "CrewPoppy Mobile").
+→ **Answered (2026-07-30):** price is configured in the AgentsPoppy admin (founder will
+change it freely, so no number is baked anywhere); iOS first; React Native/Expo (forking
+MailPoppy mobile); store name **"CrewPoppy"**. Mobile app code lives in a separate
+PRIVATE repo: `github.com/leonct74/crewpoppy-mobile` (the poppy package stays fully
+open; the app never ships inside it, so nothing auditable is hidden).
+
+**M1 status — CODE COMPLETE (2026-07-30), awaiting live verify + re-certify.**
+Implementation decisions, in the family record:
+- **No API Gateway.** The mobile API is a second Lambda Function URL (the pattern the
+  approval endpoint proved live) with **in-code Cognito JWT verification** — RS256
+  against the pool's JWKS, ~80 lines, zero AWS permissions needed to verify, zero new
+  manifest actions beyond cognito-idp, zero packed-policy weight.
+- **🪤 NEW FAMILY TRAP: CloudFormation does NOT propagate stack tags to Cognito user
+  pools** (their tag property is a map, not the standard `Tags` list — CFN skips such
+  resources). An untagged pool is invisible to the host's sweep: a guaranteed certify
+  failure and an orphan after teardown. Fix: the two per-install values travel as
+  template PARAMETERS (`AttributionAccount`/`AttributionConnection`) and are stamped
+  explicitly in `UserPoolTags` — tags at birth, as the manifest's cognito reason states.
+- **The pool has no self-signup and no recovery channel** (`AdminCreateUserOnly`,
+  recovery `admin_only`): the ONE user ("owner") exists only because desktop pairing
+  created it. Lost phone/password = pair again (fresh 20-char password, previous code
+  dead); "Disconnect phone" = AdminDeleteUser. The password exists in exactly two
+  places: Cognito (hashed) and the QR on the owner's screen — never stored, never
+  logged, never in any later response.
+- **The phone gets the USE half only** (§15 scope rule, enforced server-side): list
+  agents / runs / transcripts, start, answer, approve, stop. No agent create/edit/
+  delete routes exist at all, and the API's role carries no `dynamodb:DeleteItem`.
+  `approved` crosses the wire only as the literal button boolean (§4c) — the handler
+  drops anything else a crafted client sends.
+- Pairing payload (QR, JSON): `{kind:"crewpoppy-pair", v:1, region, poolId, clientId,
+  apiUrl, username, password}` — the cross-repo contract with crewpoppy-mobile.
+- Manifest re-verified at 0.2.0: **zero findings** (cognito creates scoped to
+  `userpool/*`, mutates tagged-as-self). Version bumped to 0.2.0 in the repo — the
+  release MUST disclose the new cognito grants in its notes (users re-consent).
+Remaining for M1: live deploy → curl the API end-to-end (401 wall + real token) →
+pair from the desktop → **re-certify** (the pool is new teardown surface).
 
 ## 16. Plan
 
