@@ -34,6 +34,7 @@ function Qr(props: { text: string }) {
 export function PhonePane(props: { onBack: () => void }) {
   const [status, setStatus] = useState<{ doorReady: boolean; paired: boolean } | null>(null);
   const [payload, setPayload] = useState<PairingPayload | null>(null);
+  const [copied, setCopied] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
@@ -83,6 +84,7 @@ export function PhonePane(props: { onBack: () => void }) {
               onClick={async () => {
                 try {
                   setPayload((await api.mobilePair()).payload);
+                  setCopied(false);
                   setErr(null);
                 } catch (e) {
                   setErr((e as Error).message);
@@ -113,6 +115,20 @@ export function PhonePane(props: { onBack: () => void }) {
           <p className="muted" style={{ margin: 0, textAlign: "center" }}>
             Open the CrewPoppy app on your phone and scan this code.
           </p>
+          {/* The same secret, on the same screen, for hands that can't scan — the iOS
+              SIMULATOR has no camera, and a phone camera "helpfully" opens the URL
+              inside the code instead of showing the text. Copy, paste, done. */}
+          <div style={{ alignSelf: "center" }}>
+            <button
+              className="btn btn-ghost btn-sm"
+              onClick={async () => {
+                await navigator.clipboard.writeText(JSON.stringify(payload));
+                setCopied(true);
+              }}
+            >
+              {copied ? "Copied ✓" : "Copy pairing text"}
+            </button>
+          </div>
           <p className="muted-2" style={{ margin: 0, fontSize: 12, textAlign: "center" }}>
             The code contains a fresh sign-in for your deployment. It's shown once and saved
             nowhere — when you leave this screen it's gone, and pairing again always makes the
