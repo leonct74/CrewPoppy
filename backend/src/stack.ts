@@ -285,6 +285,10 @@ export async function deploy(
     Parameters: [
       { ParameterKey: "LambdaCodeBucket", ParameterValue: codeBucket },
       { ParameterKey: "LambdaCodeKey", ParameterValue: lambdaCodeKey },
+      // Cognito pools sit outside CloudFormation's stack-tag propagation, so the
+      // template stamps these two into UserPoolTags itself (infra/src/template.ts).
+      { ParameterKey: "AttributionAccount", ParameterValue: ctx.accountId },
+      { ParameterKey: "AttributionConnection", ParameterValue: ctx.connectionId },
     ],
     // The template creates a NAMED role (CrewPoppyRunnerRole) — CloudFormation demands
     // this explicit acknowledgement before it will create IAM resources.

@@ -1,0 +1,386 @@
+// The mobile API (DESIGN §15h M1) — the phone's window onto the crew, in the owner's
+// own AWS. Internet-facing like the approval endpoint, but a different lock: every
+// request must carry a Cognito ACCESS TOKEN, verified here in code against the pool's
+// public signing keys before a single row is read. There is no API Gateway in front —
+// a Function URL plus ~80 lines of RS256 is the same wall without the packed-policy
+// weight (§2b), and without a single new manifest action beyond cognito-idp.
+//
+// What the phone may do is deliberately the USE half of the §15 scope rule ("the phone
+// USES the crew, the desktop EXPANDS it"): list agents, read runs and transcripts,
+// start a run, answer/approve, stop. No create/edit/delete of agents, no workspace
+// writes, no settings. The role behind this function matches: table + invoke runner,
+// nothing else.
+//
+// Approval stays a BUTTON FLAG (§4c): `approved` is forwarded ONLY as the literal
+// boolean true, exactly like the desktop and the email link. Words never approve.
+
+import { createPublicKey, verify as cryptoVerify } from "node:crypto";
+import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
+import { DynamoDBDocumentClient, GetCommand, PutCommand, QueryCommand } from "@aws-sdk/lib-dynamodb";
+import { InvokeCommand, LambdaClient } from "@aws-sdk/client-lambda";
+import {
+  AGENTS_PK,
+  CHECKPOINT_SK,
+  agentPk,
+  agentSk,
+  checkpointPk,
+  monthKeyOf,
+  neverReportedBack,
+  runSk,
+  spendPk,
+  spendSk,
+  transcriptPk,
+  type AgentDef,
+  type PendingSend,
+  type RunCheckpoint,
+  type RunRecord,
+  type TranscriptEntry,
+} from "@crewpoppy/shared";
+
+const REGION = process.env.AWS_REGION ?? "eu-west-1";
+const ddb = DynamoDBDocumentClient.from(new DynamoDBClient({ region: REGION }));
+const lambda = new LambdaClient({ region: REGION });
+
+// ---------------------------------------------------------------------------- auth --
+
+interface Jwk {
+  kid: string;
+  kty: string;
+  n: string;
+  e: string;
+}
+
+/**
+ * The pool's signing keys, cached for the life of the container. Refetched once when a
+ * token names a kid we don't hold (key rotation); an attacker-controlled kid therefore
+ * costs at most one extra fetch of a public document, never a different trust root —
+ * the URL is built from OUR pool id, not from anything in the token.
+ */
+let jwksCache: Jwk[] | null = null;
+
+async function fetchJwks(issuer: string): Promise<Jwk[]> {
+  const res = await fetch(`${issuer}/.well-known/jwks.json`);
+  if (!res.ok) throw new Error(`jwks fetch failed: ${res.status}`);
+  const body = (await res.json()) as { keys?: Jwk[] };
+  return body.keys ?? [];
+}
+
+const b64url = (s: string) => Buffer.from(s.replace(/-/g, "+").replace(/_/g, "/"), "base64");
+
+/**
+ * Verify a Cognito access token and return its claims, or null. One null for every
+ * failure mode — malformed, wrong algorithm, unknown key, bad signature, expired,
+ * wrong pool, wrong client, an ID token where an access token belongs — so a probe
+ * learns nothing about which wall it hit.
+ */
+export async function verifyAccessToken(
+  token: string,
+  poolId: string,
+  clientId: string,
+  region: string,
+): Promise<{ sub: string; username?: string } | null> {
+  try {
+    const [h, p, s] = token.split(".");
+    if (!h || !p || !s) return null;
+    const header = JSON.parse(b64url(h).toString("utf8")) as { kid?: string; alg?: string };
+    // RS256 only. Accepting the token's own choice of algorithm is the classic JWT
+    // vulnerability ("alg":"none", or HS256 keyed with the public key).
+    if (header.alg !== "RS256" || !header.kid) return null;
+
+    const issuer = `https://cognito-idp.${region}.amazonaws.com/${poolId}`;
+    if (!jwksCache) jwksCache = await fetchJwks(issuer);
+    let jwk = jwksCache.find((k) => k.kid === header.kid);
+    if (!jwk) {
+      jwksCache = await fetchJwks(issuer); // rotation: refetch once, then give up
+      jwk = jwksCache.find((k) => k.kid === header.kid);
+      if (!jwk) return null;
+    }
+
+    const key = createPublicKey({ key: jwk as never, format: "jwk" });
+    if (!cryptoVerify("RSA-SHA256", Buffer.from(`${h}.${p}`), key, b64url(s))) return null;
+
+    const claims = JSON.parse(b64url(p).toString("utf8")) as {
+      sub?: string;
+      iss?: string;
+      exp?: number;
+      token_use?: string;
+      client_id?: string;
+      username?: string;
+    };
+    if (claims.iss !== issuer) return null;
+    if (!claims.exp || Date.now() / 1000 >= claims.exp) return null;
+    // An ACCESS token, from OUR app client. An ID token also passes signature+issuer —
+    // but it authenticates a session with our client, not a request to this API.
+    if (claims.token_use !== "access") return null;
+    if (claims.client_id !== clientId) return null;
+    if (!claims.sub) return null;
+    return { sub: claims.sub, username: claims.username };
+  } catch {
+    return null;
+  }
+}
+
+/** Test seam: clear the container-lifetime key cache between cases. */
+export function resetJwksCache(): void {
+  jwksCache = null;
+}
+
+// ------------------------------------------------------------------------- handler --
+
+export interface UrlEvent {
+  rawPath?: string;
+  headers?: Record<string, string | undefined>;
+  requestContext?: { http?: { method?: string } };
+  body?: string;
+  isBase64Encoded?: boolean;
+}
+
+const json = (statusCode: number, body: unknown) => ({
+  statusCode,
+  headers: { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" },
+  body: JSON.stringify(body),
+});
+
+const UNAUTHORIZED = json(401, { error: "unauthorized" });
+const NOT_FOUND = json(404, { error: "not found" });
+
+const ID = /^[A-Za-z0-9_-]{1,80}$/;
+
+async function getAgent(table: string, id: string): Promise<AgentDef | null> {
+  const r = await ddb.send(new GetCommand({ TableName: table, Key: { pk: AGENTS_PK, sk: agentSk(id) } }));
+  return (r.Item as AgentDef | undefined) ?? null;
+}
+
+async function getRun(table: string, agentId: string, runId: string): Promise<RunRecord | null> {
+  const r = await ddb.send(
+    new GetCommand({ TableName: table, Key: { pk: agentPk(agentId), sk: runSk(runId) } }),
+  );
+  return (r.Item as RunRecord | undefined) ?? null;
+}
+
+/** The same staleness healing the desktop and the ticker apply (shared predicate). */
+function healed(run: RunRecord, agent: AgentDef | null, now: number): RunRecord {
+  if (!neverReportedBack(run, agent?.caps, now)) return run;
+  return {
+    ...run,
+    status: "failed",
+    stopReason: "error",
+    message: "This run never reported back. Open CrewPoppy on your computer and check for an update.",
+  };
+}
+
+async function monthSpendUsd(table: string, agentId: string, nowIso: string): Promise<number> {
+  const r = await ddb.send(
+    new GetCommand({ TableName: table, Key: { pk: spendPk(agentId), sk: spendSk(monthKeyOf(nowIso)) } }),
+  );
+  return Number((r.Item as { usd?: number } | undefined)?.usd ?? 0);
+}
+
+async function latestRun(table: string, agent: AgentDef, now: number): Promise<RunRecord | null> {
+  const r = await ddb.send(
+    new QueryCommand({
+      TableName: table,
+      KeyConditionExpression: "pk = :pk AND begins_with(sk, :sk)",
+      ExpressionAttributeValues: { ":pk": agentPk(agent.id), ":sk": "run#" },
+      ScanIndexForward: false,
+      Limit: 1,
+    }),
+  );
+  const run = (r.Items?.[0] as RunRecord | undefined) ?? null;
+  return run ? healed(run, agent, now) : null;
+}
+
+/** Start or resume the runner — the exact payload contract the desktop uses. */
+async function invokeRunner(
+  runner: string,
+  payload: { runId: string; agentId: string; input: string; tableName: string; answer?: string; approved?: true },
+): Promise<void> {
+  await lambda.send(
+    new InvokeCommand({
+      FunctionName: runner,
+      InvocationType: "Event",
+      Payload: Buffer.from(JSON.stringify(payload)),
+    }),
+  );
+}
+
+export async function handler(event: UrlEvent) {
+  const table = process.env.CREWPOPPY_TABLE || "";
+  const runner = process.env.CREWPOPPY_RUNNER || "CrewPoppyRunner";
+  const poolId = process.env.MOBILE_USER_POOL_ID || "";
+  const clientId = process.env.MOBILE_CLIENT_ID || "";
+  const method = event.requestContext?.http?.method ?? "GET";
+  const path = event.rawPath ?? "/";
+
+  // The lock, before any routing: no valid token, no answers — not even "what routes
+  // exist". Header names arrive lowercased from the Function URL runtime, but that is
+  // a convention, not a contract, so both spellings are read.
+  const auth = event.headers?.authorization ?? event.headers?.Authorization ?? "";
+  const token = auth.startsWith("Bearer ") ? auth.slice(7) : "";
+  if (!token || !poolId || !clientId) return UNAUTHORIZED;
+  const who = await verifyAccessToken(token, poolId, clientId, REGION);
+  if (!who) return UNAUTHORIZED;
+
+  const now = Date.now();
+  const nowIso = new Date(now).toISOString();
+
+  // GET /agents — the home screen in one call: the crew, each with this month's spend
+  // and its latest run (so the grid can say Working / Needs you truthfully).
+  if (method === "GET" && path === "/agents") {
+    const r = await ddb.send(
+      new QueryCommand({
+        TableName: table,
+        KeyConditionExpression: "pk = :pk",
+        ExpressionAttributeValues: { ":pk": AGENTS_PK },
+      }),
+    );
+    const defs = (r.Items ?? []) as AgentDef[];
+    const agents = await Promise.all(
+      defs.map(async (d) => ({
+        id: d.id,
+        name: d.name,
+        role: d.role,
+        avatar: d.avatar,
+        modelId: d.modelId,
+        caps: d.caps,
+        monthSpendUsd: await monthSpendUsd(table, d.id, nowIso),
+        latestRun: await latestRun(table, d, now),
+      })),
+    );
+    return json(200, { agents });
+  }
+
+  const m = /^\/agents\/([^/]+)\/runs(?:\/([^/]+))?(?:\/(answer|stop))?$/.exec(path);
+  if (!m) return NOT_FOUND;
+  const [, agentId, runId, action] = m;
+  if (!ID.test(agentId!) || (runId && !ID.test(runId))) return NOT_FOUND;
+
+  const agent = await getAgent(table, agentId!);
+  if (!agent) return NOT_FOUND;
+
+  // GET /agents/{id}/runs — history, newest first, staleness healed like everywhere.
+  if (method === "GET" && !runId) {
+    const r = await ddb.send(
+      new QueryCommand({
+        TableName: table,
+        KeyConditionExpression: "pk = :pk AND begins_with(sk, :sk)",
+        ExpressionAttributeValues: { ":pk": agentPk(agent.id), ":sk": "run#" },
+        ScanIndexForward: false,
+      }),
+    );
+    return json(200, { runs: ((r.Items ?? []) as RunRecord[]).map((x) => healed(x, agent, now)) });
+  }
+
+  // POST /agents/{id}/runs — start a run. Same order as the desktop: record FIRST,
+  // then the async invoke, so a phone that loses signal immediately still owns the run.
+  if (method === "POST" && !runId) {
+    const body = parseBody(event);
+    const input = typeof body.input === "string" ? body.input.trim().slice(0, 20_000) : "";
+    if (!input) return json(400, { error: "A task is required." });
+    const newRunId = globalThis.crypto.randomUUID();
+    const record: RunRecord = {
+      runId: newRunId,
+      agentId: agent.id,
+      status: "running",
+      input,
+      cost: { usage: { inputTokens: 0, outputTokens: 0 } },
+      iterations: 0,
+      startedAt: nowIso,
+      modelId: agent.modelId,
+    };
+    await ddb.send(
+      new PutCommand({ TableName: table, Item: { pk: agentPk(agent.id), sk: runSk(newRunId), ...record } }),
+    );
+    await invokeRunner(runner, { runId: newRunId, agentId: agent.id, input, tableName: table });
+    return json(200, { run: record });
+  }
+
+  if (!runId) return NOT_FOUND;
+  const run = await getRun(table, agent.id, runId);
+  if (!run) return NOT_FOUND;
+
+  // GET /agents/{id}/runs/{runId} — the chat: run, transcript, and (when waiting) the
+  // question plus any proposed send, read from the SAME checkpoint row the runner will
+  // execute from, so what the phone shows and what goes out cannot drift (§4c).
+  if (method === "GET" && !action) {
+    const t = await ddb.send(
+      new QueryCommand({
+        TableName: table,
+        KeyConditionExpression: "pk = :pk",
+        ExpressionAttributeValues: { ":pk": transcriptPk(runId) },
+      }),
+    );
+    let question: string | undefined;
+    let pending: PendingSend | undefined;
+    if (run.status === "waiting") {
+      const cp = (
+        await ddb.send(
+          new GetCommand({ TableName: table, Key: { pk: checkpointPk(runId), sk: CHECKPOINT_SK } }),
+        )
+      ).Item as RunCheckpoint | undefined;
+      question = cp?.question;
+      pending = cp?.pending;
+    }
+    return json(200, {
+      run: healed(run, agent, now),
+      transcript: (t.Items ?? []) as TranscriptEntry[],
+      ...(question ? { question } : {}),
+      ...(pending ? { pending } : {}),
+    });
+  }
+
+  // POST .../answer — reply to a waiting run. `approved` crosses this wire ONLY as the
+  // literal boolean from the button; anything else the client sends is dropped, so a
+  // crafted request can approve nothing the owner didn't press (§4c).
+  if (method === "POST" && action === "answer") {
+    if (run.status !== "waiting") return json(409, { error: "This run isn't waiting for an answer." });
+    const body = parseBody(event);
+    const answer = typeof body.answer === "string" ? body.answer.trim().slice(0, 20_000) : "";
+    if (!answer) return json(400, { error: "An answer is required." });
+    const approved = body.approved === true;
+    const resumed: RunRecord = { ...run, status: "running", message: undefined };
+    await ddb.send(
+      new PutCommand({ TableName: table, Item: { pk: agentPk(agent.id), sk: runSk(runId), ...resumed } }),
+    );
+    await invokeRunner(runner, {
+      runId,
+      agentId: agent.id,
+      input: run.input,
+      tableName: table,
+      answer,
+      ...(approved ? { approved: true } : {}),
+    });
+    return json(200, { run: resumed });
+  }
+
+  // POST .../stop — the kill switch, same honest semantics as the desktop's: the row is
+  // marked stopped now, and the runner re-reads status before every further step.
+  if (method === "POST" && action === "stop") {
+    if (run.status !== "running") return json(200, { run: healed(run, agent, now) });
+    const stopped: RunRecord = {
+      ...run,
+      status: "stopped",
+      stopReason: "error",
+      finishedAt: nowIso,
+      message: "You stopped this run from your phone.",
+    };
+    await ddb.send(
+      new PutCommand({ TableName: table, Item: { pk: agentPk(agent.id), sk: runSk(runId), ...stopped } }),
+    );
+    return json(200, { run: stopped });
+  }
+
+  return NOT_FOUND;
+}
+
+function parseBody(event: UrlEvent): Record<string, unknown> {
+  try {
+    const text = event.isBase64Encoded
+      ? Buffer.from(event.body ?? "", "base64").toString("utf8")
+      : (event.body ?? "");
+    const parsed = JSON.parse(text) as unknown;
+    return parsed && typeof parsed === "object" ? (parsed as Record<string, unknown>) : {};
+  } catch {
+    return {};
+  }
+}

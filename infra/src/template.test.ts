@@ -36,6 +36,14 @@ describe("buildTemplate", () => {
       "ApprovalUrl",
       "ApprovalUrlPermission",
       "CrewTable",
+      "MobileApiFunction",
+      "MobileApiInvokePermission",
+      "MobileApiLogGroup",
+      "MobileApiRole",
+      "MobileApiUrl",
+      "MobileApiUrlPermission",
+      "MobileUserPool",
+      "MobileUserPoolClient",
       "RunnerFunction",
       "RunnerLogGroup",
       "RunnerRole",
@@ -249,10 +257,99 @@ describe("buildTemplate", () => {
   });
 
   it("receives Lambda code via content-addressed parameters, never inline", () => {
-    expect(Object.keys(template.Parameters)).toEqual(["LambdaCodeBucket", "LambdaCodeKey"]);
+    expect(Object.keys(template.Parameters)).toEqual([
+      "LambdaCodeBucket",
+      "LambdaCodeKey",
+      // The two attribution values the Cognito pool needs stamped explicitly (stack-tag
+      // propagation skips user pools) — stack.ts passes them on every deploy.
+      "AttributionAccount",
+      "AttributionConnection",
+    ]);
     expect(resources.RunnerFunction!.Properties.Code).toEqual({
       S3Bucket: { Ref: "LambdaCodeBucket" },
       S3Key: { Ref: "LambdaCodeKey" },
+    });
+  });
+
+  describe("the mobile door (DESIGN §15h M1) — Cognito-locked, second internet-facing piece", () => {
+    it("has NO self-signup: the only way a user exists is the desktop's pairing flow", () => {
+      const pool = resources.MobileUserPool!.Properties;
+      expect(pool.AdminCreateUserConfig).toEqual({ AllowAdminCreateUserOnly: true });
+      // No recovery email/SMS either — recovery is re-pairing from the desktop. A
+      // recovery channel Cognito owns would be a second door with a weaker lock.
+      expect(pool.AccountRecoverySetting).toEqual({
+        RecoveryMechanisms: [{ Name: "admin_only", Priority: 1 }],
+      });
+      // Deletion protection would break leaves-no-trace, exactly like the table's.
+      expect(pool.DeletionProtection).toBeUndefined();
+    });
+
+    it("carries the attribution tags AT BIRTH — stack-tag propagation skips user pools", () => {
+      // Untagged = invisible to the host's sweep = an orphan the certify would catch.
+      const tags = resources.MobileUserPool!.Properties.UserPoolTags as Record<string, unknown>;
+      expect(tags["agentspoppy:account"]).toEqual({ Ref: "AttributionAccount" });
+      expect(tags["agentspoppy:app"]).toBe("com.crewpoppy.desktop");
+      expect(tags["agentspoppy:connection"]).toEqual({ Ref: "AttributionConnection" });
+      expect(tags["agentspoppy:managed"]).toBe("crewpoppy");
+    });
+
+    it("is a PUBLIC client, SRP only — no secret on the phone, no password over the wire", () => {
+      const client = resources.MobileUserPoolClient!.Properties;
+      expect(client.GenerateSecret).toBe(false);
+      expect(client.ExplicitAuthFlows).toEqual(["ALLOW_USER_SRP_AUTH", "ALLOW_REFRESH_TOKEN_AUTH"]);
+      // ADMIN_NO_SRP and USER_PASSWORD_AUTH would send the password itself — never.
+      expect(JSON.stringify(client.ExplicitAuthFlows)).not.toMatch(/PASSWORD_AUTH/);
+      expect(client.PreventUserExistenceErrors).toBe("ENABLED");
+      expect(client.UserPoolId).toEqual({ Ref: "MobileUserPool" });
+    });
+
+    it("runs on its OWN minimal role: table + runner, nothing else", () => {
+      const statements = resources.MobileApiRole!.Properties.Policies[0].PolicyDocument
+        .Statement as Array<{ Action: string[] }>;
+      const actions = statements.flatMap((s) => s.Action);
+      // Internet-facing role = what a stranger gets if every other wall fails.
+      expect(actions.some((a) => /^(bedrock|ses|s3|aws-marketplace|events|iam|sts|cognito-idp):/.test(a))).toBe(false);
+      expect(actions.filter((a) => a.startsWith("dynamodb:")).sort()).toEqual([
+        "dynamodb:GetItem", "dynamodb:PutItem", "dynamodb:Query", "dynamodb:UpdateItem",
+      ]);
+      // No DeleteItem: the phone USES the crew; destructive tidying stays on the desktop.
+      expect(actions).not.toContain("dynamodb:DeleteItem");
+      expect(actions.filter((a) => a.startsWith("lambda:"))).toEqual(["lambda:InvokeFunction"]);
+    });
+
+    it("exposes a URL that is NONE at the URL layer because the auth is Cognito, in code", () => {
+      const url = resources.MobileApiUrl!.Properties as { AuthType: string };
+      expect(url.AuthType).toBe("NONE"); // Function URLs have no Cognito authorizer; mobile-api.ts verifies every token
+      // Both permissions or the URL answers 403 to everyone (the 2026-07-28 live failure).
+      const urlPerm = resources.MobileApiUrlPermission!.Properties as Record<string, string>;
+      expect(urlPerm.Action).toBe("lambda:InvokeFunctionUrl");
+      expect(urlPerm.FunctionUrlAuthType).toBe("NONE");
+      const invokePerm = resources.MobileApiInvokePermission!.Properties as Record<string, string>;
+      expect(invokePerm.Action).toBe("lambda:InvokeFunction");
+      expect(invokePerm.FunctionUrlAuthType).toBeUndefined();
+      expect(urlPerm.FunctionName).toBe("CrewPoppyMobileApi");
+      expect(invokePerm.FunctionName).toBe("CrewPoppyMobileApi");
+      // Neither the runner nor anything else gains a public URL from this change.
+      expect(JSON.stringify(resources.MobileApiUrl)).not.toContain("CrewPoppyRunner");
+    });
+
+    it("hands the function its pool + client ids via Ref — never a describe call (§2b)", () => {
+      const env = resources.MobileApiFunction!.Properties.Environment.Variables as Record<string, unknown>;
+      expect(env.MOBILE_USER_POOL_ID).toEqual({ Ref: "MobileUserPool" });
+      expect(env.MOBILE_CLIENT_ID).toEqual({ Ref: "MobileUserPoolClient" });
+      expect(env.CREWPOPPY_TABLE).toBe("CrewPoppyData");
+      expect(env.CREWPOPPY_RUNNER).toBe("CrewPoppyRunner");
+    });
+
+    it("surfaces the three pairing values as stack outputs (a DescribeStacks read)", () => {
+      const outputs = template.Outputs as Record<string, { Value: unknown }>;
+      expect(outputs.MobileUserPoolId!.Value).toEqual({ Ref: "MobileUserPool" });
+      expect(outputs.MobileClientId!.Value).toEqual({ Ref: "MobileUserPoolClient" });
+      expect(outputs.MobileApiUrl!.Value).toEqual({ "Fn::GetAtt": ["MobileApiUrl", "FunctionUrl"] });
+    });
+
+    it("logs to an in-stack, tagged log group like every other function", () => {
+      expect(resources.MobileApiLogGroup!.Properties.LogGroupName).toBe("/aws/lambda/CrewPoppyMobileApi");
     });
   });
 });

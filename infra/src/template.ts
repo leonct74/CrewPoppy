@@ -44,9 +44,14 @@ export const RUNNER_ROLE_NAME = "CrewPoppyRunnerRole";
 /** The single EventBridge rule that wakes the runner to check for due schedules (§5b). */
 export const TICK_RULE_NAME = "CrewPoppyTick";
 
-/** The email-approval endpoint (§15e) — CrewPoppy's ONLY internet-facing piece. */
+/** The email-approval endpoint (§15e) — internet-facing, token-locked. */
 export const APPROVAL_FUNCTION_NAME = "CrewPoppyApproval";
 export const APPROVAL_ROLE_NAME = "CrewPoppyApprovalRole";
+
+/** The mobile door (§15h M1) — internet-facing, Cognito-locked. */
+export const MOBILE_API_FUNCTION_NAME = "CrewPoppyMobileApi";
+export const MOBILE_API_ROLE_NAME = "CrewPoppyMobileApiRole";
+export const MOBILE_USER_POOL_NAME = "CrewPoppyMobile";
 
 /**
  * The per-agent workspace bucket (DESIGN.md §3: each agent's files live under its own
@@ -84,6 +89,19 @@ export function buildTemplate(): CfnTemplate {
       LambdaCodeKey: {
         Type: "String",
         Description: "Content-addressed key of the agent-runner code zip.",
+      },
+      // Cognito user pools are OUTSIDE CloudFormation's stack-tag propagation (their tag
+      // property is a map, not the standard Tags list, and CFN skips those) — so the two
+      // per-install attribution values arrive as parameters and are stamped explicitly in
+      // UserPoolTags. Without this the pool is invisible to the host's tag sweep: an
+      // orphan-in-waiting and a certify failure.
+      AttributionAccount: {
+        Type: "String",
+        Description: "The AgentsPoppy account id, for the agentspoppy:account tag.",
+      },
+      AttributionConnection: {
+        Type: "String",
+        Description: "The AgentsPoppy connection id, for the agentspoppy:connection tag.",
       },
     },
     Resources: {
@@ -443,6 +461,175 @@ export function buildTemplate(): CfnTemplate {
       },
 
       /**
+       * The mobile door (DESIGN §15h M1). The phone talks to the owner's OWN account and
+       * nothing else, so the whole door lives in this stack: a Cognito user pool holding
+       * exactly ONE user (the owner — nobody can sign themselves up), and a second
+       * Function URL Lambda in front of the same table the desktop reads.
+       *
+       * Deliberately NOT API Gateway: apigateway grants would stress the STS packed-policy
+       * budget (the §2b trap) for something a Function URL + in-code JWT verification does
+       * with zero new manifest actions beyond cognito-idp.
+       */
+      MobileUserPool: {
+        Type: "AWS::Cognito::UserPool",
+        Properties: {
+          UserPoolName: MOBILE_USER_POOL_NAME,
+          // The whole security posture in one flag: there is no sign-up. The only way a
+          // user exists is the desktop's pairing flow creating the owner (AdminCreateUser).
+          AdminCreateUserConfig: { AllowAdminCreateUserOnly: true },
+          Policies: { PasswordPolicy: { MinimumLength: 12 } },
+          // No email/SMS anything: recovery is re-pairing from the desktop, which can
+          // always reset the password (AdminSetUserPassword). A recovery email would be
+          // a second door with a weaker lock.
+          AccountRecoverySetting: { RecoveryMechanisms: [{ Name: "admin_only", Priority: 1 }] },
+          // Tags at birth — Cognito pools are NOT covered by CloudFormation's stack-tag
+          // propagation (it skips resources with their own tag property shape), so the
+          // attribution tags are stamped here explicitly. Untagged = invisible to the
+          // host's sweep = a guaranteed certify failure. Values arrive as parameters
+          // because the template is built once, content-addressed, per commit.
+          UserPoolTags: {
+            "agentspoppy:account": { Ref: "AttributionAccount" },
+            "agentspoppy:app": "com.crewpoppy.desktop",
+            "agentspoppy:connection": { Ref: "AttributionConnection" },
+            "agentspoppy:managed": "crewpoppy",
+          },
+          // Deliberately absent: DeletionProtection — it would break leaves-no-trace.
+        },
+      },
+      MobileUserPoolClient: {
+        Type: "AWS::Cognito::UserPoolClient",
+        Properties: {
+          ClientName: "CrewPoppyMobileApp",
+          UserPoolId: { Ref: "MobileUserPool" },
+          // A public mobile client: no secret (it cannot keep one), SRP only — the
+          // password never crosses the wire, not even to our own Lambda.
+          GenerateSecret: false,
+          ExplicitAuthFlows: ["ALLOW_USER_SRP_AUTH", "ALLOW_REFRESH_TOKEN_AUTH"],
+          // "User does not exist" vs "wrong password" must be the same answer.
+          PreventUserExistenceErrors: "ENABLED",
+        },
+      },
+      MobileApiLogGroup: {
+        Type: "AWS::Logs::LogGroup",
+        Properties: {
+          LogGroupName: `/aws/lambda/${MOBILE_API_FUNCTION_NAME}`,
+          RetentionInDays: 30,
+        },
+      },
+      /**
+       * Same shape as the approval role, same reasoning: this function faces the internet,
+       * so its role is a list of what a stranger gets if every other wall fails — the
+       * table, and invoking the runner. No Bedrock, no SES, no S3, no Cognito admin.
+       * (JWT verification needs no AWS permission at all: the pool's public JWKS keys.)
+       */
+      MobileApiRole: {
+        Type: "AWS::IAM::Role",
+        Properties: {
+          RoleName: MOBILE_API_ROLE_NAME,
+          AssumeRolePolicyDocument: {
+            Version: "2012-10-17",
+            Statement: [
+              { Effect: "Allow", Principal: { Service: "lambda.amazonaws.com" }, Action: "sts:AssumeRole" },
+            ],
+          },
+          Policies: [
+            {
+              PolicyName: "CrewPoppyMobileApiPolicy",
+              PolicyDocument: {
+                Version: "2012-10-17",
+                Statement: [
+                  {
+                    Sid: "Logs",
+                    Effect: "Allow",
+                    Action: ["logs:CreateLogStream", "logs:PutLogEvents"],
+                    Resource: {
+                      "Fn::Sub": `arn:\${AWS::Partition}:logs:\${AWS::Region}:\${AWS::AccountId}:log-group:/aws/lambda/${MOBILE_API_FUNCTION_NAME}:*`,
+                    },
+                  },
+                  {
+                    // Unlike the approval role, Query IS here: the phone lists the crew,
+                    // run histories and transcripts — but only after a verified Cognito
+                    // login, where the approval endpoint answers to anyone with a link.
+                    Sid: "Table",
+                    Effect: "Allow",
+                    Action: ["dynamodb:GetItem", "dynamodb:PutItem", "dynamodb:UpdateItem", "dynamodb:Query"],
+                    Resource: {
+                      "Fn::Sub": `arn:\${AWS::Partition}:dynamodb:\${AWS::Region}:\${AWS::AccountId}:table/${TABLE_NAME}`,
+                    },
+                  },
+                  {
+                    Sid: "StartRunner",
+                    Effect: "Allow",
+                    Action: ["lambda:InvokeFunction"],
+                    Resource: {
+                      "Fn::Sub": `arn:\${AWS::Partition}:lambda:\${AWS::Region}:\${AWS::AccountId}:function:${RUNNER_FUNCTION_NAME}`,
+                    },
+                  },
+                ],
+              },
+            },
+          ],
+        },
+      },
+      MobileApiFunction: {
+        Type: "AWS::Lambda::Function",
+        DependsOn: ["MobileApiLogGroup"],
+        Properties: {
+          FunctionName: MOBILE_API_FUNCTION_NAME,
+          Description: "CrewPoppy mobile API — the phone's Cognito-authenticated window onto the crew.",
+          Runtime: "nodejs20.x",
+          Architectures: ["arm64"],
+          Handler: "mobile-api.handler",
+          Role: { "Fn::GetAtt": ["MobileApiRole", "Arn"] },
+          Code: { S3Bucket: { Ref: "LambdaCodeBucket" }, S3Key: { Ref: "LambdaCodeKey" } },
+          Environment: {
+            Variables: {
+              CREWPOPPY_TABLE: TABLE_NAME,
+              CREWPOPPY_RUNNER: RUNNER_FUNCTION_NAME,
+              // Ref returns both ids from the CREATE response — no describe call, so the
+              // collection-API trap (§2b) stays dodged.
+              MOBILE_USER_POOL_ID: { Ref: "MobileUserPool" },
+              MOBILE_CLIENT_ID: { Ref: "MobileUserPoolClient" },
+            },
+          },
+          MemorySize: 256,
+          Timeout: 15,
+        },
+      },
+      MobileApiUrl: {
+        Type: "AWS::Lambda::Url",
+        Properties: {
+          TargetFunctionArn: { "Fn::GetAtt": ["MobileApiFunction", "Arn"] },
+          // NONE at the URL layer because the REAL auth happens in code: every request
+          // must carry a Cognito access token, verified against the pool's signing keys
+          // before the handler reads a single row (mobile-api.ts). Function URLs offer
+          // no Cognito authorizer — that's an API Gateway feature we deliberately skip.
+          AuthType: "NONE",
+        },
+      },
+      // Both permissions or the URL answers 403 to everyone — the exact live failure the
+      // approval endpoint hit on 2026-07-28; see ApprovalUrlPermission above.
+      MobileApiUrlPermission: {
+        Type: "AWS::Lambda::Permission",
+        Properties: {
+          FunctionName: MOBILE_API_FUNCTION_NAME,
+          Action: "lambda:InvokeFunctionUrl",
+          Principal: "*",
+          FunctionUrlAuthType: "NONE",
+        },
+        DependsOn: ["MobileApiFunction"],
+      },
+      MobileApiInvokePermission: {
+        Type: "AWS::Lambda::Permission",
+        Properties: {
+          FunctionName: MOBILE_API_FUNCTION_NAME,
+          Action: "lambda:InvokeFunction",
+          Principal: "*",
+        },
+        DependsOn: ["MobileApiFunction"],
+      },
+
+      /**
        * ONE ticker for the whole install (DESIGN §5b). Not one rule per agent: a schedule
        * is DATA on the agent, and this pokes the runner every few minutes to ask which
        * agents are due.
@@ -510,6 +697,20 @@ export function buildTemplate(): CfnTemplate {
       RunnerRoleArn: {
         Description: "Execution role of the agent-runner (the trusted side of the tool broker).",
         Value: { "Fn::GetAtt": ["RunnerRole", "Arn"] },
+      },
+      // The three values the phone needs, surfaced as outputs so the desktop's pairing QR
+      // is a DescribeStacks read (already granted) — never a cognito describe call.
+      MobileUserPoolId: {
+        Description: "The Cognito user pool holding the one mobile login (the owner).",
+        Value: { Ref: "MobileUserPool" },
+      },
+      MobileClientId: {
+        Description: "The mobile app's Cognito client id (public client, SRP only).",
+        Value: { Ref: "MobileUserPoolClient" },
+      },
+      MobileApiUrl: {
+        Description: "The mobile API endpoint — every request requires a Cognito token.",
+        Value: { "Fn::GetAtt": ["MobileApiUrl", "FunctionUrl"] },
       },
     },
   };
