@@ -37,6 +37,14 @@ describe("the AI helper prompt", () => {
     expect(p).not.toContain("Undrivable");
   });
 
+  it("tells the user about MailPoppy when the agent needs its own address (founder, 2026-07-30)", () => {
+    const p = buildHelperPrompt(catalogue, models);
+    expect(p).toContain("created with MailPoppy");
+    expect(p).toContain("Assign this mailbox to an AI agent");
+    // …and stays honest: mail to the owner's own address needs no second poppy (DESIGN §15d).
+    expect(p).toMatch(/MY OWN address work without MailPoppy/);
+  });
+
   it("states the non-negotiables the AI must plan within", () => {
     const p = buildHelperPrompt(catalogue, models);
     expect(p).toMatch(/ALWAYS pause for my explicit approval/);

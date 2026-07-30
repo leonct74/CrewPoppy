@@ -44,6 +44,7 @@ SCHEDULE (optional — only if the agent should run by itself):
 - Every hour / every day / every week, at a chosen time and timezone, plus the task it performs each time. Suggest one only if the job is genuinely recurring.
 
 EMAIL SETUP (only if an email capability is ticked):
+- IMPORTANT — whenever the job involves the agent RECEIVING email, or sending from its own address, say this to me plainly in your answer: the agent needs a mailbox on my own domain, created with MailPoppy (the mail poppy in AgentsPoppy — my own mail system, in my own AWS). In MailPoppy I create the mailbox (e.g. support@mydomain.com) and flip "Assign this mailbox to an AI agent"; it then appears in CrewPoppy's dropdown. Reports and approval requests to MY OWN address work without MailPoppy.
 - Field 1: the address I use to approve agent tasks — this is MY address; approval requests and reports come here.
 - Field 2: the address the agent OWNS (chosen from mailboxes I've assigned to agents in MailPoppy). Only needed if people should be able to email the agent, or it should send from its own identity.
 - Field 3: who may email the agent — "Only me" (default) or "Anyone" (for a support@ style agent). Opening it never widens what the agent may DO: every reply to an outsider still waits for my approval.
@@ -62,7 +63,7 @@ ANSWER IN EXACTLY THIS SHAPE:
 5. Spending limit: $… (one line why)
 6. Tick these capabilities: … (each with one line why; list nothing the job doesn't need)
 7. Schedule: … or "none"
-8. Email setup: … or "not needed"
+8. Email setup: … or "not needed" (include the MailPoppy step when the agent needs its own address)
 9. Files to upload first: … with a ready-to-paste draft of each, or "none"
 
 MY AGENT SHOULD: `;
