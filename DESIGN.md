@@ -1086,6 +1086,17 @@ CREATING — an edit is a correction, not an onboarding moment.
 
 ## 17. Status
 
+**2026-07-30: LISTED IN THE CATALOGUE. 🎉** CrewPoppy 0.1.0 is live in the AgentsPoppy
+directory: repo public (pre-public checklist passed — full-history secret scan clean),
+GitHub release v0.1.0 with the platform-neutral 4.9 MB node22 package, download verified
+byte-for-byte against the pinned sha256 (64e0c00e…), catalog entry served by the live
+site. One trap for the family: the website's catalog validator accepts only OSI license
+strings or "Other: <name>" — PolyForm Shield must be written "Other: PolyForm Shield
+1.0.0", and the failure mode is a silently failed site rollout (check App Hosting when a
+seed change doesn't appear). Remaining, non-blocking: swap the dev install for a real
+directory install (also the moment to capture the "Set up your Crew HQ" screenshot).
+
+
 **Design COMPLETE and founder-locked (2026-07-19).** All §13 decisions resolved in §14.
 Implementation delegated to a SEPARATE Claude Code session per the TrafficPoppy/VPN-Poppy
 model — coordinate via this DESIGN.md + commits.
