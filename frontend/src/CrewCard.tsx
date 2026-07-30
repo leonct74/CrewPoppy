@@ -1298,8 +1298,22 @@ function AgentRow(props: {
           </div>
         </div>
         <div className="row" style={{ gap: 8 }}>
-          <span className={`badge ${atCap ? "warn" : "ok"}`}>
-            <span className="dot" /> {atCap ? "At limit" : "Ready"}
+          {/* The badge tells the truth about NOW: a run in flight is "Working", a run
+              waiting on the owner is "Needs you" — "Ready" while visibly busy was a lie
+              the founder caught in a screenshot (2026-07-30). */}
+          <span
+            className={`badge ${
+              atCap ? "warn" : run?.status === "waiting" ? "warn" : run?.status === "running" ? "run" : "ok"
+            }`}
+          >
+            <span className="dot" />{" "}
+            {atCap
+              ? "At limit"
+              : run?.status === "waiting"
+                ? "Needs you"
+                : run?.status === "running"
+                  ? "Working"
+                  : "Ready"}
           </span>
           {/* Capabilities can be taken back as well as given — a grant you can't revoke
               isn't really a grant. */}
