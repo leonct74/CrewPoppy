@@ -1147,8 +1147,18 @@ Implementation decisions, in the family record:
 - Manifest re-verified at 0.2.0: **zero findings** (cognito creates scoped to
   `userpool/*`, mutates tagged-as-self). Version bumped to 0.2.0 in the repo — the
   release MUST disclose the new cognito grants in its notes (users re-consent).
-Remaining for M1: live deploy → curl the API end-to-end (401 wall + real token) →
-pair from the desktop → **re-certify** (the pool is new teardown surface).
+**M1 COMPLETE — LIVE-VERIFIED + RE-CERTIFIED (2026-07-31).** The full gate ran in the
+founder's account: stack update deployed (after the TagResource trap above fired once,
+live); pairing QR minted on the desktop; the 401 wall probed from the open internet
+(uniform `{"error":"unauthorized"}` on every route, token or not, forged or real-but-
+wrong-kind); the happy path proven with a real SRP sign-in from a script — access token
+→ `GET /agents` → the actual crew, and the ID token correctly refused (token_use).
+A "Copy pairing text" button was added under the QR after the founder's camera
+"helpfully" opened the URL inside the code instead of showing the text — also needed
+for the camera-less iOS Simulator in M2. **Certify: PASSED** — footprint 12 (up from
+6; the door doubled it), residual sweep zero; the one ⚠️ (tag-index lag on the deleted
+pool) is now documented platform-wide as normal (AGENTS.md §4, MARKETPLACE.md M7,
+founder rule 2026-07-31). Released as **0.2.0** (notes disclose the cognito grants).
 
 ## 16. Plan
 
