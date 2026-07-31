@@ -43,6 +43,7 @@ import {
   isEmailAddress,
   mailboxSk,
   monthKeyOf,
+  newestFirst,
   normaliseEmail,
   provenPk,
   runSk,
@@ -149,11 +150,12 @@ export async function recentExchanges(
       TableName: table,
       KeyConditionExpression: "pk = :pk AND begins_with(sk, :sk)",
       ExpressionAttributeValues: { ":pk": agentPk(agentId), ":sk": "run#" },
-      ScanIndexForward: false, // newest first: recency wins the budget
-      Limit: RECALL_EXCHANGES + 6, // room to skip unfinished runs
     }),
   );
-  const runs = ((listed.Items ?? []) as RunRecord[]).filter(
+  // Newest first BY THE CLOCK — run ids are random UUIDs, so the sort key says
+  // nothing about time (§ newestFirst). Getting this wrong would have carried
+  // arbitrary old exchanges into a run and called it memory.
+  const runs = newestFirst((listed.Items ?? []) as RunRecord[]).filter(
     (r) => r.runId !== currentRunId && r.status === "succeeded" && r.output,
   );
 
@@ -266,8 +268,9 @@ async function tick(table: string, now: Date): Promise<{ ok: boolean; status: st
           TableName: table,
           KeyConditionExpression: "pk = :pk AND begins_with(sk, :sk)",
           ExpressionAttributeValues: { ":pk": agentPk(agent.id), ":sk": "run#" },
-          ScanIndexForward: false,
-          Limit: 25,
+          // No Limit, and no ScanIndexForward: run ids are random UUIDs, so a capped
+          // page is an ARBITRARY 25 rows — it could miss the very run that is live and
+          // start a second one on top of it (§ newestFirst).
         }),
       );
       // "Busy" must use the SAME staleness rule as the UI (shared/guardrails.ts).
@@ -411,8 +414,7 @@ async function mailIntake(table: string, ev: MailEvent): Promise<{ ok: boolean; 
       TableName: table,
       KeyConditionExpression: "pk = :pk AND begins_with(sk, :sk)",
       ExpressionAttributeValues: { ":pk": agentPk(agent.id), ":sk": "run#" },
-      ScanIndexForward: false,
-      Limit: 25,
+      // Same reason as the ticker's check: an arbitrary page can hide a live run.
     }),
   );
   const busy = ((runs.Items ?? []) as RunRecord[]).some(

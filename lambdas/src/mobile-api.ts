@@ -32,6 +32,7 @@ import {
   checkpointPk,
   monthKeyOf,
   neverReportedBack,
+  newestFirst,
   runSk,
   spendPk,
   spendSk,
@@ -188,11 +189,11 @@ async function latestRun(table: string, agent: AgentDef, now: number): Promise<R
       TableName: table,
       KeyConditionExpression: "pk = :pk AND begins_with(sk, :sk)",
       ExpressionAttributeValues: { ":pk": agentPk(agent.id), ":sk": "run#" },
-      ScanIndexForward: false,
-      Limit: 1,
     }),
   );
-  const run = (r.Items?.[0] as RunRecord | undefined) ?? null;
+  // By the clock, never by the sort key — run ids are random UUIDs (§ newestFirst).
+  // No Limit either: the "last" row by key order is not the last by time.
+  const run = newestFirst((r.Items ?? []) as RunRecord[])[0] ?? null;
   return run ? healed(run, agent, now) : null;
 }
 
@@ -336,10 +337,11 @@ export async function handler(event: UrlEvent) {
         TableName: table,
         KeyConditionExpression: "pk = :pk AND begins_with(sk, :sk)",
         ExpressionAttributeValues: { ":pk": agentPk(agent.id), ":sk": "run#" },
-        ScanIndexForward: false,
       }),
     );
-    return json(200, { runs: ((r.Items ?? []) as RunRecord[]).map((x) => healed(x, agent, now)) });
+    return json(200, {
+      runs: newestFirst((r.Items ?? []) as RunRecord[]).map((x) => healed(x, agent, now)),
+    });
   }
 
   // POST /agents/{id}/runs — start a run. Same order as the desktop: record FIRST,

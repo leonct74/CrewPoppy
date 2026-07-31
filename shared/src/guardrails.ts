@@ -129,3 +129,28 @@ export function neverReportedBack(
   const age = nowMs - Date.parse(run.startedAt);
   return Number.isFinite(age) && age >= budgetMs;
 }
+
+/**
+ * Runs, newest first — by the CLOCK, never by the sort key.
+ *
+ * 🪤 LIVE BUG (founder, 2026-07-31, spotted in the phone app): a run's sort key is
+ * `run#<uuid>`, and DynamoDB orders a partition lexicographically by that key. A UUID
+ * is random, so `ScanIndexForward: false` — which every caller read as "newest first" —
+ * actually returned an ARBITRARY order. The chat showed yesterday's exchange under
+ * today's, and memory recall would have carried whichever runs happened to sort high
+ * rather than the recent ones, which is the difference between remembering and
+ * hallucinating a conversation.
+ *
+ * Sorting by `startedAt` is correct for rows that already exist, so it needs no
+ * migration. (Time-ordered ids would let the database do this for us, but they cannot
+ * repair the rows already written.) Both sides import this one comparator so a chat
+ * can never read differently in two places.
+ */
+export function newestFirst<T extends { startedAt: string }>(runs: T[]): T[] {
+  return [...runs].sort((a, b) => Date.parse(b.startedAt) - Date.parse(a.startedAt));
+}
+
+/** The same order a chat is read in: oldest at the top, newest at the bottom. */
+export function oldestFirst<T extends { startedAt: string }>(runs: T[]): T[] {
+  return [...runs].sort((a, b) => Date.parse(a.startedAt) - Date.parse(b.startedAt));
+}

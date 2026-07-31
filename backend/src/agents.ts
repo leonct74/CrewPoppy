@@ -39,6 +39,7 @@ import {
   memoryPk,
   monthKeyOf,
   neverReportedBack,
+  newestFirst,
   nextRunAt,
   normaliseEmail,
   runSk,
@@ -414,10 +415,12 @@ export async function listRuns(
       TableName: table,
       KeyConditionExpression: "pk = :pk AND begins_with(sk, :sk)",
       ExpressionAttributeValues: { ":pk": agentPk(agentId), ":sk": "run#" },
-      ScanIndexForward: false,
     }),
   );
-  return (r.Items ?? []) as RunRecord[];
+  // Newest first BY THE CLOCK. 🪤 ScanIndexForward:false sorts by the SORT KEY, and a
+  // run's key is `run#<uuid>` — random. It read as "newest first" everywhere and was
+  // in fact arbitrary (founder spotted it in the phone's chat, 2026-07-31).
+  return newestFirst((r.Items ?? []) as RunRecord[]);
 }
 
 export async function getRun(

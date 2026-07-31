@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { checkContinue, checkStart, remainingOutputBudget, sanitiseCaps } from "./guardrails";
+import { checkContinue, checkStart, remainingOutputBudget, sanitiseCaps, newestFirst, oldestFirst } from "./guardrails";
 import { TOKEN_RATES, capCostFor, costFor, formatUsd, isEstimatedForCap, monthKeyOf } from "./pricing";
 import { DEFAULT_CAPS, type AgentCaps } from "./types";
 
@@ -154,5 +154,30 @@ describe("the spend cap works even for models with no published price", () => {
     expect(capCostFor("qwen.qwen3-32b-v1:0", usage)).toBeCloseTo(0.00009 + 0.00035, 8);
     expect(isEstimatedForCap("qwen.qwen3-32b-v1:0")).toBe(false);
     expect(isEstimatedForCap("anthropic.claude-sonnet-4-5-20250929-v1:0")).toBe(true);
+  });
+});
+
+describe("run order comes from the CLOCK, never the sort key", () => {
+  // 🪤 The live bug (2026-07-31): a run's sort key is `run#<uuid>`, so DynamoDB's own
+  // ordering is random. These ids are deliberately chosen so key order and time order
+  // DISAGREE — sorting by id would put yesterday's run after today's.
+  const runs = [
+    { runId: "zzz", startedAt: "2026-07-30T09:00:00.000Z" },
+    { runId: "aaa", startedAt: "2026-07-31T09:00:00.000Z" },
+    { runId: "mmm", startedAt: "2026-07-30T18:00:00.000Z" },
+  ];
+
+  it("newestFirst puts the most recent first", () => {
+    expect(newestFirst(runs).map((r) => r.runId)).toEqual(["aaa", "mmm", "zzz"]);
+  });
+
+  it("oldestFirst is chat order — top of the thread to the bottom", () => {
+    expect(oldestFirst(runs).map((r) => r.runId)).toEqual(["zzz", "mmm", "aaa"]);
+  });
+
+  it("does not mutate the caller's array", () => {
+    const original = [...runs];
+    newestFirst(runs);
+    expect(runs).toEqual(original);
   });
 });
