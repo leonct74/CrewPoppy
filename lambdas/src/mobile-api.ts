@@ -24,6 +24,8 @@ import {
   QueryCommand,
 } from "@aws-sdk/lib-dynamodb";
 import { InvokeCommand, LambdaClient } from "@aws-sdk/client-lambda";
+import { PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
+import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import {
   AGENTS_PK,
   CHECKPOINT_SK,
@@ -33,10 +35,12 @@ import {
   monthKeyOf,
   neverReportedBack,
   newestFirst,
+  isSafeRelativePath,
   runSk,
   spendPk,
   spendSk,
   transcriptPk,
+  workspaceKeyFor,
   type AgentDef,
   type PendingSend,
   type RunCheckpoint,
@@ -47,6 +51,7 @@ import {
 const REGION = process.env.AWS_REGION ?? "eu-west-1";
 const ddb = DynamoDBDocumentClient.from(new DynamoDBClient({ region: REGION }));
 const lambda = new LambdaClient({ region: REGION });
+const s3 = new S3Client({ region: REGION });
 
 // ---------------------------------------------------------------------------- auth --
 
@@ -152,6 +157,13 @@ const UNAUTHORIZED = json(401, { error: "unauthorized" });
 const NOT_FOUND = json(404, { error: "not found" });
 
 const ID = /^[A-Za-z0-9_-]{1,80}$/;
+
+/**
+ * The ceiling on one attached file. Generous enough for documents and photos, small
+ * enough that a mis-tap can't fill the owner's bucket — and it is enforced when the
+ * LINK is minted, so an oversized file never even starts uploading.
+ */
+export const MAX_UPLOAD_BYTES = 10_000_000;
 
 async function getAgent(table: string, id: string): Promise<AgentDef | null> {
   const r = await ddb.send(new GetCommand({ TableName: table, Key: { pk: AGENTS_PK, sk: agentSk(id) } }));
@@ -281,6 +293,50 @@ export async function handler(event: UrlEvent) {
       })),
     );
     return json(200, { agents });
+  }
+
+  // POST /agents/{id}/upload-url — a short-lived, single-file signed link so the phone
+  // can put a document straight into THAT agent's workspace (founder, 2026-07-31).
+  //
+  // Why a signed link and not a plain upload: a Lambda request tops out around 6 MB and
+  // the file would be base64'd on the way in, so a phone photo could fail on size alone.
+  // The bytes go phone → the owner's own bucket, touching nothing in between. The link
+  // is minted for ONE key — this agent's prefix, this filename — so it cannot be
+  // replayed to write anywhere else, and it expires in five minutes.
+  const up = /^\/agents\/([^/]+)\/upload-url$/.exec(path);
+  if (up && method === "POST") {
+    const id = up[1]!;
+    if (!ID.test(id)) return NOT_FOUND;
+    const agent = await getAgent(table, id);
+    if (!agent) return NOT_FOUND;
+    const bucket = process.env.CREWPOPPY_WORKSPACE_BUCKET || "";
+    if (!bucket) return json(500, { error: "This deployment has no workspace bucket." });
+
+    const body = parseBody(event);
+    const name = typeof body.name === "string" ? body.name.trim() : "";
+    // The SAME traversal rule the model's own writes go through: the owner is trusted,
+    // a filename arriving over the wire is a string like any other.
+    if (!isSafeRelativePath(name) || name.includes("/") || name.includes("\\")) {
+      return json(400, { error: "That file name isn't allowed. Use a plain name, with no folders." });
+    }
+    const size = Number(body.size ?? 0);
+    if (!Number.isFinite(size) || size <= 0) return json(400, { error: "That file looks empty." });
+    if (size > MAX_UPLOAD_BYTES) {
+      return json(400, {
+        error: `That file is too big (limit ${Math.round(MAX_UPLOAD_BYTES / 1_000_000)} MB).`,
+      });
+    }
+
+    const url = await getSignedUrl(
+      s3,
+      new PutObjectCommand({
+        Bucket: bucket,
+        Key: workspaceKeyFor(id, name),
+        ContentType: typeof body.contentType === "string" ? body.contentType : "application/octet-stream",
+      }),
+      { expiresIn: 300 },
+    );
+    return json(200, { url, name });
   }
 
   // DELETE /agents/{id}/history — clear this chat (founder, 2026-07-31). Exactly the

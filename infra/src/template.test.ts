@@ -305,10 +305,14 @@ describe("buildTemplate", () => {
 
     it("runs on its OWN minimal role: table + runner, nothing else", () => {
       const statements = resources.MobileApiRole!.Properties.Policies[0].PolicyDocument
-        .Statement as Array<{ Action: string[] }>;
+        .Statement as Array<{ Action: string[]; Resource: unknown }>;
       const actions = statements.flatMap((s) => s.Action);
-      // Internet-facing role = what a stranger gets if every other wall fails.
-      expect(actions.some((a) => /^(bedrock|ses|s3|aws-marketplace|events|iam|sts|cognito-idp):/.test(a))).toBe(false);
+      // Internet-facing role = what a stranger gets if every other wall fails. No
+      // model access, no mail, no IAM, no Cognito admin — and the ONLY S3 verb is
+      // the write that attaching a file needs (asserted precisely below).
+      expect(
+        actions.some((a) => /^(bedrock|ses|aws-marketplace|events|iam|sts|cognito-idp):/.test(a)),
+      ).toBe(false);
       expect(actions.filter((a) => a.startsWith("dynamodb:")).sort()).toEqual([
         "dynamodb:DeleteItem", "dynamodb:GetItem", "dynamodb:PutItem", "dynamodb:Query",
         "dynamodb:UpdateItem",
@@ -316,7 +320,14 @@ describe("buildTemplate", () => {
       // DeleteItem exists ONLY for clearing a chat (founder, 2026-07-31). The scope
       // rule still holds where it matters: no route can delete an agent, and the
       // handler never touches spend rows — tidying can't reset a cost cap.
-      expect(actions.filter((a) => a.startsWith("s3:"))).toEqual([]);
+      //
+      // S3 is WRITE-ONLY, and only into the workspace bucket: the phone can attach a
+      // document to an agent, and can neither read back what agents have written nor
+      // delete any of it. A read grant here would turn one stolen token into a copy
+      // of every file the crew owns.
+      expect(actions.filter((a) => a.startsWith("s3:"))).toEqual(["s3:PutObject"]);
+      const s3Stmt = statements.find((s) => s.Action.includes("s3:PutObject"))!;
+      expect(JSON.stringify(s3Stmt.Resource)).toContain("WorkspaceBucket");
       expect(actions.filter((a) => a.startsWith("lambda:"))).toEqual(["lambda:InvokeFunction"]);
     });
 

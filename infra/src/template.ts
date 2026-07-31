@@ -580,6 +580,20 @@ export function buildTemplate(): CfnTemplate {
                       "Fn::Sub": `arn:\${AWS::Partition}:lambda:\${AWS::Region}:\${AWS::AccountId}:function:${RUNNER_FUNCTION_NAME}`,
                     },
                   },
+                  {
+                    // Attaching a file from the phone (founder, 2026-07-31). PutObject
+                    // ONLY: this role signs a link for the owner's phone to upload a
+                    // document into an agent's workspace. It cannot READ what agents
+                    // have written, cannot delete anything, and cannot touch any other
+                    // bucket. The signed link itself is minted for ONE key and dies in
+                    // five minutes, so the reach is narrower again than this policy.
+                    Sid: "AttachToWorkspace",
+                    Effect: "Allow",
+                    Action: ["s3:PutObject"],
+                    Resource: {
+                      "Fn::Join": ["", [{ "Fn::GetAtt": ["WorkspaceBucket", "Arn"] }, "/*"]],
+                    },
+                  },
                 ],
               },
             },
@@ -601,6 +615,7 @@ export function buildTemplate(): CfnTemplate {
             Variables: {
               CREWPOPPY_TABLE: TABLE_NAME,
               CREWPOPPY_RUNNER: RUNNER_FUNCTION_NAME,
+              CREWPOPPY_WORKSPACE_BUCKET: { "Fn::Sub": WORKSPACE_BUCKET_SUB },
               // Ref returns both ids from the CREATE response — no describe call, so the
               // collection-API trap (§2b) stays dodged.
               MOBILE_USER_POOL_ID: { Ref: "MobileUserPool" },

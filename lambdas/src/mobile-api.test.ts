@@ -13,6 +13,7 @@ import {
 const state = vi.hoisted(() => ({
   items: new Map<string, Record<string, any>>(),
   invokes: [] as Record<string, unknown>[],
+  signed: [] as Record<string, unknown>[],
 }));
 const key = (pk: unknown, sk: unknown) => `${String(pk)}|${String(sk)}`;
 
@@ -55,6 +56,18 @@ vi.mock("@aws-sdk/lib-dynamodb", () => {
     },
   };
 });
+vi.mock("@aws-sdk/client-s3", () => ({
+  S3Client: class {},
+  PutObjectCommand: class {
+    constructor(public input: Record<string, unknown>) {}
+  },
+}));
+vi.mock("@aws-sdk/s3-request-presigner", () => ({
+  getSignedUrl: async (_c: unknown, cmd: { input: Record<string, unknown> }, opts: { expiresIn: number }) => {
+    state.signed.push({ ...cmd.input, expiresIn: opts.expiresIn });
+    return `https://bucket.s3.example/${String(cmd.input.Key)}?sig=x`;
+  },
+}));
 vi.mock("@aws-sdk/client-lambda", () => {
   class InvokeCommand {
     constructor(public input: Record<string, any>) {}
@@ -142,6 +155,8 @@ const putRun = (r: RunRecord) =>
 beforeEach(() => {
   state.items.clear();
   state.invokes.length = 0;
+  state.signed.length = 0;
+  process.env.CREWPOPPY_WORKSPACE_BUCKET = "crewpoppy-workspace-1-eu";
   resetJwksCache();
   process.env.CREWPOPPY_TABLE = "CrewPoppyData";
   process.env.CREWPOPPY_RUNNER = "CrewPoppyRunner";
@@ -375,5 +390,60 @@ describe("what the door does NOT expose", () => {
 
   it("rejects path ids that aren't plain ids", async () => {
     expect((await handler(req("GET", "/agents/../runs"))).statusCode).toBe(404);
+  });
+});
+
+describe("attaching a file (founder, 2026-07-31) — a signed link, not an upload", () => {
+  beforeEach(() => putAgent(agent()));
+
+  it("signs a link for THIS agent's folder, expiring in minutes", async () => {
+    const res = await handler(
+      req("POST", "/agents/emma/upload-url", { name: "brief.md", size: 1200, contentType: "text/markdown" }),
+    );
+    expect(res.statusCode).toBe(200);
+    expect(JSON.parse(res.body).url).toContain("agents/emma/brief.md");
+    // The key is built from the AGENT ID in the path, never from anything in the body,
+    // and the link dies quickly — a leaked URL is a small, short-lived window.
+    expect(state.signed[0]).toMatchObject({
+      Bucket: "crewpoppy-workspace-1-eu",
+      Key: "agents/emma/brief.md",
+      ContentType: "text/markdown",
+      expiresIn: 300,
+    });
+  });
+
+  it.each([
+    ["traversal", "../../../etc/passwd"],
+    ["a nested path", "sub/dir/file.md"],
+    ["an absolute path", "/etc/passwd"],
+    ["a URL", "https://evil.example/x"],
+    ["empty", "   "],
+  ])("refuses %s — and signs nothing", async (_n, name) => {
+    const res = await handler(req("POST", "/agents/emma/upload-url", { name, size: 10 }));
+    expect(res.statusCode).toBe(400);
+    expect(state.signed).toHaveLength(0);
+  });
+
+  it("refuses a file over the size ceiling BEFORE any upload starts", async () => {
+    const res = await handler(
+      req("POST", "/agents/emma/upload-url", { name: "huge.bin", size: 50_000_000 }),
+    );
+    expect(res.statusCode).toBe(400);
+    expect(JSON.parse(res.body).error).toMatch(/too big/i);
+    expect(state.signed).toHaveLength(0);
+  });
+
+  it("cannot mint a link for an agent that doesn't exist", async () => {
+    const res = await handler(req("POST", "/agents/nobody/upload-url", { name: "x.md", size: 5 }));
+    expect(res.statusCode).toBe(404);
+    expect(state.signed).toHaveLength(0);
+  });
+
+  it("still requires a valid token", async () => {
+    const res = await handler(
+      req("POST", "/agents/emma/upload-url", { name: "x.md", size: 5 }, null),
+    );
+    expect(res.statusCode).toBe(401);
+    expect(state.signed).toHaveLength(0);
   });
 });
