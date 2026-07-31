@@ -207,7 +207,15 @@ An agent is a stored definition (DynamoDB), not code:
 - **input schema** (optional — parameters a run accepts, e.g. a topic or URL)
 - **caps**: max iterations/run, max tokens/run, max wall-clock/run, **monthly spend cap ($)**
 - **memory**: on/off — whether the agent keeps persistent memory across runs (its own DynamoDB
-  items + S3 workspace)
+  items + S3 workspace). **Two halves, both required** (founder, 2026-07-31): the deliberate
+  notes an agent writes with `memory_write` and looks up with `memory_read`, AND the plain
+  recall of the recent conversation — its last exchanges are seeded into each new run. Notes
+  alone were not "carries something from one run to the next", the promise the editor makes:
+  an agent with Memory ticked still opened every message with "I don't have access to any
+  previous messages" and re-asked for details given minutes earlier. Recall is bounded twice
+  (6 exchanges, 8k chars, newest wins) because every carried word is re-billed on every later
+  run — caps are mechanisms, §7. Clearing a chat therefore also trims what is carried, which
+  is the founder's own mental model: tick it, be warned it costs more, tidy up to spend less.
 
 Agent defs are **just data in your account** → fully portable, no lock-in. "Create unlimited
 agents" is literal: they're rows, essentially free until run.
