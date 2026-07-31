@@ -1168,6 +1168,49 @@ for the camera-less iOS Simulator in M2. **Certify: PASSED** — footprint 12 (u
 pool) is now documented platform-wide as normal (AGENTS.md §4, MARKETPLACE.md M7,
 founder rule 2026-07-31). Released as **0.2.0** (notes disclose the cognito grants).
 
+### 15h-M2. The app, as built (2026-07-31)
+
+Shipped and live-tested on the founder's iPhone via TestFlight (repo:
+`github.com/leonct74/crewpoppy-mobile`, private; Expo/RN SDK 56, ~1.2k lines where
+MailPoppy mobile needed 7.5k — one deployment, one user, config by QR).
+
+Pair (scan or paste) → crew cards with faces, spend and truthful badges → chat with
+instant spinner → approval card (verbatim, button-only) → Stop → Settings (re-pair,
+disconnect) → clear chat → attach a file.
+
+**Founder defects found in live use, each fixed at the source:**
+1. **Chat read upside-down.** An `inverted` FlatList put new messages at the top and
+   carried the "working…" spinner off-screen with them, so the app looked frozen while
+   the agent was thinking. Plain list, oldest first, auto-scroll only when already at
+   the bottom.
+2. **🪤 Run order was RANDOM, everywhere.** A run's sort key is `run#<uuid>`, so
+   DynamoDB ordered a partition by a random id while every caller read
+   `ScanIndexForward:false` as "newest first". Three real consequences beyond display:
+   memory recall would have carried arbitrary old exchanges, and the "is this agent
+   busy?" checks paged an arbitrary 25 rows and could miss a live run and start a
+   second one on top of it. `shared/guardrails.ts` now owns `newestFirst`/`oldestFirst`
+   and both planes sort by `startedAt`. No migration needed.
+3. **The keyboard hid the newest message.** The content doesn't change when the
+   keyboard opens — only the visible height — so nothing re-scrolled. Now scrolls on
+   keyboard show/resize, with `useHeaderHeight()` instead of a guessed offset.
+4. **"not found" on Clear chat** when the app was newer than the deployment. Now says
+   to apply the update on the computer.
+5. Emoji icons → Ionicons outlines (founder: "really ugly, I would like more
+   minimalistic icons").
+
+**Attachments (0.4.0):** signed PUT for ONE key in ONE agent's prefix, 5 minutes, 10 MB
+ceiling enforced at minting; bytes go phone → owner's S3, never through the Lambda
+(~6 MB request cap, and the file has no business passing through that code). The mobile
+role gets `s3:PutObject` and nothing else — no read, no delete: a read grant would turn
+one stolen token into a copy of every file the crew owns. **Honest scope:** text
+documents work end to end; a PDF uploads but no agent can READ one (CrewPoppy writes
+PDFs, never parses them); images upload but need vision in the runner. Both are named
+follow-ups, deliberately not half-wired.
+
+**Open for M2:** PDF text extraction · image/vision support · a real device-camera QR
+scan (only paste has been exercised) · re-certify before the next catalogue release
+(0.3.0 and 0.4.0 both changed the stack).
+
 ## 16. Plan
 
 - **P0 — walking skeleton:** scaffold (vm-poppy layout) → manifest + permission set verified against
