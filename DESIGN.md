@@ -1182,6 +1182,18 @@ founder rule 2026-07-31). Released as **0.2.0** (notes disclose the cognito gran
 
 ## 17. Status
 
+**2026-07-31: 0.2.0 RELEASED — the mobile door (P4/M1).** Full RELEASING-POPPY.md B
+cycle: version bump → rebuild → 331 tests → pack (6.0 MB, sha `a23a5357…bb34eb7`) →
+GitHub release v0.2.0 with the cognito grants disclosed → download sha-verified from
+outside → seed updated → live catalogue confirmed serving 0.2.0 (route:
+`/directory/catalog.json` — note the path; `/catalog.json` 404s and cost a false
+timeout). Release-day traps for the family: (1) while a dev install runs a version
+AHEAD of the catalogue, the host's update button offers the older store version — the
+documented rollback path — and clicking it silently overwrites the dev build; it did,
+twice, mid-verification. Ship the release before long dev-ahead windows, or warn the
+founder off that button. (2) The shell's cwd can reset between commands — one build
+landed in a sibling repo; always `cd` explicitly in build/install invocations.
+
 **2026-07-30: LISTED IN THE CATALOGUE. 🎉** CrewPoppy 0.1.0 is live in the AgentsPoppy
 directory: repo public (pre-public checklist passed — full-history secret scan clean),
 GitHub release v0.1.0 with the platform-neutral 4.9 MB node22 package, download verified
