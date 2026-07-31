@@ -550,9 +550,24 @@ export function buildTemplate(): CfnTemplate {
                     // Unlike the approval role, Query IS here: the phone lists the crew,
                     // run histories and transcripts — but only after a verified Cognito
                     // login, where the approval endpoint answers to anyone with a link.
+                    //
+                    // DeleteItem is here for exactly ONE thing: clearing a chat from the
+                    // phone (founder, 2026-07-31 — a long thread on a small screen needs
+                    // tidying where you're reading it). Same narrow semantics as the
+                    // desktop's: runs, transcripts and checkpoints only. The agent
+                    // definition, its memory, its files and — critically — its SPEND
+                    // COUNTERS are not deletable through this door, so tidying a chat can
+                    // never reset a cost cap. The handler enforces that; this is the
+                    // outer bound.
                     Sid: "Table",
                     Effect: "Allow",
-                    Action: ["dynamodb:GetItem", "dynamodb:PutItem", "dynamodb:UpdateItem", "dynamodb:Query"],
+                    Action: [
+                      "dynamodb:GetItem",
+                      "dynamodb:PutItem",
+                      "dynamodb:UpdateItem",
+                      "dynamodb:Query",
+                      "dynamodb:DeleteItem",
+                    ],
                     Resource: {
                       "Fn::Sub": `arn:\${AWS::Partition}:dynamodb:\${AWS::Region}:\${AWS::AccountId}:table/${TABLE_NAME}`,
                     },

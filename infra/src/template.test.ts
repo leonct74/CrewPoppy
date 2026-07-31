@@ -310,10 +310,13 @@ describe("buildTemplate", () => {
       // Internet-facing role = what a stranger gets if every other wall fails.
       expect(actions.some((a) => /^(bedrock|ses|s3|aws-marketplace|events|iam|sts|cognito-idp):/.test(a))).toBe(false);
       expect(actions.filter((a) => a.startsWith("dynamodb:")).sort()).toEqual([
-        "dynamodb:GetItem", "dynamodb:PutItem", "dynamodb:Query", "dynamodb:UpdateItem",
+        "dynamodb:DeleteItem", "dynamodb:GetItem", "dynamodb:PutItem", "dynamodb:Query",
+        "dynamodb:UpdateItem",
       ]);
-      // No DeleteItem: the phone USES the crew; destructive tidying stays on the desktop.
-      expect(actions).not.toContain("dynamodb:DeleteItem");
+      // DeleteItem exists ONLY for clearing a chat (founder, 2026-07-31). The scope
+      // rule still holds where it matters: no route can delete an agent, and the
+      // handler never touches spend rows — tidying can't reset a cost cap.
+      expect(actions.filter((a) => a.startsWith("s3:"))).toEqual([]);
       expect(actions.filter((a) => a.startsWith("lambda:"))).toEqual(["lambda:InvokeFunction"]);
     });
 

@@ -16,7 +16,13 @@
 
 import { createPublicKey, verify as cryptoVerify } from "node:crypto";
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
-import { DynamoDBDocumentClient, GetCommand, PutCommand, QueryCommand } from "@aws-sdk/lib-dynamodb";
+import {
+  DeleteCommand,
+  DynamoDBDocumentClient,
+  GetCommand,
+  PutCommand,
+  QueryCommand,
+} from "@aws-sdk/lib-dynamodb";
 import { InvokeCommand, LambdaClient } from "@aws-sdk/client-lambda";
 import {
   AGENTS_PK,
@@ -190,6 +196,32 @@ async function latestRun(table: string, agent: AgentDef, now: number): Promise<R
   return run ? healed(run, agent, now) : null;
 }
 
+/**
+ * Every item in one partition, deleted one at a time — no BatchWriteItem grant needed
+ * (the same choice, for the same reason, as the desktop's own deletePartition).
+ */
+async function deletePartition(table: string, pk: string): Promise<number> {
+  let count = 0;
+  let startKey: Record<string, unknown> | undefined;
+  do {
+    const page = await ddb.send(
+      new QueryCommand({
+        TableName: table,
+        KeyConditionExpression: "pk = :pk",
+        ExpressionAttributeValues: { ":pk": pk },
+        ProjectionExpression: "pk, sk",
+        ExclusiveStartKey: startKey,
+      }),
+    );
+    for (const item of (page.Items ?? []) as { pk: string; sk: string }[]) {
+      await ddb.send(new DeleteCommand({ TableName: table, Key: { pk: item.pk, sk: item.sk } }));
+      count += 1;
+    }
+    startKey = page.LastEvaluatedKey as Record<string, unknown> | undefined;
+  } while (startKey);
+  return count;
+}
+
 /** Start or resume the runner — the exact payload contract the desktop uses. */
 async function invokeRunner(
   runner: string,
@@ -248,6 +280,45 @@ export async function handler(event: UrlEvent) {
       })),
     );
     return json(200, { agents });
+  }
+
+  // DELETE /agents/{id}/history — clear this chat (founder, 2026-07-31). Exactly the
+  // desktop's clearHistory semantics: runs, their transcripts and their checkpoints go;
+  // the agent, its memory, its files and its SPEND COUNTERS stay, because tidying a
+  // conversation must never hand an agent a fresh budget. A live run refuses.
+  const h = /^\/agents\/([^/]+)\/history$/.exec(path);
+  if (h && method === "DELETE") {
+    const id = h[1]!;
+    if (!ID.test(id)) return NOT_FOUND;
+    const agent = await getAgent(table, id);
+    if (!agent) return NOT_FOUND;
+
+    const listed = await ddb.send(
+      new QueryCommand({
+        TableName: table,
+        KeyConditionExpression: "pk = :pk AND begins_with(sk, :sk)",
+        ExpressionAttributeValues: { ":pk": agentPk(id), ":sk": "run#" },
+      }),
+    );
+    const runs = ((listed.Items ?? []) as RunRecord[]).map((r) => healed(r, agent, now));
+    const live = runs.find((r) => r.status === "running" || r.status === "waiting");
+    if (live) {
+      return json(409, {
+        error:
+          live.status === "waiting"
+            ? `${agent.name} is waiting for your answer. Answer or stop that run first.`
+            : `${agent.name} is working right now. Stop the run first.`,
+      });
+    }
+
+    for (const r of runs) {
+      await deletePartition(table, transcriptPk(r.runId));
+      await ddb.send(
+        new DeleteCommand({ TableName: table, Key: { pk: checkpointPk(r.runId), sk: CHECKPOINT_SK } }),
+      );
+    }
+    const removed = await deletePartition(table, agentPk(id));
+    return json(200, { ok: true, removed: { runs: removed } });
   }
 
   const m = /^\/agents\/([^/]+)\/runs(?:\/([^/]+))?(?:\/(answer|stop))?$/.exec(path);

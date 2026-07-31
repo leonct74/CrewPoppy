@@ -25,6 +25,7 @@ vi.mock("@aws-sdk/lib-dynamodb", () => {
     GetCommand: class extends Cmd {},
     PutCommand: class extends Cmd {},
     QueryCommand: class extends Cmd {},
+    DeleteCommand: class extends Cmd {},
     DynamoDBDocumentClient: {
       from: () => ({
         async send(cmd: Cmd) {
@@ -32,6 +33,10 @@ vi.mock("@aws-sdk/lib-dynamodb", () => {
           if (n === "GetCommand") return { Item: state.items.get(key(cmd.input.Key.pk, cmd.input.Key.sk)) };
           if (n === "PutCommand") {
             state.items.set(key(cmd.input.Item.pk, cmd.input.Item.sk), cmd.input.Item);
+            return {};
+          }
+          if (n === "DeleteCommand") {
+            state.items.delete(key(cmd.input.Key.pk, cmd.input.Key.sk));
             return {};
           }
           if (n === "QueryCommand") {
@@ -302,6 +307,54 @@ describe("stop — the kill switch from the phone", () => {
     putRun(run({ status: "succeeded" }));
     const body = JSON.parse((await handler(req("POST", "/agents/emma/runs/r1/stop"))).body);
     expect(body.run.status).toBe("succeeded");
+  });
+});
+
+describe("clearing a chat from the phone (founder, 2026-07-31)", () => {
+  beforeEach(() => {
+    putAgent(agent());
+    putRun(run({ runId: "r1", status: "succeeded" }));
+    state.items.set(key(transcriptPk("r1"), transcriptSk(1)), {
+      pk: transcriptPk("r1"), sk: transcriptSk(1), seq: 1, role: "user", text: "hi",
+    });
+    state.items.set(key(checkpointPk("r1"), CHECKPOINT_SK), {
+      pk: checkpointPk("r1"), sk: CHECKPOINT_SK, runId: "r1", agentId: "emma",
+    });
+    // The things that must SURVIVE a tidy-up.
+    state.items.set(key(spendPk("emma"), spendSk("2026-07")), {
+      pk: spendPk("emma"), sk: spendSk("2026-07"), usd: 4.2,
+    });
+  });
+
+  it("removes runs, transcripts and checkpoints", async () => {
+    const res = await handler(req("DELETE", "/agents/emma/history"));
+    expect(res.statusCode).toBe(200);
+    expect(state.items.get(key(agentPk("emma"), runSk("r1")))).toBeUndefined();
+    expect(state.items.get(key(transcriptPk("r1"), transcriptSk(1)))).toBeUndefined();
+    expect(state.items.get(key(checkpointPk("r1"), CHECKPOINT_SK))).toBeUndefined();
+  });
+
+  it("NEVER touches the spend counters — tidying can't reset a cost cap", async () => {
+    await handler(req("DELETE", "/agents/emma/history"));
+    expect(state.items.get(key(spendPk("emma"), spendSk("2026-07")))).toMatchObject({ usd: 4.2 });
+    // …nor the agent itself.
+    expect(state.items.get(key(AGENTS_PK, agentSk("emma")))).toBeTruthy();
+  });
+
+  it.each([
+    ["running", /working right now/],
+    ["waiting", /waiting for your answer/],
+  ])("refuses while a run is %s, and explains why", async (status, expected) => {
+    putRun(run({ runId: "r2", status: status as "running" | "waiting" }));
+    const res = await handler(req("DELETE", "/agents/emma/history"));
+    expect(res.statusCode).toBe(409);
+    expect(JSON.parse(res.body).error).toMatch(expected);
+    // Nothing was removed by the refused call.
+    expect(state.items.get(key(agentPk("emma"), runSk("r1")))).toBeTruthy();
+  });
+
+  it("still requires a valid token", async () => {
+    expect((await handler(req("DELETE", "/agents/emma/history", undefined, null))).statusCode).toBe(401);
   });
 });
 
