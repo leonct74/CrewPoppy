@@ -115,6 +115,10 @@ export const api = {
   putFile: (id: string, path: string, content: string): Promise<{ ok: true }> =>
     invoke({ method: "PUT", path: `/agents/${id}/files`, body: { path, content } }),
 
+  /** Remove one file from the agent's folder. Already-gone is a success. */
+  deleteFile: (id: string, path: string): Promise<{ ok: true }> =>
+    invoke({ method: "DELETE", path: `/agents/${id}/files?path=${encodeURIComponent(path)}` }),
+
   /** A five-minute signed link to one file — how a PDF reaches the owner's browser. */
   fileLink: (id: string, path: string): Promise<{ url: string }> =>
     invoke({ method: "GET", path: `/agents/${id}/file-link?path=${encodeURIComponent(path)}` }),

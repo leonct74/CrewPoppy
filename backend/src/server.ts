@@ -16,7 +16,7 @@ import {
   deploy, getStatus, teardown, runnerFunctionName, tableName, workspaceBucketName,
 } from "./stack";
 import {
-  answerRun, clearHistory, deleteAgent, fileLink, getAgent, getPending, getRun, getTranscript, listAgents,
+  answerRun, clearHistory, deleteAgent, deleteFile, fileLink, getAgent, getPending, getRun, getTranscript, listAgents,
   listAgentMailboxes, listFiles, listRuns, putOwnerFile, readFileContent, saveAgent, startRun,
   stopRun, withStaleness,
 } from "./agents";
@@ -238,6 +238,14 @@ const server = createServer(async (req, res) => {
         const body = await readJson(req);
         const out = await putOwnerFile(
           s3, workspaceBucketName(ctx.accountId, region), parts[1]!, body.path, body.content,
+        );
+        if (!out.ok) return json(res, 400, { error: out.reason });
+        return json(res, 200, { ok: true });
+      }
+      // Remove one file from the agent's folder — the owner's tidy-up.
+      if (method === "DELETE" && parts.length === 3 && parts[2] === "files") {
+        const out = await deleteFile(
+          s3, workspaceBucketName(ctx.accountId, region), parts[1]!, url.searchParams.get("path") ?? "",
         );
         if (!out.ok) return json(res, 400, { error: out.reason });
         return json(res, 200, { ok: true });

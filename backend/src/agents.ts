@@ -18,6 +18,7 @@ import {
 import { InvokeCommand, type LambdaClient } from "@aws-sdk/client-lambda";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import {
+  DeleteObjectCommand,
   DeleteObjectsCommand,
   GetObjectCommand,
   ListObjectsV2Command,
@@ -645,6 +646,31 @@ export async function putOwnerFile(
       ContentType: "text/plain; charset=utf-8",
     }),
   );
+  return { ok: true };
+}
+
+/**
+ * Delete ONE of an agent's files (founder, 2026-07-31: "the user needs to access the
+ * agents' files so he can delete them and/or review").
+ *
+ * The owner's own tidy-up — an agent's folder accumulates drafts, and a file it wrote
+ * once may be a customer's details it should not keep. Same traversal predicate as
+ * every other path that reaches this bucket: the owner is trusted, the string is not.
+ * Idempotent — a file already gone is a success, so a double-click is harmless.
+ */
+export async function deleteFile(
+  s3: S3Client,
+  bucket: string,
+  agentId: string,
+  path: unknown,
+): Promise<{ ok: boolean; reason?: string }> {
+  if (!isSafeRelativePath(path)) return { ok: false, reason: "That file name isn't allowed." };
+  try {
+    await s3.send(new DeleteObjectCommand({ Bucket: bucket, Key: workspaceKeyFor(agentId, path) }));
+  } catch (e) {
+    const name = (e as { name?: string })?.name ?? "";
+    if (name !== "NoSuchKey" && name !== "NoSuchBucket" && name !== "NotFound") throw e;
+  }
   return { ok: true };
 }
 

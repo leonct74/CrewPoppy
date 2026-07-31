@@ -8,8 +8,7 @@ import {
 import { DeleteObjectsCommand, ListObjectsV2Command, type S3Client } from "@aws-sdk/client-s3";
 import {
   clearHistory, deleteAgent, fileLink, listFiles, putOwnerFile, readFileContent, saveAgent,
-  withStaleness,
-} from "./agents";
+  withStaleness, deleteFile } from "./agents";
 import {
   AGENTS_PK,
   CHECKPOINT_SK,
@@ -362,6 +361,46 @@ describe("the owner saving a file into the workspace", () => {
     expect((await putOwnerFile(client, "b", "a1", "x.md", "   ")).ok).toBe(false);
     expect((await putOwnerFile(client, "b", "a1", "x.md", 42)).ok).toBe(false);
     expect(sent).toHaveLength(0);
+  });
+});
+
+describe("the owner deleting one of an agent's files (founder, 2026-07-31)", () => {
+  const fake = () => {
+    const sent: any[] = [];
+    const client = { send: vi.fn(async (c: unknown) => { sent.push(c); return {}; }) } as unknown as S3Client;
+    return { client, sent };
+  };
+
+  it("deletes exactly that file, under the agent's own prefix", async () => {
+    const { client, sent } = fake();
+    expect((await deleteFile(client, "bucket", "a1", "draft.md")).ok).toBe(true);
+    expect(sent[0].input).toEqual({ Bucket: "bucket", Key: "agents/a1/draft.md" });
+  });
+
+  it("refuses a traversal path WITHOUT touching S3 — one agent can't delete another's", async () => {
+    const { client, sent } = fake();
+    for (const bad of ["../a2/secret.md", "/etc/passwd", "https://x/y", ""]) {
+      expect((await deleteFile(client, "b", "a1", bad)).ok).toBe(false);
+    }
+    expect(sent).toHaveLength(0);
+  });
+
+  it("is idempotent — a file already gone is a success, so a double-click is harmless", async () => {
+    const client = {
+      send: vi.fn(async () => {
+        throw Object.assign(new Error("gone"), { name: "NoSuchKey" });
+      }),
+    } as unknown as S3Client;
+    expect((await deleteFile(client, "b", "a1", "x.md")).ok).toBe(true);
+  });
+
+  it("does NOT swallow a real failure — a denied delete must be visible", async () => {
+    const client = {
+      send: vi.fn(async () => {
+        throw Object.assign(new Error("denied"), { name: "AccessDenied" });
+      }),
+    } as unknown as S3Client;
+    await expect(deleteFile(client, "b", "a1", "x.md")).rejects.toThrow(/denied/);
   });
 });
 

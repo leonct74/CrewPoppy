@@ -991,6 +991,8 @@ function FilesPanel(props: { agent: AgentSummary }) {
   const [viewing, setViewing] = useState<{ path: string; content: string } | null>(null);
   const [copied, setCopied] = useState(false);
   const [adding, setAdding] = useState(false);
+  /** The one file whose Delete has been clicked once and is awaiting confirmation. */
+  const [confirming, setConfirming] = useState<string | null>(null);
   const [newName, setNewName] = useState("");
   const [newContent, setNewContent] = useState("");
   const [err, setErr] = useState<string | null>(null);
@@ -1113,9 +1115,46 @@ function FilesPanel(props: { agent: AgentSummary }) {
             {f.path}
             {f.path.toLowerCase().endsWith(".pdf") ? " ↗" : ""}
           </button>
-          <span className="muted-2" style={{ fontSize: 12 }}>
-            {kb(f.size)}
-            {f.modified ? ` · ${new Date(f.modified).toLocaleString()}` : ""}
+          <span className="row" style={{ gap: 8 }}>
+            <span className="muted-2" style={{ fontSize: 12 }}>
+              {kb(f.size)}
+              {f.modified ? ` · ${new Date(f.modified).toLocaleString()}` : ""}
+            </span>
+            {/* Deleting a file is destructive and irreversible, so it takes two
+                deliberate clicks and names the file in between — never one bare
+                click on a row you might have been aiming past (AGENTS.md §9). */}
+            {confirming === f.path ? (
+              <>
+                <Button
+                  className="btn btn-danger btn-sm"
+                  busyLabel="Deleting…"
+                  onClick={async () => {
+                    setErr(null);
+                    try {
+                      await api.deleteFile(props.agent.id, f.path);
+                      setConfirming(null);
+                      if (viewing?.path === f.path) setViewing(null);
+                      await reload();
+                    } catch (e) {
+                      setErr((e as Error).message);
+                    }
+                  }}
+                >
+                  Delete {f.path}?
+                </Button>
+                <button className="btn btn-ghost btn-sm" onClick={() => setConfirming(null)}>
+                  Keep
+                </button>
+              </>
+            ) : (
+              <button
+                className="btn btn-ghost btn-sm"
+                title={`Delete ${f.path}`}
+                onClick={() => setConfirming(f.path)}
+              >
+                Delete
+              </button>
+            )}
           </span>
         </div>
       ))}
