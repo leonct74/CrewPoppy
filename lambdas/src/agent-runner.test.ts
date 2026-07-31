@@ -53,9 +53,12 @@ vi.mock("@aws-sdk/lib-dynamodb", () => {
             const vals = cmd.input.ExpressionAttributeValues as Record<string, string>;
             const pk = vals[":pk"];
             const skPrefix = vals[":sk"];
-            const Items = [...state.items.values()].filter(
-              (i) => i.pk === pk && (!skPrefix || String(i.sk).startsWith(skPrefix)),
-            );
+            let Items = [...state.items.values()]
+              .filter((i) => i.pk === pk && (!skPrefix || String(i.sk).startsWith(skPrefix)))
+              // DynamoDB returns a partition sorted by sort key; recall depends on it.
+              .sort((a, b) => String(a.sk).localeCompare(String(b.sk)));
+            if (cmd.input.ScanIndexForward === false) Items = Items.reverse();
+            if (cmd.input.Limit) Items = Items.slice(0, cmd.input.Limit);
             return { Items };
           }
           if (n === "UpdateCommand") {
@@ -112,7 +115,9 @@ vi.mock("@aws-sdk/client-bedrock-runtime", () => {
   };
 });
 
-const { handler, settlePending } = await import("./agent-runner");
+const { handler, settlePending, recentExchanges, RECALL_EXCHANGES, RECALL_CHARS } = await import(
+  "./agent-runner"
+);
 
 const TABLE = "CrewPoppyData";
 const agent: AgentDef = {
@@ -672,5 +677,88 @@ describe("mailbox registry events", () => {
       verdicts: { spf: "PASS", dkim: "PASS", spam: "PASS" },
     } as never);
     expect(state.items.get(key("config", "mailbox#postie@agentspoppy.com"))).toBeTruthy();
+  });
+});
+
+describe("Memory means the chat continues (founder, 2026-07-31)", () => {
+  const pastRun = (n: number, over: Record<string, unknown> = {}) => {
+    const runId = `r${n}`;
+    state.items.set(key(agentPk("a1"), `run#${runId}`), {
+      pk: agentPk("a1"),
+      sk: `run#${runId}`,
+      runId,
+      agentId: "a1",
+      status: "succeeded",
+      input: `question ${n}`,
+      output: `answer ${n}`,
+      cost: { usage: { inputTokens: 1, outputTokens: 1 } },
+      iterations: 1,
+      startedAt: `2026-07-30T10:0${n}:00.000Z`,
+      modelId: agent.modelId,
+      ...over,
+    });
+  };
+  const memoryAgent = (tools: string[] = ["memory_read", "memory_write"]) =>
+    state.items.set(key(AGENTS_PK, agentSk("a1")), {
+      pk: AGENTS_PK, sk: agentSk("a1"), ...agent, tools,
+    });
+
+  it("hands the model the earlier exchanges, oldest first", async () => {
+    pastRun(1);
+    pastRun(2);
+    const messages = (await recentExchanges(TABLE, "a1", "current")) as { role: string; content: string }[];
+    expect(messages.map((m) => m.content)).toEqual([
+      "question 1", "answer 1", "question 2", "answer 2",
+    ]);
+    expect(messages.map((m) => m.role)).toEqual(["user", "assistant", "user", "assistant"]);
+  });
+
+  it("never replays the CURRENT run, nor any run that has no answer", async () => {
+    pastRun(1);
+    pastRun(2, { status: "running", output: undefined });
+    pastRun(3, { status: "failed", output: undefined });
+    const messages = (await recentExchanges(TABLE, "a1", "r1")) as { content: string }[];
+    // r1 is the current run; r2 and r3 never produced an answer.
+    expect(messages).toBeUndefined();
+  });
+
+  it("caps how much it carries — every carried word is billed again (DESIGN §7)", async () => {
+    for (let i = 1; i <= RECALL_EXCHANGES + 4; i++) pastRun(i);
+    const messages = (await recentExchanges(TABLE, "a1", "current")) as unknown[];
+    expect(messages).toHaveLength(RECALL_EXCHANGES * 2);
+  });
+
+  it("keeps the NEWEST exchanges when the character budget runs out", async () => {
+    const big = "x".repeat(RECALL_CHARS);
+    pastRun(1, { input: big, output: big }); // alone, far over budget
+    pastRun(2);
+    const messages = (await recentExchanges(TABLE, "a1", "current")) as { content: string }[];
+    expect(messages.map((m) => m.content)).toEqual(["question 2", "answer 2"]);
+  });
+
+  it("an agent WITHOUT memory still starts every run fresh", async () => {
+    pastRun(1);
+    await handler({ runId: "new", agentId: "a1", input: "next question", tableName: TABLE } as never);
+    const body = JSON.parse(String(state.invocations[0]!.body));
+    expect(body.messages).toHaveLength(1);
+    expect(body.messages[0].content).toBe("next question");
+  });
+
+  it("an agent WITH memory sees what was said before", async () => {
+    memoryAgent();
+    pastRun(1);
+    await handler({ runId: "new", agentId: "a1", input: "next question", tableName: TABLE } as never);
+    const body = JSON.parse(String(state.invocations[0]!.body));
+    expect(body.messages.map((m: { content: unknown }) => m.content)).toEqual([
+      "question 1", "answer 1", "next question",
+    ]);
+  });
+
+  it("read-only memory is enough to remember the conversation", async () => {
+    memoryAgent(["memory_read"]);
+    pastRun(1);
+    await handler({ runId: "new", agentId: "a1", input: "next question", tableName: TABLE } as never);
+    const body = JSON.parse(String(state.invocations[0]!.body));
+    expect(body.messages).toHaveLength(3);
   });
 });

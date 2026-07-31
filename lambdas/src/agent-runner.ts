@@ -115,6 +115,65 @@ async function callModel(args: {
 }
 
 /** The persona preamble in front of the owner's brief (DESIGN §3). */
+/**
+ * How much of a chat an agent with Memory carries into its next run.
+ *
+ * Bounded TWICE — by exchanges and by characters — because every carried word is
+ * re-billed on every later run in the thread (DESIGN §7: caps are mechanisms, not
+ * intentions). Without a ceiling a long-running chat would quietly become an
+ * expensive one, which is exactly the surprise CrewPoppy exists to avoid. The
+ * newest exchanges win the budget; older ones simply fall off the top, and
+ * anything the agent wants to keep for good is what memory_write is for.
+ */
+export const RECALL_EXCHANGES = 6;
+export const RECALL_CHARS = 8_000;
+
+/** Does this agent have the Memory capability at all? */
+function hasMemory(agent: AgentDef): boolean {
+  const tools = agent.tools ?? [];
+  return tools.includes("memory_read") || tools.includes("memory_write");
+}
+
+/**
+ * The recent conversation with this agent, as messages the model can see: each past
+ * task and the answer it gave. Only FINISHED runs — a failed or stopped run has no
+ * answer, and half an exchange teaches the model a bad pattern.
+ */
+export async function recentExchanges(
+  table: string,
+  agentId: string,
+  currentRunId: string,
+): Promise<unknown[] | undefined> {
+  const listed = await ddb.send(
+    new QueryCommand({
+      TableName: table,
+      KeyConditionExpression: "pk = :pk AND begins_with(sk, :sk)",
+      ExpressionAttributeValues: { ":pk": agentPk(agentId), ":sk": "run#" },
+      ScanIndexForward: false, // newest first: recency wins the budget
+      Limit: RECALL_EXCHANGES + 6, // room to skip unfinished runs
+    }),
+  );
+  const runs = ((listed.Items ?? []) as RunRecord[]).filter(
+    (r) => r.runId !== currentRunId && r.status === "succeeded" && r.output,
+  );
+
+  const pairs: unknown[][] = [];
+  let budget = RECALL_CHARS;
+  for (const r of runs) {
+    if (pairs.length >= RECALL_EXCHANGES) break;
+    const size = r.input.length + (r.output?.length ?? 0);
+    if (size > budget) break; // and everything older than it, too
+    budget -= size;
+    pairs.push([
+      { role: "user", content: r.input },
+      { role: "assistant", content: r.output },
+    ]);
+  }
+  if (pairs.length === 0) return undefined;
+  // Collected newest-first; the model reads oldest-first.
+  return pairs.reverse().flat();
+}
+
 function systemPrompt(agent: AgentDef): string {
   return [
     `You are ${agent.name}, ${agent.role}.`,
@@ -558,6 +617,19 @@ async function runSegment(event: RunnerEvent): Promise<{ ok: boolean; status: st
       ? await settlePending(event, checkpoint?.pending, dispatchCtx, record)
       : event.input;
 
+    // 🪤 "Memory" promises, in the editor's own words, that the agent "carries
+    // something from one run to the next" — but until now that meant ONLY the notes
+    // it deliberately wrote with memory_write. So an agent with Memory ticked still
+    // opened every message with "I don't have access to any previous messages",
+    // and re-asked for details given two minutes earlier (founder, live on the
+    // phone, 2026-07-31). Deliberate notes are for durable facts; simply recalling
+    // what was just said is what makes a chat a chat. With Memory on, it gets both.
+    const priorMessages = isResume
+      ? checkpoint?.messages
+      : hasMemory(agent)
+        ? await recentExchanges(table, agent.id, event.runId)
+        : undefined;
+
     const outcome = await runLoop(
       agent,
       systemPrompt(agent),
@@ -575,7 +647,7 @@ async function runSegment(event: RunnerEvent): Promise<{ ok: boolean; status: st
         },
         now: () => Date.now(),
       },
-      checkpoint?.messages,
+      priorMessages,
     );
 
     const usage: TokenUsage = {
