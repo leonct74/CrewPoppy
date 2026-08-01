@@ -1228,9 +1228,24 @@ follow-ups, deliberately not half-wired.
    "▾ scroll to read the rest" cue, because a scroll indicator alone is missable —
    which is exactly how the founder got stuck. Same for a long waiting-question.
 
+7. **The phone ignored the face you chose.** The mobile `Avatar` drew a tinted disc
+   with initials and used the avatar id for nothing but its hue — so picking a
+   different face on the desktop changed the colour slightly and never the face
+   (founder, 2026-08-01). It was deferred in M2 as "needs an SVG runtime, a later
+   polish"; in use it reads as the app ignoring you. Fixed by adding
+   `react-native-svg` and porting `traits()` + the drawing 1:1 from
+   `frontend/src/avatars.tsx`. The API had been sending the id all along, so no
+   backend or deployment change. **⚠️ The two renderers must now be kept in sync** —
+   an agent stores only an id, and both platforms have to turn it into the same face.
+   🪤 React Native's colour parser rejects the CSS Color 4 space-separated
+   `hsl(h s% l%)` the desktop uses, and an unparseable colour draws nothing at all, so
+   the port uses the comma form.
+
 **Open for M2:** PDF text extraction · image/vision support · a real device-camera QR
 scan (only paste has been exercised) · re-certify before the next catalogue release
-(0.3.0 and 0.4.0 both changed the stack).
+(0.3.0 and 0.4.0 both changed the stack) · `npx expo-doctor` flags a pre-existing
+app.json schema warning (top-level `splash` is no longer a valid key) — harmless today,
+builds pass, but worth clearing before it becomes a build failure.
 
 **Known imperfection, accepted by the founder (2026-08-01):** the chat *usually* but
 not *always* scrolls clear of the keyboard. The layout-driven fix above removed the
