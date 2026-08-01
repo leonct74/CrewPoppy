@@ -22,7 +22,7 @@ It is short, because CrewPoppy is built so that we hold almost nothing.
 
 The data controller is **Olly Digital**, established in Amsterdam, the Netherlands
 (Dutch Chamber of Commerce, KvK no. 68745532). For any privacy question or request,
-email **support@agentspoppy.com**.
+email **support@crewpoppy.com**.
 
 ## The short version
 
@@ -106,7 +106,7 @@ the desktop app at any time. Removing CrewPoppy deletes everything it created in
 account, and the uninstall is tested to leave nothing behind.
 
 To remove anything we hold — a notification binding, a purchase record — email
-**support@agentspoppy.com**.
+**support@crewpoppy.com**.
 
 ## Who else processes your data
 
@@ -134,7 +134,7 @@ to remove them. Purchase and invoice records are kept for the period Dutch law r
 ## Your rights
 
 Under the GDPR you may access, correct, delete, restrict or port your personal data,
-and object to certain processing. Email **support@agentspoppy.com**. You may also
+and object to certain processing. Email **support@crewpoppy.com**. You may also
 complain to the Dutch data protection authority, the *Autoriteit Persoonsgegevens*.
 
 ## Children
@@ -146,7 +146,7 @@ CrewPoppy is a business tool and is not directed at children.
 We may update this policy; the date at the top always reflects the current version.
 Material changes will be highlighted where we can.
 
-Questions? **support@agentspoppy.com**
+Questions? **support@crewpoppy.com**
 
 ---
 
