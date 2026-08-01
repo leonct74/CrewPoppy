@@ -1233,6 +1233,15 @@ scan (only paste has been exercised) · re-certify before the next catalogue rel
 
 ## 17. Status
 
+**2026-08-01: 0.4.0 RELEASED — the phone app's deployment, certified and listed.**
+Certify PASSED with the full 13-resource footprint (residual sweep zero; two tag-index
+lag warnings, the documented-normal kind). Full B-flow: pack (6.3 MB, sha `bbb54478…`),
+GitHub release v0.4.0 (notes disclose the one manifest change since the 0.2.0 consent:
+cognito Tag/UntagResource), download sha-verified from outside, seed updated, live
+catalogue confirmed at `/directory/catalog.json`. This closes the dev-ahead rollback
+window that overwrote the dev install three times. 0.3.0 was never listed — it shipped
+inside 0.4.0.
+
 **2026-07-31: 0.2.0 RELEASED — the mobile door (P4/M1).** Full RELEASING-POPPY.md B
 cycle: version bump → rebuild → 331 tests → pack (6.0 MB, sha `a23a5357…bb34eb7`) →
 GitHub release v0.2.0 with the cognito grants disclosed → download sha-verified from
