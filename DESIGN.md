@@ -1219,9 +1219,30 @@ documents work end to end; a PDF uploads but no agent can READ one (CrewPoppy wr
 PDFs, never parses them); images upload but need vision in the runner. Both are named
 follow-ups, deliberately not half-wired.
 
+6. **A long approval could be neither read nor approved.** The approval card was an
+   unbounded `View`: a multi-paragraph proposed email grew it until "Send it" was
+   pushed off the bottom, and nothing scrolled (founder, 2026-08-01). This is a §4c
+   problem, not a cosmetic one — the owner approves THAT text, so all of it must be
+   readable. Now the body scrolls in a box capped at ~30% of the window (works from an
+   SE to a Max) with the recipient, subject and buttons pinned outside it, plus a
+   "▾ scroll to read the rest" cue, because a scroll indicator alone is missable —
+   which is exactly how the founder got stuck. Same for a long waiting-question.
+
 **Open for M2:** PDF text extraction · image/vision support · a real device-camera QR
 scan (only paste has been exercised) · re-certify before the next catalogue release
 (0.3.0 and 0.4.0 both changed the stack).
+
+**Known imperfection, accepted by the founder (2026-08-01):** the chat *usually* but
+not *always* scrolls clear of the keyboard. The layout-driven fix above removed the
+systematic failure (the timer race) and the founder judged the result "acceptable,
+though not perfect" — so it was deliberately left rather than re-engineered on top of
+a working chat. The most likely remaining cause is `scrollToEnd` on a `FlatList` with
+variable-height rows: VirtualizedList estimates the offsets of rows it has not measured
+yet, so the computed end can be short by a bubble. Candidate cures, in order of
+preference if this is ever picked up: (a) iOS's own
+`automaticallyAdjustKeyboardInsets` on the list, dropping KeyboardAvoidingView for the
+list half; (b) `maintainVisibleContentPosition`. Do NOT reach for a second timer —
+that is the bug this replaced.
 
 ### 15i. Approval channels — owner's choice, PER AGENT (founder, 2026-08-01 — BUILT 2026-08-01, in the next release)
 
