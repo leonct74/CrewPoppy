@@ -447,3 +447,43 @@ describe("attaching a file (founder, 2026-07-31) — a signed link, not an uploa
     expect(state.signed).toHaveLength(0);
   });
 });
+
+// The push opt-in row (§15h M3 / §15i). Untested when it shipped — and the allowlist
+// regex demanded a trailing slash the app never sends, so every real opt-in bounced
+// with "isn't recognised" and the switch flipped itself off (founder, live,
+// 2026-08-01). These pin the CONTRACT: the app's exact URL passes, imposters fail.
+describe("PUT /push — the notification opt-in", () => {
+  const put = (relayUrl: string) => handler(req("PUT", "/push", { enabled: true, relayUrl }));
+  const row = () => state.items.get(key("config", "push")) as { enabled?: boolean; relayUrl?: string } | undefined;
+
+  it("accepts the app's REAL relay URL — bare origin, no trailing slash", async () => {
+    const res = await put("https://agentspoppy-web--agentspoppy.europe-west4.hosted.app");
+    expect(res.statusCode).toBe(200);
+    expect(row()?.enabled).toBe(true);
+  });
+
+  it("accepts the same origin with a trailing slash too", async () => {
+    expect((await put("https://agentspoppy.com/")).statusCode).toBe(200);
+  });
+
+  it("rejects a domain that merely STARTS with ours", async () => {
+    for (const url of [
+      "https://agentspoppy.com.evil.example",
+      "https://agentspoppy.com.evil.example/x",
+      "https://evil.example/agentspoppy.com",
+      "http://agentspoppy.com", // https only
+    ]) {
+      const res = await put(url);
+      expect(res.statusCode, url).toBe(400);
+    }
+    expect(row()).toBeUndefined();
+  });
+
+  it("turning it off needs no URL — the row is simply gone (absence = off)", async () => {
+    await put("https://agentspoppy.com");
+    expect(row()?.enabled).toBe(true);
+    const res = await handler(req("PUT", "/push", { enabled: false }));
+    expect(res.statusCode).toBe(200);
+    expect(row()).toBeUndefined();
+  });
+});

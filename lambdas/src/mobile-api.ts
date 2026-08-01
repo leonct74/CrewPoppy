@@ -310,7 +310,13 @@ export async function handler(event: UrlEvent) {
       // Only OUR relay: this URL is where agent NAMES go when a run wants attention.
       // A free-form URL here would let a crafted client exfiltrate crew names to
       // anywhere — the allowlist keeps the blast radius at "our own service".
-      if (!/^https:\/\/agentspoppy[a-z0-9.-]*\.(hosted\.app|com)\//.test(relayUrl)) {
+      // 🪤 `(\/|$)`, not `\/`: the app sends the bare origin with NO trailing slash,
+      // and demanding one rejected every real opt-in with "isn't recognised" — the
+      // switch flipped itself off and the phone channel silently never existed
+      // (founder, live, 2026-08-01). The anchor still ends the HOST at our domains:
+      // "agentspoppy.com.evil.example" fails because `.com` must be followed by
+      // "/" or end-of-string.
+      if (!/^https:\/\/agentspoppy[a-z0-9.-]*\.(hosted\.app|com)(\/|$)/.test(relayUrl)) {
         return json(400, { error: "That notification service isn't recognised." });
       }
       await ddb.send(
