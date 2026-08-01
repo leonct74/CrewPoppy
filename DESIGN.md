@@ -1193,6 +1193,18 @@ disconnect) → clear chat → attach a file.
 3. **The keyboard hid the newest message.** The content doesn't change when the
    keyboard opens — only the visible height — so nothing re-scrolled. Now scrolls on
    keyboard show/resize, with `useHeaderHeight()` instead of a guessed offset.
+   **🪤 This came back (founder, 2026-08-01) — and the second cause is the lesson.**
+   The first fix scrolled 120 ms after `keyboardWillShow`, i.e. it GUESSED when the
+   resize would be done. The iOS keyboard animates for ~250–300 ms, so the scroll ran
+   mid-animation, computed its target from a layout about to change, landed short, and
+   nothing corrected it — broken intermittently, which is why it looked fixed. **Never
+   time a scroll against an animation.** Scroll on the signals that only arrive once
+   layout is FINAL: the list's own `onLayout` (fires every time KeyboardAvoidingView
+   resizes it — keyboard, approval card, a composer growing to two lines) and
+   `keyboardDidShow`, both unanimated so the next layout pass can't interrupt them.
+   Same change: the composer now clears the home indicator (`useSafeAreaInsets`, only
+   when the keyboard is down) and the trail ends in real padding, so the last bubble
+   never reads as cut off.
 4. **"not found" on Clear chat** when the app was newer than the deployment. Now says
    to apply the update on the computer.
 5. Emoji icons → Ionicons outlines (founder: "really ugly, I would like more
