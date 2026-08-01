@@ -1263,6 +1263,17 @@ owner address nobody is the owner, so only open inboxes accept mail. Mobile app 
 build): switching push off names the phone-approval agents first. Tests across all four
 surfaces (372 green).
 
+**LIVE-VERIFIED (founder, 2026-08-01):** phone-channel approval delivered end-to-end on
+a real iPhone — runner → relay (entitled via admin comp, target = pool id) → buzz →
+approved in the app; no email sent. Two live blockers found and fixed on the way, both
+now pinned by tests: (1) the PUT /push allowlist demanded a trailing slash the app
+never sends, so the notification switch could never turn on ("isn't recognised", switch
+reverts) — regex now `(\/|$)`; (2) the admin Comp access form had no Target field, so a
+comp for a target-checked product (crewpoppy-push keys on the pool id) granted a record
+the paywall could never match — field added to agentspoppy-web admin. NOTE for 0.5.0:
+the 0.4.0 in the catalogue still carries the broken allowlist — the phone channel needs
+the 0.5.0 release to work for anyone but this dev install.
+
 ## 16. Plan
 
 - **P0 — walking skeleton:** scaffold (vm-poppy layout) → manifest + permission set verified against
