@@ -287,17 +287,19 @@ function CrewSpreadsheet(props: { empty: boolean; onChanged: () => void | Promis
   >(null);
   const [done, setDone] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
+  const [pasting, setPasting] = useState(false);
+  const [pasted, setPasted] = useState("");
   const fileRef = useRef<HTMLInputElement>(null);
 
+  // 🪤 NOT a blob + `<a download>`: the host renders us in a sandboxed frame, where
+  // that silently does nothing at all — a button that looks fine and never produces a
+  // file (founder, 2026-08-01). The sidecar writes it and tells us the name.
   const download = async () => {
     setErr(null);
+    setDone(null);
     try {
-      const { csv } = await api.crewCsv();
-      const a = document.createElement("a");
-      a.href = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
-      a.download = "crewpoppy-agents.csv";
-      a.click();
-      URL.revokeObjectURL(a.href);
+      const { savedAs } = await api.crewCsvSave();
+      setDone(`Saved to your Downloads folder as “${savedAs}”. Open it in Excel.`);
     } catch (e) {
       setErr((e as Error).message);
     }
@@ -325,11 +327,14 @@ function CrewSpreadsheet(props: { empty: boolean; onChanged: () => void | Promis
           : "Download your agents as a file Excel opens, edit or add rows, and upload it back. Rows match agents by name — existing names update, new names create, and an upload never deletes anyone."}
       </p>
       <div className="row" style={{ gap: 8 }}>
-        <button className="btn" onClick={() => void download()}>
-          ⬇ {props.empty ? "Download the template" : "Download the crew (CSV)"}
-        </button>
+        <Button className="btn" busyLabel="Saving…" onClick={download}>
+          ⬇ {props.empty ? "Save the template to Downloads" : "Save the crew to Downloads"}
+        </Button>
         <button className="btn" onClick={() => fileRef.current?.click()}>
           ⬆ Upload a spreadsheet
+        </button>
+        <button className="btn btn-ghost" onClick={() => setPasting((p) => !p)}>
+          {pasting ? "Cancel paste" : "…or paste it"}
         </button>
         <input
           ref={fileRef}
@@ -343,6 +348,40 @@ function CrewSpreadsheet(props: { empty: boolean; onChanged: () => void | Promis
           }}
         />
       </div>
+
+      {/* The always-works path: select the cells in Excel, copy, paste here. Also the
+          way through if the file picker is ever unavailable — the frame we run in is
+          sandboxed, and this needs nothing from it but a keystroke. */}
+      {pasting && (
+        <div style={{ marginTop: 8 }}>
+          <textarea
+            className="input"
+            rows={5}
+            value={pasted}
+            onChange={(e) => setPasted(e.target.value)}
+            placeholder="Paste the rows here, including the header row (copy them straight from Excel)."
+            spellCheck={false}
+          />
+          <Button
+            className="btn"
+            busyLabel="Checking…"
+            disabled={!pasted.trim()}
+            onClick={async () => {
+              setErr(null);
+              setDone(null);
+              setPlan(null);
+              try {
+                const r = await api.crewCsvImport(pasted, false);
+                setPlan({ csv: pasted, ...r });
+              } catch (e) {
+                setErr((e as Error).message);
+              }
+            }}
+          >
+            Check these rows
+          </Button>
+        </div>
+      )}
 
       {err && <div className="banner err" style={{ marginTop: 8 }}>{err}</div>}
       {done && <div className="banner" style={{ marginTop: 8 }}>{done}</div>}
@@ -374,6 +413,8 @@ function CrewSpreadsheet(props: { empty: boolean; onChanged: () => void | Promis
                   const r = await api.crewCsvImport(plan.csv, true);
                   if (!r.applied) throw new Error(r.errors[0] ?? "The import was not applied.");
                   setPlan(null);
+                  setPasting(false);
+                  setPasted("");
                   setDone(`Done — ${r.created} created, ${r.updated} updated.`);
                   await props.onChanged();
                 } catch (e) {

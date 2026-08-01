@@ -1313,8 +1313,26 @@ Open inbox (yes/no) · Approvals (email/phone, §15i) · Monthly cap USD · Avat
 Schedule (JSON, as exported). Headers are matched case-insensitively by NAME, not
 position, so an owner may reorder or add columns of their own. Backend: `crew-csv.ts`
 (parse/export/plan/apply) behind `GET|POST /crew-csv`, where POST without `apply: true`
-only ever PLANS. 11 tests cover the round-trip, the Excel-locale traps, and that a
-broken file writes nothing.
+only ever PLANS. 15 tests cover the round-trip, the Excel-locale traps, the save, and
+that a broken file writes nothing.
+
+**🪤 A POPPY FRONTEND CANNOT DOWNLOAD ANYTHING.** The first version shipped the ordinary
+web idiom — a blob URL and `<a download>` — and the button was simply DEAD: no file, no
+error, nothing (founder, live, 2026-08-01). The host renders every poppy in a SANDBOXED
+frame, and a sandbox without `allow-downloads` silently discards exactly that. Two ways
+out exist and both live in the BACKEND, which is an ordinary local process:
+1. **Write it and say where** (chosen here, and MailPoppy's "professional path"):
+   `POST /crew-csv/save` → `saveCsvToDownloads()` writes into `~/Downloads`, never
+   overwriting (de-duplicates to "crewpoppy-agents (2).csv"), and returns the filename
+   so the UI can name it. No browser window at all.
+2. The broker's one-shot passthrough (`/ext-dl/<id>/local-download/<token>`) +
+   `openExternal` — needed only when the bytes exist ONLY in the webview (MailPoppy's
+   decrypted attachments). Ours come from the backend already, so (1) is strictly less
+   machinery. Documented here so the next poppy doesn't rediscover the dead button.
+Also: the export is written with a UTF-8 BOM — without it Excel reads our own file in
+the local codepage and mangles "Niccolò". Uploads keep the file picker (sandbox gates
+downloads, not pickers) AND accept pasted text, which is why the parser learned TABS:
+copying cells out of Excel puts tab-separated text on the clipboard.
 
 ## 16. Plan
 

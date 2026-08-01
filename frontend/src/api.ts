@@ -85,8 +85,13 @@ export const api = {
   deleteAgent: (id: string): Promise<DeleteResult> =>
     invoke({ method: "DELETE", path: `/agents/${id}` }),
 
-  /** The whole crew as CSV — or the one-row template when there's no crew yet. */
-  crewCsv: (): Promise<{ csv: string }> => invoke({ method: "GET", path: "/crew-csv" }),
+  /**
+   * Write the crew (or the template) into the user's Downloads folder and report the
+   * filename. 🪤 The SIDECAR saves it, not the browser: we run in a sandboxed frame
+   * where `<a download>` and blob: URLs silently do nothing (founder, 2026-08-01).
+   */
+  crewCsvSave: (): Promise<{ savedAs: string; path: string }> =>
+    invoke({ method: "POST", path: "/crew-csv/save", body: {} }),
 
   /**
    * Validate an uploaded CSV (apply=false → the plan: counts, combined cap, errors)

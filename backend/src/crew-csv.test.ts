@@ -5,7 +5,10 @@
 import { describe, expect, it, vi } from "vitest";
 import { GetCommand, PutCommand, QueryCommand, type DynamoDBDocumentClient } from "@aws-sdk/lib-dynamodb";
 import { AGENTS_PK, agentSk, type AgentDef } from "@crewpoppy/shared";
-import { applyImport, crewToCsv, parseCsv, planImport, MAX_IMPORT_ROWS } from "./crew-csv";
+import { mkdtemp, readFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { applyImport, crewToCsv, parseCsv, planImport, saveCsvToDownloads, MAX_IMPORT_ROWS } from "./crew-csv";
 
 const NOW = "2026-08-01T12:00:00.000Z";
 
@@ -98,6 +101,47 @@ describe("what Excel actually saves", () => {
   it("a BOM and trailing blank lines are invisible, not agents", () => {
     const rows = parseCsv("﻿Name,Role\nEmma,Support\n\n\n");
     expect(rows).toEqual([["Name", "Role"], ["Emma", "Support"]]);
+  });
+
+  it("TAB-separated text — what the clipboard holds after copying cells — parses too", () => {
+    const rows = parseCsv("Name\tRole\tMonthly cap USD\nEmma\tSupport\t10\n");
+    expect(rows).toEqual([
+      ["Name", "Role", "Monthly cap USD"],
+      ["Emma", "Support", "10"],
+    ]);
+  });
+});
+
+// 🪤 The regression that made the first version of this feature a dead button: the
+// frontend cannot save a file at all (sandboxed frame — `<a download>` does nothing),
+// so the SIDECAR writes it. These pin the behaviour that has to hold on disk.
+describe("saving the file the owner asked for", () => {
+  it("writes into the given folder and reports the name to look for", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "crewpoppy-dl-"));
+    const out = await saveCsvToDownloads("Name,Role\r\nEmma,Support\r\n", "crewpoppy-agents.csv", dir);
+    expect(out.savedAs).toBe("crewpoppy-agents.csv");
+    const written = await readFile(out.path, "utf8");
+    expect(written).toContain("Emma,Support");
+    // Excel reads a UTF-8 CSV as the local codepage without a BOM, mangling "Niccolò"
+    // in a file we wrote ourselves.
+    expect(written.charCodeAt(0)).toBe(0xfeff);
+  });
+
+  it("never overwrites yesterday's export — it de-duplicates the name", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "crewpoppy-dl-"));
+    const a = await saveCsvToDownloads("x", "crew.csv", dir);
+    const b = await saveCsvToDownloads("y", "crew.csv", dir);
+    const c = await saveCsvToDownloads("z", "crew.csv", dir);
+    expect([a.savedAs, b.savedAs, c.savedAs]).toEqual(["crew.csv", "crew (2).csv", "crew (3).csv"]);
+    expect(await readFile(a.path, "utf8")).toContain("x"); // the first is untouched
+  });
+
+  it("a filename can't escape the folder or hide the file", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "crewpoppy-dl-"));
+    const out = await saveCsvToDownloads("x", "../../.ssh/authorized_keys", dir);
+    expect(out.path.startsWith(dir)).toBe(true);
+    expect(out.savedAs).not.toContain("/");
+    expect(out.savedAs.startsWith(".")).toBe(false);
   });
 });
 

@@ -20,7 +20,7 @@ import {
   listAgentMailboxes, listFiles, listRuns, putOwnerFile, readFileContent, saveAgent, startRun,
   stopRun, withStaleness,
 } from "./agents";
-import { applyImport, crewToCsv, planImport } from "./crew-csv";
+import { applyImport, crewToCsv, planImport, saveCsvToDownloads } from "./crew-csv";
 import { getOwnerEmail, isVerifiedSender, setOwnerEmail } from "./email";
 import { getMobileStatus, pairMobile, revokeMobile } from "./mobile";
 import { CognitoIdentityProviderClient } from "@aws-sdk/client-cognito-identity-provider";
@@ -206,6 +206,13 @@ const server = createServer(async (req, res) => {
     // POST validates an uploaded CSV and returns the PLAN — counts, combined
     // monthly cap, errors; only `apply: true` (sent after the owner has seen that
     // plan) writes anything, and only when the plan is error-free.
+    // The sandboxed frame can't save a file itself (see saveCsvToDownloads) — the
+    // sidecar writes it and reports the name the owner should look for.
+    if (parts[0] === "crew-csv" && parts[1] === "save" && parts.length === 2 && method === "POST") {
+      const now = new Date().toISOString();
+      const csv = crewToCsv(await listAgents(ddb, tableName, now));
+      return json(res, 200, await saveCsvToDownloads(csv, "crewpoppy-agents.csv"));
+    }
     if (parts[0] === "crew-csv" && parts.length === 1) {
       const now = new Date().toISOString();
       if (method === "GET") {
