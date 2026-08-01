@@ -23,4 +23,5 @@ checkout.
 
 ## License
 
-MIT — see [LICENSE](LICENSE).
+PolyForm Shield 1.0.0 — see [LICENSE](LICENSE). Use it for anything except building a
+competing product; the full terms are in the file, which is authoritative.
