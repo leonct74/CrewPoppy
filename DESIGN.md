@@ -1214,8 +1214,10 @@ scan (only paste has been exercised) · re-certify before the next catalogue rel
 ### 15i. Approval channels — owner's choice (founder, 2026-08-01, TO BUILD)
 
 Now that the phone exists, the email link is one approval channel of two. New setting
-(desktop email card): approve by **email**, **phone**, or **both** (default both when
-both exist). Semantics: the channel choice controls WHERE the approval is offered
+(desktop email card): approve by **email** OR by **phone** — a two-way choice, per the
+founder's correction (2026-08-01): one channel, deliberately chosen, not a "both" that
+splits attention. Default stays email (works with no phone paired); switching to phone
+requires a paired phone with push on. Semantics: the channel choice controls WHERE the approval is offered
 (send the §15e link / ping the relay) — the gate itself never weakens. Phone-only mode
 must (a) skip sendApprovalLink, (b) treat "an approver exists" in mailIntake as
 satisfied by the push opt-in row, (c) still handle the no-owner-email case: with no
