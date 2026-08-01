@@ -30,6 +30,7 @@ import {
   MAX_EMAILS_PER_DAY,
   OWNER_EMAIL_SK,
   PROVEN_SK,
+  PUSH_SK,
   agentPk,
   agentSk,
   capCostFor,
@@ -174,6 +175,30 @@ export async function recentExchanges(
   if (pairs.length === 0) return undefined;
   // Collected newest-first; the model reads oldest-first.
   return pairs.reverse().flat();
+}
+
+/**
+ * Ask the relay to buzz the owner's phone (DESIGN §15h M3). Reads the opt-in row the
+ * PHONE wrote — enabled flag, pool id and relay URL all come from there, so switching
+ * push off silences this instantly with no redeploy, and an install that never opted
+ * in never contacts the relay at all. The payload is the agent's NAME and a kind from
+ * a fixed list — never content; the app fetches the truth from the owner's own API.
+ * Whether the buzz actually happens is the relay's entitlement gate, not our concern.
+ */
+export async function pushPing(
+  table: string,
+  agentName: string,
+  kind: "waiting" | "approval",
+): Promise<void> {
+  const row = (await get(table, CONFIG_PK, PUSH_SK)) as
+    | { enabled?: boolean; poolId?: string; relayUrl?: string }
+    | undefined;
+  if (row?.enabled !== true || !row.poolId || !row.relayUrl) return;
+  await fetch(new URL("/api/push/ping", row.relayUrl), {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ poolId: row.poolId, agentName, kind }),
+  });
 }
 
 function systemPrompt(agent: AgentDef): string {
@@ -686,6 +711,11 @@ async function runSegment(event: RunnerEvent): Promise<{ ok: boolean; status: st
       );
       await finish("waiting", usage, iterations, "waiting_for_you", outcome.message);
       await sendApprovalLink(agent, ownerEmail, outcome.suspend, event.runId, token, record);
+      // The phone buzz (DESIGN §15h M3) — only if the owner opted in, and carrying
+      // nothing but the agent's name and the kind of attention needed. Best-effort by
+      // design: a relay outage must never affect a run, so failures vanish silently
+      // and the request keeps waiting faithfully in the app either way.
+      void pushPing(table, agent.name, outcome.suspend.pending ? "approval" : "waiting").catch(() => {});
       return { ok: true, status: "waiting" };
     }
 

@@ -74,3 +74,11 @@ export const mailboxSk = (email: string) => `${MAILBOX_SK_PREFIX}${email}`;
  */
 export const sendCountPk = (agentId: string) => `sends#${agentId}`;
 export const sendCountSk = (dayKey: string) => `day#${dayKey}`;
+
+/**
+ * The phone-notification opt-in (DESIGN §15h M3). Written by the PHONE via the mobile
+ * API when the owner flips the switch; read by the runner before it ever pings the
+ * relay. Holds {enabled, poolId, relayUrl} — the runner learns where to ping from the
+ * row, so turning push off (or clearing the row) silences it with no redeploy.
+ */
+export const PUSH_SK = "push";

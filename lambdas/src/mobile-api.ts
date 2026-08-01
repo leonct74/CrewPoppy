@@ -29,6 +29,8 @@ import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import {
   AGENTS_PK,
   CHECKPOINT_SK,
+  CONFIG_PK,
+  PUSH_SK,
   agentPk,
   agentSk,
   checkpointPk,
@@ -293,6 +295,38 @@ export async function handler(event: UrlEvent) {
       })),
     );
     return json(200, { agents });
+  }
+
+  // PUT /push — the notification opt-in (DESIGN §15h M3). The PHONE owns this switch:
+  // flipping it on records {enabled, poolId, relayUrl} in the owner's own table, and
+  // the runner reads that row before it ever pings the relay. Off (or absent) means
+  // the runner tells nobody anything — the documented default.
+  if (method === "PUT" && path === "/push") {
+    const body = parseBody(event);
+    if (body.enabled === true) {
+      const relayUrl = typeof body.relayUrl === "string" ? body.relayUrl.trim() : "";
+      // Only OUR relay: this URL is where agent NAMES go when a run wants attention.
+      // A free-form URL here would let a crafted client exfiltrate crew names to
+      // anywhere — the allowlist keeps the blast radius at "our own service".
+      if (!/^https:\/\/agentspoppy[a-z0-9.-]*\.(hosted\.app|com)\//.test(relayUrl)) {
+        return json(400, { error: "That notification service isn't recognised." });
+      }
+      await ddb.send(
+        new PutCommand({
+          TableName: table,
+          Item: { pk: CONFIG_PK, sk: PUSH_SK, enabled: true, poolId, relayUrl },
+        }),
+      );
+      return json(200, { ok: true, enabled: true });
+    }
+    await ddb.send(new DeleteCommand({ TableName: table, Key: { pk: CONFIG_PK, sk: PUSH_SK } }));
+    return json(200, { ok: true, enabled: false });
+  }
+  if (method === "GET" && path === "/push") {
+    const r = await ddb.send(
+      new GetCommand({ TableName: table, Key: { pk: CONFIG_PK, sk: PUSH_SK } }),
+    );
+    return json(200, { enabled: (r.Item as { enabled?: boolean } | undefined)?.enabled === true });
   }
 
   // POST /agents/{id}/upload-url — a short-lived, single-file signed link so the phone
