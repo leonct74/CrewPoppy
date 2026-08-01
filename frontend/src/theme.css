@@ -143,9 +143,11 @@ textarea.input { font-family: var(--poppy-font-mono); font-size: 13px; min-heigh
      yields, so the composer below it stays reachable (founder bug, 2026-07-30). */
   max-height: min(420px, 55vh); overflow-y: auto;
   display: flex; flex-direction: column; gap: 8px;
-  /* Breathing room at the end, so the last line of the last message never sits
-     flush against (or slides under) the sticky composer. */
-  padding: 4px 2px 14px;
+  /* Breathing room at the end, sized to the composer it has to clear: on a short
+     window the sticky composer rides OVER the tail of the trail, and 14px left the
+     last message half-hidden behind the input (founder, 2026-08-01). Must stay
+     roughly composer-height (~60px) or the overlap comes back. */
+  padding: 4px 2px 64px;
 }
 .chat-empty { color: var(--poppy-muted-2); font-size: 13px; margin: 8px 0; }
 .msg { max-width: 82%; }
