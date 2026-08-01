@@ -266,6 +266,129 @@ export function CrewCard(props: {
           </button>
         )}
       </div>
+
+      <CrewSpreadsheet empty={agents.length === 0} onChanged={refresh} />
+    </div>
+  );
+}
+
+/**
+ * The crew as a spreadsheet (founder, 2026-08-01): download it (the same file is the
+ * template when the crew is empty), edit or mass-produce rows in Excel, upload to
+ * create hundreds in one go. Two-step on purpose: the upload first shows a PLAN —
+ * how many created, how many updated, and the combined monthly cap those agents may
+ * spend (§9: the money, before the click) — and only "Yes, do it" writes anything.
+ * Rows match agents BY NAME; an import never deletes an agent.
+ */
+function CrewSpreadsheet(props: { empty: boolean; onChanged: () => void | Promise<void> }) {
+  const [plan, setPlan] = useState<
+    | { csv: string; created: number; updated: number; totalMonthlyCapUsd: number; errors: string[] }
+    | null
+  >(null);
+  const [done, setDone] = useState<string | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
+
+  const download = async () => {
+    setErr(null);
+    try {
+      const { csv } = await api.crewCsv();
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
+      a.download = "crewpoppy-agents.csv";
+      a.click();
+      URL.revokeObjectURL(a.href);
+    } catch (e) {
+      setErr((e as Error).message);
+    }
+  };
+
+  const picked = async (file: File) => {
+    setErr(null);
+    setDone(null);
+    setPlan(null);
+    try {
+      const csv = await file.text();
+      const r = await api.crewCsvImport(csv, false);
+      setPlan({ csv, ...r });
+    } catch (e) {
+      setErr((e as Error).message);
+    }
+  };
+
+  return (
+    <div className="card" style={{ margin: 0, padding: 12 }}>
+      <strong style={{ fontSize: 13 }}>The crew as a spreadsheet</strong>
+      <p className="muted" style={{ margin: "4px 0 8px", fontSize: 12 }}>
+        {props.empty
+          ? "Download the template, fill one row per agent in Excel, and upload it to create them all in one go."
+          : "Download your agents as a file Excel opens, edit or add rows, and upload it back. Rows match agents by name — existing names update, new names create, and an upload never deletes anyone."}
+      </p>
+      <div className="row" style={{ gap: 8 }}>
+        <button className="btn" onClick={() => void download()}>
+          ⬇ {props.empty ? "Download the template" : "Download the crew (CSV)"}
+        </button>
+        <button className="btn" onClick={() => fileRef.current?.click()}>
+          ⬆ Upload a spreadsheet
+        </button>
+        <input
+          ref={fileRef}
+          type="file"
+          accept=".csv,text/csv"
+          style={{ display: "none" }}
+          onChange={(e) => {
+            const f = e.target.files?.[0];
+            e.target.value = ""; // same file re-picked later must fire again
+            if (f) void picked(f);
+          }}
+        />
+      </div>
+
+      {err && <div className="banner err" style={{ marginTop: 8 }}>{err}</div>}
+      {done && <div className="banner" style={{ marginTop: 8 }}>{done}</div>}
+
+      {plan && plan.errors.length > 0 && (
+        <div className="banner err" style={{ marginTop: 8 }}>
+          <strong>Nothing was changed.</strong> Fix these rows and upload again:
+          <ul style={{ margin: "6px 0 0", paddingLeft: 18 }}>
+            {plan.errors.slice(0, 12).map((e) => (
+              <li key={e} style={{ fontSize: 12 }}>{e}</li>
+            ))}
+            {plan.errors.length > 12 && <li style={{ fontSize: 12 }}>…and {plan.errors.length - 12} more.</li>}
+          </ul>
+        </div>
+      )}
+
+      {plan && plan.errors.length === 0 && (
+        <div className="banner" style={{ marginTop: 8 }}>
+          This file creates <strong>{plan.created}</strong> new agent{plan.created === 1 ? "" : "s"} and updates{" "}
+          <strong>{plan.updated}</strong>. Together they may spend up to{" "}
+          <strong>${plan.totalMonthlyCapUsd.toFixed(2)}/month</strong> — each agent stops at its own cap.
+          Nothing is deleted, and nothing has happened yet.
+          <div className="row" style={{ gap: 8, marginTop: 8 }}>
+            <Button
+              className="btn btn-primary"
+              busyLabel="Importing…"
+              onClick={async () => {
+                try {
+                  const r = await api.crewCsvImport(plan.csv, true);
+                  if (!r.applied) throw new Error(r.errors[0] ?? "The import was not applied.");
+                  setPlan(null);
+                  setDone(`Done — ${r.created} created, ${r.updated} updated.`);
+                  await props.onChanged();
+                } catch (e) {
+                  setErr((e as Error).message);
+                }
+              }}
+            >
+              Yes — create {plan.created} and update {plan.updated}
+            </Button>
+            <button className="btn btn-ghost" onClick={() => setPlan(null)}>
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

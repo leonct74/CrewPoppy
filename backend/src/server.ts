@@ -20,6 +20,7 @@ import {
   listAgentMailboxes, listFiles, listRuns, putOwnerFile, readFileContent, saveAgent, startRun,
   stopRun, withStaleness,
 } from "./agents";
+import { applyImport, crewToCsv, planImport } from "./crew-csv";
 import { getOwnerEmail, isVerifiedSender, setOwnerEmail } from "./email";
 import { getMobileStatus, pairMobile, revokeMobile } from "./mobile";
 import { CognitoIdentityProviderClient } from "@aws-sdk/client-cognito-identity-provider";
@@ -198,6 +199,34 @@ const server = createServer(async (req, res) => {
     // The teardown hook the host POSTs at the start of teardown. MUST be idempotent.
     if (method === "POST" && parts[0] === "teardown" && parts.length === 1) {
       return json(res, 200, { ok: true, ...(await teardown(cfn, s3, ctx.accountId, region)) });
+    }
+
+    // ---- the crew as a spreadsheet (founder, 2026-08-01) --------------------
+    // GET returns the whole crew as CSV (or the template when the crew is empty).
+    // POST validates an uploaded CSV and returns the PLAN — counts, combined
+    // monthly cap, errors; only `apply: true` (sent after the owner has seen that
+    // plan) writes anything, and only when the plan is error-free.
+    if (parts[0] === "crew-csv" && parts.length === 1) {
+      const now = new Date().toISOString();
+      if (method === "GET") {
+        return json(res, 200, { csv: crewToCsv(await listAgents(ddb, tableName, now)) });
+      }
+      if (method === "POST") {
+        const body = await readJson(req);
+        const csv = typeof body.csv === "string" ? body.csv : "";
+        const plan = await planImport(ddb, tableName, csv, now);
+        if (body.apply === true && plan.errors.length === 0) {
+          const done = await applyImport(ddb, tableName, plan, now);
+          return json(res, 200, { applied: true, ...done, totalMonthlyCapUsd: plan.totalMonthlyCapUsd, errors: [] });
+        }
+        return json(res, 200, {
+          applied: false,
+          created: plan.created,
+          updated: plan.updated,
+          totalMonthlyCapUsd: plan.totalMonthlyCapUsd,
+          errors: plan.errors,
+        });
+      }
     }
 
     // ---- agents (P1) -------------------------------------------------------

@@ -1274,6 +1274,48 @@ the paywall could never match — field added to agentspoppy-web admin. NOTE for
 the 0.4.0 in the catalogue still carries the broken allowlist — the phone channel needs
 the 0.5.0 release to work for anyone but this dev install.
 
+### 15j. The crew as a spreadsheet (founder, 2026-08-01 — BUILT)
+
+"Download an Excel template to create agents and their configurations… export the
+current agents and/or create hundreds in one go." A crew of three is a form; a crew of
+three hundred is a spreadsheet, and typing it is not a product.
+
+**CSV, not .xlsx.** Excel opens and saves CSV natively, and a spreadsheet library in a
+SEA sidecar buys nothing an owner can see. One file does both jobs: **the export IS the
+template** — with an empty crew it comes back as the header plus one example row to
+overwrite, so the columns are never guessed.
+
+**The contract that makes a re-upload harmless:**
+- **Rows match agents BY NAME** (case-insensitive). An existing name UPDATES that agent
+  in place — same id, so its runs, spend counters and files stay hers. A new name
+  creates. **An import never deletes**: removing a row from the file is not a way to
+  delete an agent (deletion keeps its own typed ceremony, AGENTS.md §4).
+- **All-or-nothing.** The whole file is validated first; ANY broken row means nothing is
+  written. "347 made it, 3 didn't" leaves a crew nobody can reason about, halfway
+  through a spend commitment.
+- **The money before the click** (AGENTS.md §9): the plan states how many will be
+  created, how many updated, and the COMBINED monthly cap of every agent in the file.
+  Three hundred agents at $10 is $3,000/month of ceiling, and the owner sees that
+  sentence before "Yes, do it", not after.
+- Every row goes through the SAME `saveAgent` sanitisers as the editor — a spreadsheet
+  can never store what the form couldn't (unknown tool names are dropped, caps are
+  bounded, a door flag with no door is cleared).
+- Ceiling of `MAX_IMPORT_ROWS = 500` per upload, stated plainly rather than truncated.
+
+**🪤 Excel is localised, and the founder's is Italian.** Excel in most of Europe saves
+"CSV" with SEMICOLONS and writes 2,50 for 2.50. Splitting an Italian user's file on
+commas yields one giant column and a wall of nonsense errors on a file Excel itself
+wrote. So the parser DETECTS the delimiter from the header line, and a comma-decimal cap
+is read as money. Both are pinned by tests.
+
+Columns: Name · Role · Instructions · Model · Tools (space-separated) · Email address ·
+Open inbox (yes/no) · Approvals (email/phone, §15i) · Monthly cap USD · Avatar ·
+Schedule (JSON, as exported). Headers are matched case-insensitively by NAME, not
+position, so an owner may reorder or add columns of their own. Backend: `crew-csv.ts`
+(parse/export/plan/apply) behind `GET|POST /crew-csv`, where POST without `apply: true`
+only ever PLANS. 11 tests cover the round-trip, the Excel-locale traps, and that a
+broken file writes nothing.
+
 ## 16. Plan
 
 - **P0 — walking skeleton:** scaffold (vm-poppy layout) → manifest + permission set verified against

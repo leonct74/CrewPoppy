@@ -85,6 +85,20 @@ export const api = {
   deleteAgent: (id: string): Promise<DeleteResult> =>
     invoke({ method: "DELETE", path: `/agents/${id}` }),
 
+  /** The whole crew as CSV — or the one-row template when there's no crew yet. */
+  crewCsv: (): Promise<{ csv: string }> => invoke({ method: "GET", path: "/crew-csv" }),
+
+  /**
+   * Validate an uploaded CSV (apply=false → the plan: counts, combined cap, errors)
+   * and, once the owner has SEEN that plan, apply it (apply=true). The backend
+   * refuses to apply a plan with errors regardless of what this sends.
+   */
+  crewCsvImport: (
+    csv: string,
+    apply: boolean,
+  ): Promise<{ applied: boolean; created: number; updated: number; totalMonthlyCapUsd: number; errors: string[] }> =>
+    invoke({ method: "POST", path: "/crew-csv", body: { csv, apply } }),
+
   /** Starts a run; the Lambda carries on in the user's account regardless of the UI. */
   startRun: (id: string, input: string): Promise<RunRecord> =>
     invoke({ method: "POST", path: `/agents/${id}/runs`, body: { input } }),
