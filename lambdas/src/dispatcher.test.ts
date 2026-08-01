@@ -265,11 +265,57 @@ describe("emailing the owner", () => {
     expect(from.endsWith("<marco@example.com>")).toBe(true);
   });
 
-  it("says so plainly when no address is set up yet", async () => {
+  it("names the ACTUAL missing thing when the owner has no address yet", async () => {
     const { ctx, ses } = harness({ ownerEmail: null });
     const r = await dispatch(ctx, "email_owner", { subject: "Hi", body: "there" });
     expect(r.isError).toBe(true);
-    expect(r.content).toMatch(/no email address is set up/i);
+    // §15i refusal-text fix: the old message ("no email address is set up for your
+    // owner") read as "the agent can't send at all" to a founder whose agent HAD its
+    // own address. The refusal must say whose address is missing and where it lives.
+    expect(r.content).toMatch(/owner hasn't entered their own email address/i);
+    expect(r.content).toMatch(/on their computer/i);
+    expect(ses).toHaveLength(0);
+  });
+});
+
+// §15i: WHERE approvals are offered is the owner's per-agent choice. On the phone
+// channel a proposal must not require the owner's email — the approval arrives as a
+// buzz — but nothing about the GATE may change: proposals still suspend, always.
+describe("the approval channel and a missing owner address", () => {
+  it("email channel: refuses to propose, and says approvals are why", async () => {
+    const { ctx, ses } = harness({ ownerEmail: null, fromAddress: "emma@ollydigital.com" });
+    const r = await dispatch(ctx, "send_email", { to: "jane@customer.test", subject: "s", body: "b" });
+    expect(r.isError).toBe(true);
+    expect(r.suspend).toBeFalsy();
+    expect(r.content).toMatch(/approval/i);
+    expect(r.content).toMatch(/switch your approvals to their phone/i);
+    expect(ses).toHaveLength(0);
+  });
+
+  it("phone channel: proposes and suspends with no owner address at all", async () => {
+    const { ctx, ses } = harness({ ownerEmail: null, fromAddress: "emma@ollydigital.com" });
+    ctx.approvalChannel = "phone";
+    const r = await dispatch(ctx, "send_email", { to: "jane@customer.test", subject: "s", body: "b" });
+    expect(r.isError).toBeFalsy();
+    expect(r.suspend?.pending).toMatchObject({ kind: "send_email", to: "jane@customer.test" });
+    expect(ses).toHaveLength(0); // proposed, not sent — the gate is identical
+  });
+
+  it("phone channel: still refuses when there is no address to send FROM", async () => {
+    const { ctx, ses } = harness({ ownerEmail: null });
+    ctx.approvalChannel = "phone";
+    const r = await dispatch(ctx, "send_email", { to: "jane@customer.test", subject: "s", body: "b" });
+    expect(r.isError).toBe(true);
+    expect(r.content).toMatch(/no address to send from/i);
+    expect(ses).toHaveLength(0);
+  });
+
+  it("no owner address means NO recipient is free — everything gates", async () => {
+    const { ctx, ses } = harness({ ownerEmail: null, fromAddress: "emma@ollydigital.com" });
+    ctx.approvalChannel = "phone";
+    // Without an owner address there is no "owner channel" shortcut to match against.
+    const r = await dispatch(ctx, "send_email", { to: "marco@example.com", subject: "s", body: "b" });
+    expect(r.suspend).toBeTruthy();
     expect(ses).toHaveLength(0);
   });
 });

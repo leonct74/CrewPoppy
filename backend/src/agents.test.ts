@@ -205,6 +205,27 @@ describe("who may email an agent", () => {
     expect(d.emailFrom).toBeUndefined();
     expect(d.openInbox).toBeUndefined();
   });
+
+  // §15i: the approval channel is stored ONLY as the literal "phone" — email is
+  // absence, so every agent saved before the field existed already means email.
+  it("moves approvals to the phone only on the literal 'phone'", async () => {
+    const { client } = fakeDdb([]);
+    expect(
+      (await saveAgent(client, "t", "a1", { ...input, approvalChannel: "phone" }, NOW)).approvalChannel,
+    ).toBe("phone");
+    for (const v of ["email", "both", true, 1, null, undefined, "PHONE"]) {
+      const d = await saveAgent(client, "t", "a1", { ...input, approvalChannel: v }, NOW);
+      expect(d.approvalChannel).toBeUndefined();
+    }
+  });
+
+  it("keeps the phone channel across an edit that doesn't mention it, and 'email' clears it", async () => {
+    const phone = { pk: AGENTS_PK, sk: agentSk("a1"), ...AGENT, approvalChannel: "phone" };
+    const kept = await saveAgent(fakeDdb([phone]).client, "t", "a1", input, NOW);
+    expect(kept.approvalChannel).toBe("phone");
+    const back = await saveAgent(fakeDdb([phone]).client, "t", "a1", { ...input, approvalChannel: "email" }, NOW);
+    expect(back.approvalChannel).toBeUndefined();
+  });
 });
 
 describe("deleting an agent", () => {

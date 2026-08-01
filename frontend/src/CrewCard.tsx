@@ -375,6 +375,18 @@ function AgentForm(props: {
   const [mailboxes, setMailboxes] = useState<string[]>([]);
   // Field 3: who may START this agent by mail. Default closed — owner only.
   const [openInbox, setOpenInbox] = useState(props.agent?.openInbox ?? false);
+  // Where THIS agent's approvals and questions reach the owner (§15i). The owner's
+  // explicit choice, per agent — never inferred from a phone being paired. Default
+  // email, which is also what every agent saved before this field existed means.
+  const [approvalChannel, setApprovalChannel] = useState<"email" | "phone">(
+    props.agent?.approvalChannel ?? "email",
+  );
+  // Only to WARN honestly beside the phone option — the choice itself is never gated
+  // on it, because the runner falls back to email whenever the phone is unreachable.
+  const [phonePush, setPhonePush] = useState<boolean | null>(null);
+  useEffect(() => {
+    void api.mobileStatus().then((r) => setPhonePush(r.pushEnabled ?? false)).catch(() => {});
+  }, []);
   const [sched, setSched] = useState<AgentSchedule | null>(props.agent?.schedule ?? null);
 
   useEffect(() => {
@@ -807,6 +819,28 @@ function AgentForm(props: {
             </div>
           )}
 
+          {/* Where this agent's "needs you" moments reach the owner (§15i). Always
+              visible: questions pause runs even for agents with no email tools. The
+              choice moves the doorbell, never the door — copy says so in place. */}
+          <label className="field" style={{ margin: 0 }}>
+            <span>When {name.trim() || "this agent"} needs your OK, reach you…</span>
+            <select
+              className="select"
+              value={approvalChannel}
+              onChange={(e) => setApprovalChannel(e.target.value === "phone" ? "phone" : "email")}
+            >
+              <option value="email">By email — a link to your approval address</option>
+              <option value="phone">On your phone — a notification from the CrewPoppy app</option>
+            </select>
+            <small className="muted" style={{ fontSize: 12 }}>
+              {approvalChannel === "phone"
+                ? "Your phone buzzes instead of an email arriving. Approvals still wait exactly the same way — and if no phone is listening (app deleted, notifications off), the email link is sent instead, so nothing can wait unseen."
+                : "The default. Approval requests and questions arrive at your approval address as a link."}
+              {approvalChannel === "phone" && phonePush === false &&
+                " ⚠ No phone has notifications on right now — until one does, approvals will arrive by email."}
+            </small>
+          </label>
+
           {/* The grant, in one sentence, immediately above the button that grants it. */}
           <div className="card" style={{ margin: 0, padding: 10 }}>
             <strong style={{ fontSize: 13 }}>
@@ -854,6 +888,7 @@ function AgentForm(props: {
                 tools: chosen,
                 emailFrom: emailFrom.trim(),
                 openInbox,
+                approvalChannel,
                 avatar: avatar ?? "",
                 schedule: sched && sched.task.trim() ? sched : null,
                 caps: { ...(props.agent?.caps ?? {}), monthlySpendCapUsd: cap },

@@ -1211,7 +1211,7 @@ follow-ups, deliberately not half-wired.
 scan (only paste has been exercised) · re-certify before the next catalogue release
 (0.3.0 and 0.4.0 both changed the stack).
 
-### 15i. Approval channels — owner's choice, PER AGENT (founder, 2026-08-01, TO BUILD)
+### 15i. Approval channels — owner's choice, PER AGENT (founder, 2026-08-01 — BUILT 2026-08-01, in the next release)
 
 Now that the phone exists, the email link is one approval channel of two. The choice is
 the OWNER'S, made explicitly — never inferred by the system from "a phone is paired" or
@@ -1246,6 +1246,22 @@ it defeats (2) — that's exactly what (1) exists for.
 Also fix the dispatcher's refusal text: it says "no email address has been set up for
 you" when the missing thing is the APPROVER address, which misled the founder when the
 agent had its own emailFrom.
+
+**As built (2026-08-01):** `approvalChannel?: "email"|"phone"` on AgentDef — stored only
+as the literal `"phone"`, so email is absence and every pre-§15i agent already means
+email. Editor picker ("When … needs your OK, reach you…") with an honest warning when no
+phone is notifying (GET /mobile now returns `pushEnabled`). Runner: phone channel AWAITS
+`pushPing` — now returning `"delivered" | "silent"` — and sends the email link only when
+the answer is silent; email channel unchanged (link + best-effort buzz). The relay's
+`delivered` was made truthful for this: it counts only Expo tickets with status "ok" and
+deletes DeviceNotRegistered bindings, so an uninstalled app stops counting on the next
+ping. Dispatcher: three refusals that name the actual missing thing (owner address /
+approver / from-address); phone-channel agents may PROPOSE sends with no owner address;
+with no owner address no recipient is free — even mail "to the owner" gates. mailIntake:
+the push opt-in row satisfies "an approver exists" for phone-channel agents; with no
+owner address nobody is the owner, so only open inboxes accept mail. Mobile app (next
+build): switching push off names the phone-approval agents first. Tests across all four
+surfaces (372 green).
 
 ## 16. Plan
 

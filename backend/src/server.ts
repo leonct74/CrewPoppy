@@ -27,7 +27,7 @@ import { consoleUrl, getCatalogue, getModelAccess } from "./bedrock";
 import {
   COMING_CAPABILITIES, EMAIL_TOOLS, TOOL_GROUPS, TOOL_NAMES, TOOL_NOTES,
   describeSchedule, nextRunAt, sanitiseSchedule,
-  CONFIG_PK, LAST_TICK_SK, TICK_MINUTES,
+  CONFIG_PK, LAST_TICK_SK, PUSH_SK, TICK_MINUTES,
 } from "@crewpoppy/shared";
 
 const boot = readBootstrap();
@@ -169,7 +169,16 @@ const server = createServer(async (req, res) => {
     // state. Pairing MINTS the one phone login and returns the QR payload — the
     // password inside it is never stored and never appears in any later response.
     if (method === "GET" && parts[0] === "mobile" && parts.length === 1) {
-      return json(res, 200, await getMobileStatus(cfn, cognito));
+      const status = await getMobileStatus(cfn, cognito);
+      // §15i: the editor warns when an agent's approvals point at a phone that has
+      // notifications off. Read from the row the PHONE wrote — the runner's own truth.
+      const push = status.doorReady
+        ? await ddb
+            .send(new GetCommand({ TableName: tableName, Key: { pk: CONFIG_PK, sk: PUSH_SK } }))
+            .then((r) => (r.Item as { enabled?: boolean } | undefined)?.enabled === true)
+            .catch(() => false)
+        : false;
+      return json(res, 200, { ...status, pushEnabled: push });
     }
     if (method === "POST" && parts[0] === "mobile" && parts[1] === "pair" && parts.length === 2) {
       const out = await pairMobile(cfn, cognito, region);

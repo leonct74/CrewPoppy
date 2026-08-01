@@ -62,6 +62,12 @@ export interface DispatchContext {
   enabled: readonly string[];
   /** Where `email_owner` goes. Install configuration — never a tool argument. */
   ownerEmail?: string;
+  /**
+   * Where this agent's approvals are offered (DESIGN §15i). With "phone", proposing a
+   * send needs no owner address — the approval arrives on the paired phone, so the
+   * missing email must not block the proposal the way it rightly does on "email".
+   */
+  approvalChannel?: "email" | "phone";
   /** The verified identity this agent sends FROM. Defaults to the owner's address. */
   fromAddress?: string;
   /** Hard ceiling on messages per agent per day. */
@@ -210,7 +216,17 @@ async function run(ctx: DispatchContext, name: ToolName, args: Record<string, un
       }
       if (!subject) return { content: "send_email needs a 'subject'.", isError: true };
       if (!body) return { content: "send_email needs a 'body'.", isError: true };
-      if (!ctx.ownerEmail) return { content: NO_OWNER_ADDRESS, isError: true };
+      // A send needs two things that are configuration, not arguments: an address to
+      // send FROM, and a way to offer the owner the approval. On the email channel the
+      // approval IS the owner's address, so its absence blocks the proposal; on the
+      // phone channel (DESIGN §15i) the approval arrives on the paired phone, and only
+      // the from-address still matters.
+      if (!ctx.fromAddress && !ctx.ownerEmail) {
+        return { content: NO_FROM_ADDRESS, isError: true };
+      }
+      if (ctx.approvalChannel !== "phone" && !ctx.ownerEmail) {
+        return { content: NO_APPROVER_ADDRESS, isError: true };
+      }
 
       // An attachment is validated NOW, at propose time: a bad name should bounce back
       // to the model immediately, not surface as a failure after the owner approved.
@@ -218,8 +234,9 @@ async function run(ctx: DispatchContext, name: ToolName, args: Record<string, un
       if (attach && !isSafeRelativePath(attach)) return { content: badPath(), isError: true };
 
       // Writing to your owner is not "reaching the outside world" — it's the same inbox
-      // `email_owner` uses, so it doesn't need approving.
-      if (normaliseEmail(to) === normaliseEmail(ctx.ownerEmail)) {
+      // `email_owner` uses, so it doesn't need approving. Only when an owner address
+      // EXISTS: with none configured, no recipient is free and everything gates (§15i).
+      if (ctx.ownerEmail && normaliseEmail(to) === normaliseEmail(ctx.ownerEmail)) {
         return sendMail(ctx, ctx.ownerEmail, subject, body, attach);
       }
 
@@ -278,8 +295,16 @@ async function run(ctx: DispatchContext, name: ToolName, args: Record<string, un
   }
 }
 
+// Three refusals that name the ACTUAL missing thing. The old single message ("no email
+// address is set up for your owner") misled the founder live (2026-08-01): their agent
+// HAD its own sending address, and what was missing was the owner's approval address —
+// a different setting on a different card.
 const NO_OWNER_ADDRESS =
-  "No email address is set up for your owner yet, so you cannot send mail. Tell them that in your answer.";
+  "Your owner hasn't entered their own email address in CrewPoppy yet — that is a setting on their computer, separate from any address of yours. Tell them that in your answer.";
+const NO_APPROVER_ADDRESS =
+  "You can't email other people yet: outgoing mail waits for your owner's approval, which this agent is set to receive by email — and your owner hasn't entered their own address in CrewPoppy. Tell them to add it on their computer, or to switch your approvals to their phone.";
+const NO_FROM_ADDRESS =
+  "There is no address to send from: this agent has no email of its own and your owner hasn't entered theirs. Tell them to set one of the two up in CrewPoppy on their computer.";
 
 /**
  * Actually put a message on the wire.
@@ -308,7 +333,7 @@ export async function sendMail(
   attach?: string,
 ): Promise<ToolResult> {
   const from = ctx.fromAddress || ctx.ownerEmail;
-  if (!from) return { content: NO_OWNER_ADDRESS, isError: true };
+  if (!from) return { content: NO_FROM_ADDRESS, isError: true };
 
   // The attachment is fetched BEFORE the daily allowance is claimed: a missing file must
   // not burn one of the day's sends.

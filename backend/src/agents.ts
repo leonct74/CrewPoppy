@@ -68,6 +68,8 @@ export interface AgentInput {
   emailFrom?: unknown;
   /** May anyone start this agent by mail? Only literal true opens it (DESIGN §15g). */
   openInbox?: unknown;
+  /** Where approvals are offered (DESIGN §15i): only the literal "phone" moves them. */
+  approvalChannel?: unknown;
   /** A catalogue face id ("av-01"…"av-50"); "" clears it, absent leaves it alone. */
   avatar?: unknown;
   /** When it runs itself. null clears it; absent leaves it alone. */
@@ -135,6 +137,14 @@ export async function saveAgent(
       ? { openInbox: true }
       : input.openInbox === undefined && existing?.openInbox
         ? { openInbox: true }
+        : {}),
+    // Where approvals are offered (DESIGN §15i). Email is the default and is stored as
+    // ABSENCE, so every agent that predates this field already means "email". Only the
+    // literal "phone" is stored; anything else the client sends means email.
+    ...(input.approvalChannel === "phone"
+      ? { approvalChannel: "phone" as const }
+      : input.approvalChannel === undefined && existing?.approvalChannel === "phone"
+        ? { approvalChannel: "phone" as const }
         : {}),
     // Same rule as caps and tools: nothing the client sends is stored raw. A schedule
     // with no task, an hour of 99, or a timezone that doesn't exist becomes either a

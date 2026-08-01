@@ -77,6 +77,16 @@ export interface AgentDef {
    */
   openInbox?: boolean;
   /**
+   * WHERE this agent's "needs you" moments are offered (DESIGN §15i): the emailed
+   * approval link (absent/"email" — the default that works with no phone at all), or a
+   * buzz on the paired phone ("phone"). Per agent and chosen explicitly by the owner —
+   * never inferred from a phone being paired. The channel moves the doorbell, never the
+   * door: the approval gate itself is identical either way, and if the phone channel is
+   * verifiably dead (relay reports no registered device) the runner falls back to the
+   * email link rather than letting approvals gate unseen.
+   */
+  approvalChannel?: "email" | "phone";
+  /**
    * When this agent runs itself (DESIGN §5b). Data on the agent, not an AWS resource:
    * one ticker serves the whole install, so changing a schedule provisions nothing and
    * leaves nothing behind.

@@ -183,22 +183,29 @@ export async function recentExchanges(
  * push off silences this instantly with no redeploy, and an install that never opted
  * in never contacts the relay at all. The payload is the agent's NAME and a kind from
  * a fixed list — never content; the app fetches the truth from the owner's own API.
- * Whether the buzz actually happens is the relay's entitlement gate, not our concern.
+ * Whether the buzz actually happens is the relay's entitlement gate, not our concern —
+ * EXCEPT that the answer is reported back ("delivered" | "silent"), because for a
+ * phone-channel agent (DESIGN §15i) "silent" is the dead-phone signal that triggers the
+ * email fallback: push off, relay unreachable, entitlement lapsed, or no registered
+ * device left (the app was deleted) all mean nobody's phone buzzed.
  */
 export async function pushPing(
   table: string,
   agentName: string,
   kind: "waiting" | "approval",
-): Promise<void> {
+): Promise<"delivered" | "silent"> {
   const row = (await get(table, CONFIG_PK, PUSH_SK)) as
     | { enabled?: boolean; poolId?: string; relayUrl?: string }
     | undefined;
-  if (row?.enabled !== true || !row.poolId || !row.relayUrl) return;
-  await fetch(new URL("/api/push/ping", row.relayUrl), {
+  if (row?.enabled !== true || !row.poolId || !row.relayUrl) return "silent";
+  const res = await fetch(new URL("/api/push/ping", row.relayUrl), {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ poolId: row.poolId, agentName, kind }),
   });
+  if (!res.ok) return "silent";
+  const parsed = (await res.json().catch(() => ({}))) as { delivered?: number };
+  return typeof parsed.delivered === "number" && parsed.delivered > 0 ? "delivered" : "silent";
 }
 
 function systemPrompt(agent: AgentDef): string {
@@ -376,14 +383,8 @@ async function mailIntake(table: string, ev: MailEvent): Promise<{ ok: boolean; 
   const messageId = str(ev.messageId);
   if (!to || !from || !text || !messageId) return { ok: false, status: "mail: malformed" };
 
-  // No approver address means no approval gate — with the gate missing, NOTHING may
-  // start by mail, whoever sent it.
   const ownerEmail = ((await get(table, CONFIG_PK, OWNER_EMAIL_SK)) as { email?: string } | undefined)
     ?.email;
-  if (!ownerEmail) {
-    console.log("[crewpoppy] mail dropped: no approval address configured");
-    return { ok: true, status: "mail: dropped (no approver)" };
-  }
   const v = ev.verdicts ?? {};
   const pass = (k: keyof typeof v) => String(v[k] ?? "").toUpperCase() === "PASS";
   if (!pass("spf") || !pass("dkim") || !pass("spam") || (v.virus !== undefined && !pass("virus"))) {
@@ -417,10 +418,26 @@ async function mailIntake(table: string, ev: MailEvent): Promise<{ ok: boolean; 
     return { ok: true, status: "mail: dropped (no agent)" };
   }
 
+  // An approver must EXIST before mail may start anything — with the gate unreachable,
+  // NOTHING starts, whoever sent it. The approver is the owner's address — or, for an
+  // agent whose approvals go to the phone (DESIGN §15i), the push opt-in row the phone
+  // itself wrote: a paired, notifying phone is a reachable approver.
+  if (!ownerEmail) {
+    const push =
+      agent.approvalChannel === "phone"
+        ? ((await get(table, CONFIG_PK, PUSH_SK)) as { enabled?: boolean } | undefined)
+        : undefined;
+    if (push?.enabled !== true) {
+      console.log("[crewpoppy] mail dropped: no approver configured");
+      return { ok: true, status: "mail: dropped (no approver)" };
+    }
+  }
+
   // The sender gate (DESIGN §15g). Owner-only unless THIS agent's inbox was opened —
   // a choice made in the editor, per agent, default closed. Opening it widens who can
   // START a run, never what the run may do: outsider replies still stop for approval.
-  const fromOwner = normaliseEmail(from) === normaliseEmail(ownerEmail);
+  // No owner address ⇒ nobody is the owner: only an OPEN inbox accepts anything.
+  const fromOwner = !!ownerEmail && normaliseEmail(from) === normaliseEmail(ownerEmail);
   if (!fromOwner && !agent.openInbox) {
     console.log(`[crewpoppy] mail dropped: sender is not the owner (${from}) and ${to} is owner-only`);
     return { ok: true, status: "mail: dropped (sender)" };
@@ -634,6 +651,7 @@ async function runSegment(event: RunnerEvent): Promise<{ ok: boolean; status: st
       enabled: agent.tools ?? [],
       ownerEmail,
       fromAddress: agent.emailFrom || ownerEmail,
+      approvalChannel: agent.approvalChannel,
       maxEmailsPerDay: MAX_EMAILS_PER_DAY,
     };
 
@@ -710,12 +728,25 @@ async function runSegment(event: RunnerEvent): Promise<{ ok: boolean; status: st
         }),
       );
       await finish("waiting", usage, iterations, "waiting_for_you", outcome.message);
-      await sendApprovalLink(agent, ownerEmail, outcome.suspend, event.runId, token, record);
-      // The phone buzz (DESIGN §15h M3) — only if the owner opted in, and carrying
-      // nothing but the agent's name and the kind of attention needed. Best-effort by
-      // design: a relay outage must never affect a run, so failures vanish silently
-      // and the request keeps waiting faithfully in the app either way.
-      void pushPing(table, agent.name, outcome.suspend.pending ? "approval" : "waiting").catch(() => {});
+      const kind = outcome.suspend.pending ? ("approval" as const) : ("waiting" as const);
+      if (agent.approvalChannel === "phone") {
+        // The owner chose the phone for THIS agent (DESIGN §15i): buzz instead of
+        // emailing the link. The email is only the dead-phone safety net — sent when
+        // nobody's phone verifiably buzzed (relay says no device, push off, relay
+        // down), so a deleted app can never strand approvals unseen. The request
+        // itself waits identically either way.
+        const buzz = await pushPing(table, agent.name, kind).catch(() => "silent" as const);
+        if (buzz !== "delivered") {
+          await sendApprovalLink(agent, ownerEmail, outcome.suspend, event.runId, token, record);
+        }
+      } else {
+        await sendApprovalLink(agent, ownerEmail, outcome.suspend, event.runId, token, record);
+        // The phone buzz (DESIGN §15h M3) — only if the owner opted in, and carrying
+        // nothing but the agent's name and the kind of attention needed. Best-effort by
+        // design: a relay outage must never affect a run, so failures vanish silently
+        // and the request keeps waiting faithfully in the app either way.
+        void pushPing(table, agent.name, kind).catch(() => {});
+      }
       return { ok: true, status: "waiting" };
     }
 

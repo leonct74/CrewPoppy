@@ -96,6 +96,8 @@ export interface AgentSummary {
   emailFrom?: string;
   /** May anyone start this agent by emailing it, or only the owner (the default)? */
   openInbox?: boolean;
+  /** Where approvals and questions reach the owner (§15i): email link (default) or phone buzz. */
+  approvalChannel?: "email" | "phone";
   schedule?: AgentSchedule;
   /** When it next fires, computed by the ticker's own code. */
   nextRunAt?: string;

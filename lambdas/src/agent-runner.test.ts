@@ -2,7 +2,7 @@
 // handler with AWS faked underneath it — not the pure helpers, which guardrails.test.ts
 // already covers.
 
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   AGENTS_PK, PROVEN_SK, agentPk, agentSk, provenPk, spendPk, spendSk, type AgentDef,
 } from "@crewpoppy/shared";
@@ -115,7 +115,7 @@ vi.mock("@aws-sdk/client-bedrock-runtime", () => {
   };
 });
 
-const { handler, settlePending, recentExchanges, RECALL_EXCHANGES, RECALL_CHARS } = await import(
+const { handler, settlePending, recentExchanges, pushPing, RECALL_EXCHANGES, RECALL_CHARS } = await import(
   "./agent-runner"
 );
 
@@ -591,6 +591,47 @@ describe("mail arriving for an agent-owned mailbox", () => {
     expect(mailRuns()).toHaveLength(0);
   });
 
+  // §15i: for a phone-approval agent, the push opt-in row the phone wrote IS a
+  // reachable approver — mail may start runs with no owner address at all, because
+  // every gated reply can still be approved on the phone.
+  describe("a phone-approval agent with no owner address", () => {
+    const seedPhoneWorld = (pushEnabled: boolean) => {
+      process.env.CREWPOPPY_TABLE = TABLE;
+      state.items.set(key(AGENTS_PK, agentSk("m1")), {
+        pk: AGENTS_PK, sk: agentSk("m1"), ...agent, id: "m1", name: "Postie",
+        emailFrom: "postie@ollydigital.com", openInbox: true, approvalChannel: "phone",
+      });
+      if (pushEnabled) {
+        state.items.set(key("config", "push"), {
+          pk: "config", sk: "push", enabled: true, poolId: "eu-west-1_x", relayUrl: "https://agentspoppy.com/",
+        });
+      }
+    };
+
+    it("accepts mail when the phone is notifying — that IS the approver", async () => {
+      seedPhoneWorld(true);
+      const r = await handler(mail({ from: "customer@buyer.example" }) as never);
+      expect(r.status).toBe("mail: started");
+      expect(mailRuns()).toHaveLength(1);
+    });
+
+    it("still drops everything when push is off — no approver anywhere", async () => {
+      seedPhoneWorld(false);
+      const r = await handler(mail({ from: "customer@buyer.example" }) as never);
+      expect(r.status).toBe("mail: dropped (no approver)");
+      expect(mailRuns()).toHaveLength(0);
+    });
+
+    it("with no owner address, NOBODY is the owner — a closed inbox accepts nothing", async () => {
+      seedPhoneWorld(true);
+      const closed = state.items.get(key(AGENTS_PK, agentSk("m1")))!;
+      delete (closed as { openInbox?: boolean }).openInbox;
+      const r = await handler(mail() as never); // even the founder's own address
+      expect(r.status).toBe("mail: dropped (sender)");
+      expect(mailRuns()).toHaveLength(0);
+    });
+  });
+
   // The open inbox (DESIGN §15g): a per-agent choice that widens who may START a run,
   // and provably nothing else.
   describe("when the agent's inbox is open to anyone", () => {
@@ -760,5 +801,46 @@ describe("Memory means the chat continues (founder, 2026-07-31)", () => {
     await handler({ runId: "new", agentId: "a1", input: "next question", tableName: TABLE } as never);
     const body = JSON.parse(String(state.invocations[0]!.body));
     expect(body.messages).toHaveLength(3);
+  });
+});
+
+// §15i: pushPing's answer is what decides the dead-phone email fallback, so what it
+// reports has to be the truth — "delivered" ONLY when the relay says a phone buzzed.
+describe("pushPing tells the truth about whether a phone buzzed", () => {
+  const optIn = () =>
+    state.items.set(key("config", "push"), {
+      pk: "config", sk: "push", enabled: true, poolId: "eu-west-1_x",
+      relayUrl: "https://agentspoppy.com/",
+    });
+  const relaySays = (body: unknown, ok = true) =>
+    vi.fn(async () => ({ ok, json: async () => body }));
+
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("is silent without the opt-in row — and never contacts the relay", async () => {
+    const fetchMock = relaySays({ delivered: 5 });
+    vi.stubGlobal("fetch", fetchMock);
+    expect(await pushPing(TABLE, "Emma", "approval")).toBe("silent");
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("is delivered when the relay reached a phone", async () => {
+    optIn();
+    vi.stubGlobal("fetch", relaySays({ ok: true, delivered: 1 }));
+    expect(await pushPing(TABLE, "Emma", "approval")).toBe("delivered");
+  });
+
+  it("is silent when the relay reached NOBODY — deleted app, lapsed plan", async () => {
+    optIn();
+    vi.stubGlobal("fetch", relaySays({ ok: true, delivered: 0 }));
+    expect(await pushPing(TABLE, "Emma", "approval")).toBe("silent");
+  });
+
+  it("is silent when the relay errors or answers rubbish", async () => {
+    optIn();
+    vi.stubGlobal("fetch", relaySays({}, false));
+    expect(await pushPing(TABLE, "Emma", "waiting")).toBe("silent");
+    vi.stubGlobal("fetch", vi.fn(async () => ({ ok: true, json: async () => { throw new Error("bad json"); } })));
+    expect(await pushPing(TABLE, "Emma", "waiting")).toBe("silent");
   });
 });

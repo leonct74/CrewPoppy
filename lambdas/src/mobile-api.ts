@@ -290,6 +290,8 @@ export async function handler(event: UrlEvent) {
         avatar: d.avatar,
         modelId: d.modelId,
         caps: d.caps,
+        // §15i: the app warns before push is switched off while an agent relies on it.
+        approvalChannel: d.approvalChannel ?? "email",
         monthSpendUsd: await monthSpendUsd(table, d.id, nowIso),
         latestRun: await latestRun(table, d, now),
       })),

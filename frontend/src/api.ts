@@ -139,8 +139,8 @@ export const api = {
     invoke({ method: "POST", path: "/teardown" }, 15 * 60_000),
 
   // ---- the phone (DESIGN §15h M1) ------------------------------------------
-  /** Is the mobile door deployed, and does a phone login exist? Read live. */
-  mobileStatus: (): Promise<{ doorReady: boolean; paired: boolean }> =>
+  /** Is the mobile door deployed, does a phone login exist, has it turned push on? */
+  mobileStatus: (): Promise<{ doorReady: boolean; paired: boolean; pushEnabled?: boolean }> =>
     invoke({ method: "GET", path: "/mobile" }),
 
   /**
