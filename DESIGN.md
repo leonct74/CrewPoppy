@@ -1466,6 +1466,25 @@ unentitled owner can flip the switch on, see "on", and never receive anything.
 Evidence the switch costs more than it earns: the trailing-slash allowlist bug (§15i) — a switch
 that could never turn on and reverted with no explanation — existed *because* the switch exists.
 
+**How the price list names it (founder, 2026-08-01).** Don't sell "notifications" — that names
+the mechanism, not the value. But the founder's first phrasing ("Lite: no mobile approval flow /
+PRO: includes mobile approval flow") must NOT be used, for two reasons:
+1. **It isn't true.** A Lite user can approve from the phone — open the app, see the waiting
+   request, tap. Only the *buzz* is paid. Selling a capability people already have invites refund
+   requests and contradicts the honesty the product trades on.
+2. **It attacks the founder's own Apple position.** Mobile access went into Lite precisely so
+   Apple could not call the app payware; a public price list stating the mobile approval flow is
+   PRO-only hands a reviewer that argument in writing (§15k, Problem 2).
+
+Use the distinction that is actually true — whether the work **comes to you or waits for you**:
+**Lite: you check in on your crew · PRO: your crew reaches you.** Accurate, sells the real value
+(agents keep moving while you're away from the desk instead of stalling until you next look),
+never says "notifications", and stays true if other ways of reaching someone are added later.
+
+The coherent alternative — genuinely making phone approvals PRO-only — is rejected: it means
+deliberately crippling the free app, and it strengthens the payware reading rather than weakening
+it.
+
 ## 16. Plan
 
 - **P0 — walking skeleton:** scaffold (vm-poppy layout) → manifest + permission set verified against
