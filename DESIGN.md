@@ -1368,6 +1368,19 @@ copying cells out of Excel puts tab-separated text on the clipboard.
 
 ## 17. Status
 
+**2026-08-01: 0.5.0 RELEASED — approval channels, the spreadsheet, and the fix the
+catalogue needed.** Pack 6.3 MB, sha `5b57482d…`. **No certify, deliberately:**
+`extension.json` and `infra/` are BYTE-IDENTICAL to the 0.4.0 tag, so the deployed
+footprint is exactly the 13 resources certify passed then — every change is application
+code (Lambda handlers, sidecar, frontend). Re-certifying would have torn down the
+founder's live deployment mid-push-test to re-prove an unchanged footprint. **No
+permission change since the 0.4.0 consent** — release notes say so explicitly.
+Contents: §15i per-agent approval channel + dead-phone email fallback · the PUT /push
+allowlist fix (0.4.0 shipped a notification switch that could NEVER turn on, so the
+phone channel worked for nobody but the dev install — this release is what makes M3
+real for users) · §15j the crew as a spreadsheet · the dead-download fix · three
+refusal texts that name the missing thing. 391 tests.
+
 **2026-08-01: 0.4.0 RELEASED — the phone app's deployment, certified and listed.**
 Certify PASSED with the full 13-resource footprint (residual sweep zero; two tag-index
 lag warnings, the documented-normal kind). Full B-flow: pack (6.3 MB, sha `bbb54478…`),
