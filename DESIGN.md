@@ -1211,20 +1211,41 @@ follow-ups, deliberately not half-wired.
 scan (only paste has been exercised) · re-certify before the next catalogue release
 (0.3.0 and 0.4.0 both changed the stack).
 
-### 15i. Approval channels — owner's choice (founder, 2026-08-01, TO BUILD)
+### 15i. Approval channels — owner's choice, PER AGENT (founder, 2026-08-01, TO BUILD)
 
-Now that the phone exists, the email link is one approval channel of two. New setting
-(desktop email card): approve by **email** OR by **phone** — a two-way choice, per the
-founder's correction (2026-08-01): one channel, deliberately chosen, not a "both" that
-splits attention. Default stays email (works with no phone paired); switching to phone
-requires a paired phone with push on. Semantics: the channel choice controls WHERE the approval is offered
-(send the §15e link / ping the relay) — the gate itself never weakens. Phone-only mode
-must (a) skip sendApprovalLink, (b) treat "an approver exists" in mailIntake as
-satisfied by the push opt-in row, (c) still handle the no-owner-email case: with no
-owner address, NO recipient is free — everything gates, which is safe. Also fix the
-dispatcher's refusal text: it says "no email address has been set up for you" when the
-missing thing is the APPROVER address, which misled the founder when the agent had its
-own emailFrom.
+Now that the phone exists, the email link is one approval channel of two. The choice is
+the OWNER'S, made explicitly — never inferred by the system from "a phone is paired" or
+"push is on" (founder, 2026-08-01: automatic switching is wrong because the same owner
+may want email for some agents and the app for others). So the setting is **per agent**,
+on each agent's card in the desktop: approve by **email** OR by **phone** — a two-way
+choice (founder's correction: one channel per agent, deliberately chosen, not a "both"
+that splits attention). Default stays email for every agent, including new ones — email
+works with no phone at all, and an owner who never opens the setting gets exactly
+today's behaviour. Choosing phone requires a paired phone with push on at the moment of
+choosing.
+
+Semantics: the channel controls WHERE the approval is offered (send the §15e link /
+ping the relay) — the gate itself never weakens, and the desktop always shows waiting
+approvals regardless of channel. Phone mode must (a) skip sendApprovalLink for that
+agent, (b) treat "an approver exists" in mailIntake as satisfied by the push opt-in
+row, (c) still handle the no-owner-email case: with no owner address, NO recipient is
+free — everything gates, which is safe.
+
+**The dead-phone trap (founder, 2026-08-01):** an owner who deletes the app (or turns
+push off) while agents are set to phone would silently stop hearing about approvals —
+scheduled runs would gate forever, unseen. Mitigations, all required: (1) the runner's
+ping is not fire-and-forget for phone-channel agents — it reads the relay's answer, and
+when the relay reports **no registered device** for the pool (Expo prunes dead tokens on
+DeviceNotRegistered), the runner falls back to sending the approval EMAIL for that run.
+The fallback is a safety net when the chosen channel is verifiably dead, not a third
+choice. (2) Turning push OFF in the app warns when any agent is set to phone approval.
+(3) The desktop agent card shows the chosen channel, and shows a warning on
+phone-channel agents whenever the push opt-in row is off. App deletion without opening
+it defeats (2) — that's exactly what (1) exists for.
+
+Also fix the dispatcher's refusal text: it says "no email address has been set up for
+you" when the missing thing is the APPROVER address, which misled the founder when the
+agent had its own emailFrom.
 
 ## 16. Plan
 
