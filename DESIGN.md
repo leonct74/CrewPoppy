@@ -1211,6 +1211,19 @@ follow-ups, deliberately not half-wired.
 scan (only paste has been exercised) · re-certify before the next catalogue release
 (0.3.0 and 0.4.0 both changed the stack).
 
+### 15i. Approval channels — owner's choice (founder, 2026-08-01, TO BUILD)
+
+Now that the phone exists, the email link is one approval channel of two. New setting
+(desktop email card): approve by **email**, **phone**, or **both** (default both when
+both exist). Semantics: the channel choice controls WHERE the approval is offered
+(send the §15e link / ping the relay) — the gate itself never weakens. Phone-only mode
+must (a) skip sendApprovalLink, (b) treat "an approver exists" in mailIntake as
+satisfied by the push opt-in row, (c) still handle the no-owner-email case: with no
+owner address, NO recipient is free — everything gates, which is safe. Also fix the
+dispatcher's refusal text: it says "no email address has been set up for you" when the
+missing thing is the APPROVER address, which misled the founder when the agent had its
+own emailFrom.
+
 ## 16. Plan
 
 - **P0 — walking skeleton:** scaffold (vm-poppy layout) → manifest + permission set verified against
