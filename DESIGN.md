@@ -1445,6 +1445,27 @@ rather than an abstraction. The demo does the selling.
 until they run* and the run is billed to the user's own AWS — confirm that stays true before
 advertising it.
 
+**Retire the notifications SWITCH (founder, 2026-08-01).** "I don't see the point of that
+switcher if notifications happen based on entitlement." Largely right, and the diagnosis is that
+the control conflates two different things:
+- a **preference** ("do I want buzzes?") — which **iOS already owns**, in Settings →
+  Notifications → CrewPoppy, revocable at any time. Ours is a second, worse copy of it; and
+- a **consent** ("may my deployment contact AgentsPoppy's relay at all?") — which is REAL and
+  must not be lost. The PUSH_SK row is the only thing standing between an owner who never wanted
+  notifications and a runner that pings our server with an agent's name on every approval. That
+  contact is precisely what the product promises does not happen, so it can never become
+  automatic-by-default.
+
+Replacement, to land with Lite/PRO: **buying the add-on is the consent**, and the DESKTOP writes
+the opt-in row at purchase. The phone keeps only the iOS permission prompt — itself a consent
+moment the user controls — and Settings shows **status, not a toggle**: "Notifications are on for
+this phone" / "Your plan doesn't include notifications". This also removes the silent-failure
+state found on 2026-08-01: registration is NOT entitlement-gated (only the ping is), so an
+unentitled owner can flip the switch on, see "on", and never receive anything.
+
+Evidence the switch costs more than it earns: the trailing-slash allowlist bug (§15i) — a switch
+that could never turn on and reverted with no explanation — existed *because* the switch exists.
+
 ## 16. Plan
 
 - **P0 — walking skeleton:** scaffold (vm-poppy layout) → manifest + permission set verified against
