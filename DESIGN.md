@@ -771,6 +771,12 @@ triggers · owner-API-key models · cross-poppy tools · agent template library 
 
 ## 15. Monetization — free core + ONE premium (LOCKED: the mobile app)
 
+> **PROPOSED REVISION — Lite / PRO (founder, 2026-08-01, NOT YET DECIDED).** See §15k. The
+> founder's objection to the locked model is sound: notifications alone are a weak paywall
+> because in the commonest case you are already in the chat waiting, so the buzz tells you
+> nothing you can't see. §15k records the proposal, what it fixes, and the two problems it
+> must answer before it replaces this section.
+
 **Doctrine (founder, 2026-07-19):** never mark up the infrastructure — it's the user's own AWS.
 Charge for ONE nice extra that lives *outside* the deployed infrastructure. Same structure as
 MailPoppy mobile / True Reach / Shielded DNS.
@@ -1381,6 +1387,63 @@ Also: the export is written with a UTF-8 BOM — without it Excel reads our own 
 the local codepage and mangles "Niccolò". Uploads keep the file picker (sandbox gates
 downloads, not pickers) AND accept pasted text, which is why the parser learned TABS:
 copying cells out of Excel puts tab-separated text on the clipboard.
+
+### 15k. PROPOSED: Lite / PRO (founder, 2026-08-01 — decision pending)
+
+**The founder's diagnosis, which is correct.** Notifications are a weak sole paywall: when an
+agent drafts an invoice you asked for, the approval arrives in seconds and you are still looking
+at the chat. The notification tells you what the screen already says. Few people will pay for it,
+and the ones who would are the ones running agents unattended — a minority of sessions.
+
+**The proposal.**
+- **Lite (free):** unlimited agents · upload documents · full use of the mobile app.
+- **PRO (paid, sold in the catalogue):** reaching the outside world (email to third parties) ·
+  bulk agent import from a spreadsheet · approvals routed to the phone · notifications.
+
+**What it fixes.** PRO now correlates with *doing business*, not with convenience. An agent that
+emails customers is worth paying for in a way that a buzz is not. It also keeps the free tier
+genuinely useful rather than crippled, which is the right shape for adoption.
+
+**⚠️ PROBLEM 1 — most of PRO is not technically enforceable, and this is structural.**
+The current paywall works *because it lives on our server*: the push relay checks the entitlement,
+and no amount of editing the client changes that. Every proposed PRO feature except notifications
+executes **inside the user's own AWS**, running **source-available code they can read and edit**.
+A gate on "send to a third party" is a few lines in `dispatcher.ts` on their own machine. So:
+- For business customers, an entitlement check plus the PolyForm Shield licence is enough — this
+  is how most source-available software monetises, and removing the gate is a licence breach even
+  when it is technically trivial. That is a real deterrent to a company, and none at all to a
+  hobbyist.
+- **Do not "fix" this by routing outbound mail through our infrastructure.** It would make the
+  gate hard, and it would destroy the product's actual promise (everything in your own account,
+  nobody in the middle). The paywall must never be the reason a design gets worse.
+- Recommendation: keep **at least one PRO feature genuinely server-enforced** (notifications
+  already are) so the tier has a hard anchor, and accept the rest as licence-backed.
+
+**⚠️ PROBLEM 2 — this does NOT settle the Apple question, and may sharpen it.**
+Putting mobile access in Lite fixes the *completeness* objection (2.1/4.2: the app must be
+useful without a purchase). It does not answer **3.1.1**, which is about unlocking *in-app*
+functionality with a purchase made elsewhere — and "approvals on your phone" and "notifications"
+are both experienced inside the iOS app. A clearly-named PRO tier is a more legible target than
+today's single vague paid extra. Mitigation, and it costs nothing: **the iOS app must never
+advertise, price, name, or link to PRO.** Features work or they don't, according to the
+deployment. Selling happens on the desktop and the website, where Apple has no claim.
+
+**Two refinements worth folding in.**
+1. **Export stays free; only import is PRO.** Locking people's own crew *in* contradicts "your
+   data, your exit" — which is now a published claim on the CrewPoppy page. Bulk creation is the
+   power feature; getting your data out is a right.
+2. **"Approvals on the phone" and "notifications" are nearly the same line item.** Without
+   notifications you can still open the app and approve, so selling both invites "what exactly
+   did I buy?". Collapse to one.
+
+**One addition that makes the free tier sell PRO for us.** Let a Lite agent email **the owner**
+(already not treated as reaching the outside world — §4c). Free users then experience the
+approval gate working, on their own inbox, and the upgrade is "now let it write to *customers*"
+rather than an abstraction. The demo does the selling.
+
+**Open question for the founder:** unlimited agents in Lite is safe *because agents cost nothing
+until they run* and the run is billed to the user's own AWS — confirm that stays true before
+advertising it.
 
 ## 16. Plan
 
