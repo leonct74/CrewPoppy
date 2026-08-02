@@ -65,10 +65,18 @@ when you open it.
 the device binding, and deleting the app causes Apple to report the token as dead, at
 which point we remove it.
 
-### If you buy something
+### If you buy a paid extra — never in the phone app
 
-Payment is processed by **Stripe**, which handles your name, email, billing address,
-country, any VAT identifier and the transaction itself. **We never see or store card
+**Nothing is sold inside the CrewPoppy phone app.** It contains no purchases, no
+subscriptions and no upgrades, and there is no way to pay for anything in it. The paid
+extras described here belong to the **desktop** app and are bought on our website.
+
+This distinction is not cosmetic: it is what an App Store reviewer checks against
+Guideline 3.1.1, and it must stay true. If a purchase is ever added to the phone app, it
+has to go through Apple's in-app purchase, and this paragraph changes with it.
+
+When you buy one on the website, payment is processed by **Stripe**, which handles your
+name, email, billing address, country, any VAT identifier and the transaction itself. **We never see or store card
 numbers.** We keep the resulting invoice records because tax law requires it.
 
 A purchase also creates a small entitlement record: an opaque buyer identifier, which
