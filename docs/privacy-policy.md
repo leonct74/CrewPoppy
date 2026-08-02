@@ -1,17 +1,20 @@
-# CrewPoppy — Privacy Policy (DRAFT for founder review)
+# CrewPoppy — Privacy Policy (PUBLISHED)
 
-> **Status: DRAFT. Not published.** This is a legal document and it is the founder's to
-> approve, word by word. Everything below is written from what the code actually does
-> (verified 2026-08-01), but two claims need your confirmation before this goes live —
-> they are marked **[CONFIRM]**.
+> **Status: PUBLISHED 2026-08-02**, live at `crewpoppy.com/privacy`, and the Privacy
+> Policy URL for the CrewPoppy iOS App Store listing. It must stay reachable for as long
+> as the app is listed.
 >
-> Intended home: `crewpoppy.com/privacy`, and the Privacy Policy URL for the iOS app.
-> Source of truth lives here in CrewPoppy's own repo so the website renders it rather
-> than owning it.
+> This file is the source of truth; the website renders its own copy in
+> `crewpoppy-web/src/app/privacy/page.tsx`. **Change both in the same commit** — they
+> drifted once already, and the file labelled "source of truth" was the one that was
+> wrong.
+>
+> Every claim here is a statement about what the code actually does. If the data flows
+> change, this changes with them, or the policy becomes false rather than merely stale.
 
 ---
 
-**Last updated:** [DATE ON PUBLICATION]
+**Last updated:** 2 August 2026
 
 This policy explains what personal data we collect and why, for **CrewPoppy** — the
 desktop app, the phone app, and this website.
@@ -87,17 +90,14 @@ records.*
 
 ### When you visit this website
 
-We measure visits with **TrafficPoppy**, our own privacy-first analytics, running in
-our own AWS — not Google Analytics, and no third-party advertising or tracking
-network. **[CONFIRM]** It uses no cookies, stores no identifier that could single you
-out, never writes your IP address to storage, records only the *hostname* a visit came
-from rather than the full referring address, and honours Global Privacy Control and Do
-Not Track by counting nothing at all.
+Our hosting keeps ordinary technical logs (IP address, browser type, requests) for a
+short period, to run and secure the site.
 
-Our hosting also keeps ordinary technical logs (IP address, browser type, requests) for
-a short period, to run and secure the site.
+There is **no analytics on crewpoppy.com** — no Google Analytics, no advertising or
+tracking network, and no product analytics of our own. If a TrafficPoppy site is ever
+created for crewpoppy.com, this paragraph and the site's `layout.tsx` change together.
 
-*Legal basis: our legitimate interest in understanding whether the site works.*
+*Legal basis: our legitimate interest in running, securing and debugging the service.*
 
 ### The phone app
 
@@ -158,27 +158,21 @@ Questions? **support@crewpoppy.com**
 
 ---
 
-## Notes for the founder (delete before publishing)
+## Maintenance notes
 
-**The two [CONFIRM] items.**
-1. *TrafficPoppy's behaviour* — I described the privacy invariants TrafficPoppy is
-   built to (no cookies, no visitor identifier at rest, IP never written, referrer
-   hostname only, GPC/DNT honoured). Confirm `stats.ollydigital.com` is running a build
-   where all of those hold, because this paragraph is a promise.
-2. *Expo as a processor* — the push token is obtained through Expo's service and
-   notifications are delivered through it. Confirm you're content to name Expo, and
-   that a DPA is in place; if you later move to direct Apple delivery, this line goes.
-
-**Matches the Apple privacy questionnaire as follows** — these must agree, or the
-mismatch is itself a problem:
+**This must keep matching the Apple privacy questionnaire** — a mismatch is itself a
+problem:
 - *Identifiers → Device ID*: **collected**, purpose **App Functionality**, **not** used
   for tracking, **not** linked to identity. (The notification token.)
 - Everything else — contact info, user content, location, browsing, search, health,
   financial: **not collected** by the app.
 - "Do you use data for tracking?" → **No.**
-- If you submit before wiring purchases into the app, the Stripe section still belongs
-  in the policy (it covers the desktop/website purchase), but nothing about payment is
-  collected *by the app*.
 
-**Still to write:** a matching Terms of Use for crewpoppy.com. The PolyForm Shield
-licence governs the software; the terms govern the service and the subscription.
+**Purchases are deliberately described as desktop-and-website only.** That is not
+cosmetic wording: an App Store reviewer checks it against Guideline 3.1.1. If a purchase
+is ever added to the phone app it must go through Apple's in-app purchase, and this
+policy, the Terms, and the review notes all change with it.
+
+**Expo is named as a processor** because the push token is obtained through Expo's
+service and notifications are delivered through it. If delivery ever moves to Apple
+directly, that line goes.
