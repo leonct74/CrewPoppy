@@ -534,17 +534,141 @@ does not widen its reach into anything the owner cares about; it widens what it 
 retrieves HTML. Google Flights, and most modern booking sites, are JavaScript applications: the
 first response is an empty shell and the prices arrive later from XHR calls the fetch never makes.
 So the founder's own example — *"the agent could simply browse google flights"* — **does not work
-with `web_fetch` alone**, and it will not be the agent's fault. Three honest routes: (a) accept it
-and let the agent report the failure, which the founder already expects it to do, and let people
-point it at pages that are server-rendered; (b) a real headless browser, which means a container
-image for the runner and a much heavier Lambda; (c) a flight-price API, which means a key. The
-scheduled-price-watch story needs (b) or (c). Do not put a flight example in the marketing until
-one of them exists — the crewpoppy.com copy deliberately does not.
+with `web_fetch` alone**, and it will not be the agent's fault. Do not put a flight example in the
+marketing until that changes — the crewpoppy.com copy deliberately has none.
+
+⚠️ **The paragraph above is WRONG, and §4f has the measurements.** Google serves a server-rendered
+no-JavaScript fallback: a plain fetch of a Google Flights search URL returns 60,906 characters of
+real itineraries and 29 fares, reproducibly. The founder's example works with `web_fetch` alone.
+The paragraph is kept rather than deleted because the mistake is the point — it was written from
+confident reasoning about how modern web apps behave, and one command disproved it. Read §4f.
 
 **Schedule granularity, while we are here.** `every 4 hours` is not expressible: the kinds are
 `hourly | daily | weekly` (`shared/src/schedule.ts:23`). Hourly covers the overnight-price case at
 4× the runs. If arbitrary intervals are wanted, that is a small addition to the same enum and the
 `isDue` maths — not a new mechanism.
+
+### 4f. P6 — the plan for price search and comparison (MEASURED, 2026-08-03)
+
+**The target, in the founder's words:** *"our target is to find a way to make possible for agents
+to search for pricing and make comparison."*
+
+**Measured before designed** — and the measurement overturned the reasoning in §4e, which is the
+reason this section exists rather than a paragraph of confident prose. Reproduce it with
+`python3 docs/web-fetch-probe.py`. Ordinary browser User-Agent, redirects followed, read-only GETs.
+The metric is the honest one: money found in the text an extractor recovers after `<script>` and
+`<style>` are stripped, because that stripped text is what the tool would hand the model.
+
+| Target | HTTP | Text recovered | Prices in text |
+|---|---|---|---|
+| **Google Flights, real search URL** | 200 | **60,906 chars of results** | **29** ✅ |
+| Ryanair booking page | 200 | **7 chars** | 0 |
+| Kayak flight search | 200 | 2,384 chars (bot-check page) | 0 |
+| tweakers.net Pricewatch | 200 | **22 chars** | 0 |
+| coolblue.nl category | 200 | 17,484 chars | 0 |
+| idealo.de price comparison | **403** | 268 chars | 0 |
+| currys.co.uk category | **403** | 770 chars | 0 |
+| Google Flights via r.jina.ai (rendering reader) | **403** | 16 chars | 0 |
+| *Wikipedia, Hacker News (controls)* | 200 | full text | *n/a* |
+
+**Google Flights works with a plain fetch, and it is the founder's exact use case.** Google serves
+a **server-rendered no-JavaScript fallback** containing real itineraries for the requested route and
+date — airline, airport, "Nonstop", CO2, and fares from €97 round trip, with departure dates
+attached. Verified stable: four consecutive fetches returned byte-identical 60,906 chars and the
+same 29 fares. At roughly **15k tokens per page** it is comfortably affordable inside a run and a
+monthly cap.
+
+⚠️ **Two earlier readings of this same URL were wrong, and both errors are instructive.** The first
+counted prices in the *raw HTML* and found 22 — they were inside script blobs, not readable text.
+The second stripped scripts correctly but caught a variant that returned 2,140 chars ending in
+*"Loading results"*, and that became a confident claim in §4e that the use case was impossible. Only
+repeated runs settled it. **Probe more than once before writing a conclusion into this document.**
+
+**The rest of the field still fails, and the two failure modes are real:**
+
+1. **The price is never in the HTML** — fetched by the page's own JavaScript after load. Ryanair
+   returns seven characters of text. No parser recovers data that was never sent.
+2. **The request is refused before that matters** — three 403s, including the rendering reader.
+   Retail and comparison sites treat automated access as an attack, and a Lambda's datacentre IP is
+   the easiest thing in the world to classify.
+
+Neither is fixed by a nicer User-Agent or a better extractor. But note what the table actually says:
+the failures cluster in **retail and airline-direct booking**, while the aggregator that publishes a
+no-JS fallback works. The lesson is not "the web is closed" — it is **which targets to point people
+at**, which is a §15l recipe decision as much as an engineering one.
+
+**One trap to avoid on the way past.** Google Flights' raw payload also carries fares inside
+`AF_initDataCallback` script blobs, in 1.9 MB of minified JavaScript — roughly half a million tokens
+if handed to the model whole. The readable fallback above is 15k. Extract text and cap the body
+(§4e); never pass raw HTML through, or one fetch spends the month's budget.
+
+#### The plan: split P6, because these are different problems
+
+**P6a — `web_fetch`, the general web.** Build it first, exactly as §4e specifies. It is small, it
+changes no permission, it adds no infrastructure, and it unlocks a genuinely large class:
+documentation, reference and government pages, articles, RSS, any JSON API the owner points it at —
+**and, on the evidence above, the flight-price watch that started this whole thread.** That last
+one is the flagship demo and it needs no key, no provider and no third party. Build P6a, point a
+scheduled agent at a Google Flights URL, and the founder's use case runs end to end on shipped
+parts.
+
+⚠️ **It rests on a no-JS fallback Google is under no obligation to keep.** Do not hard-code
+anything about the page shape; treat it as one URL among many, keep the probe in `docs/` current,
+and make the agent's failure message clear enough that the day it stops working the owner is told
+rather than quietly given nothing.
+
+One UI consequence falls straight out of the measurements: when a fetch succeeds but yields almost
+no text, the tool must return a **specific** failure — *"this page builds itself in a browser; I
+could not read it"* — and a 403 must say *"this site refused an automated request."* Not an empty
+string the model then hallucinates around. Given that, the agent reports the problem to the owner,
+which is exactly the behaviour the founder predicted it would have.
+
+**P6b — the web provider: one setting that decides how far an agent can reach.** Needed for the
+targets P6a cannot reach — retail comparison, airline-direct booking, anything behind a 403 — and
+*not* for flights via the aggregator. That reordering matters: P6b is no longer on the critical path
+to a working demo, so it can be judged on real demand instead of built on faith. The agent still
+sees one tool with one signature. The deployment carries a provider setting:
+
+- **`direct`** — the plain fetch of P6a. Free, no key, no third party. The default.
+- **A rendering / anti-bot API** — owner-supplied key (ScrapingBee, Zyte, Firecrawl, Bright Data,
+  Oxylabs). A real browser plus residential egress, which is the only thing that answers *both*
+  failure modes at once. This is what commercial price monitoring actually runs on.
+- **A search API** — SerpApi and its equivalents expose **Google Flights and Google Shopping as
+  structured JSON endpoints**. This is the shortest honest path to the founder's literal example,
+  and it returns clean data rather than a page to be parsed and hoped over.
+- **Later, domain APIs** — Amadeus / Duffel / Kiwi for flights, eBay Browse for retail. Structured
+  and legitimate; each is its own integration, so add them only where the demand is proven.
+
+**Why an adapter rather than picking one now:** every option above costs a key and a bill, and which
+one is right depends on the owner's country and target sites. One seam, several backends, and the
+agent-facing tool never changes shape as they are added.
+
+**The comparison half is already built, and this is the good news.** Once text or JSON is in the
+loop the model compares it; `memory_write` remembers last week's number; the hourly schedule re-runs
+it overnight, which is where the founder observed prices move; `save_pdf` produces the table and
+`send_email` delivers it behind the approval gate. All shipped, all tested. **Every unsolved part
+of this feature is retrieval** — which makes P6b the whole job rather than half of it.
+
+#### Three things to decide before P6b is built
+
+1. **Who pays the provider.** A key is a bill that is not AWS. crewpoppy.com says *"You pay AWS for
+   what your agents actually use. Nothing to us"* — that stays true, but *"nothing to anyone else"*
+   stops being. Same class of copy change as §15l's paid packs, and it should be made in the same
+   breath.
+2. **Data leaves the account.** With a provider, the URL an agent visits is handed to a third party.
+   It is a public URL rather than the owner's documents, but §9 and the privacy policy both say work
+   stays in the owner's AWS. That needs one honest sentence in each, and the provider setting should
+   say it at the moment of choosing — not in a policy nobody opens.
+3. **Terms of service.** Scraping Google Flights breaches Google's terms; using a provider does not
+   change that, it only makes it work. SerpApi, Amadeus and Duffel are the routes that are both
+   technically and contractually sound. Default the documentation to those, and never ship a §15l
+   recipe pointed at a site whose terms forbid it — a recipe is us telling someone to do it.
+
+**Recommended order:** **P6a now, and stop there until it has been used.** It delivers the flight
+watch by itself, which was the thing worth proving. Then re-run the probe against whatever people
+actually ask for, and build the P6b seam with **one** backend only when a real target needs it —
+chosen by measurement, not by catalogue. The probe is the template: measure, then decide, and put
+the numbers in this document rather than the reasoning that preceded them.
 
 ## 5. Execution model
 
@@ -1622,11 +1746,19 @@ updates over time, never secrecy. Price it as a subscription to a maintained set
 - **P4 — premium: CrewPoppy Mobile** — fork the MailPoppy mobile codebase (RN/Expo, Cognito SRP,
   push pipeline, store runbooks) into the agent-chat app; entitlement-gate it per deployment via
   the AgentsPoppy checkout; store submissions per the MailPoppy RUNBOOK lessons (org account!).
-- **P6 — web access (§4e):** `web_fetch` as an opt-in per-agent capability — private-network block
-  (re-checked after every redirect), body cap, per-run fetch cap, every URL in the transcript,
-  fetched bytes delimited as untrusted data. Add it to `COMING_CAPABILITIES` the moment it is
-  agreed, so the app stops implying agents can already read the web. `web_search` is a separate
-  decision (needs a provider and an owner-supplied key). **Closes the §4/P2 gap, not a new idea.**
+- **P6a — `web_fetch`, the general web (§4e, §4f):** an opt-in per-agent capability —
+  private-network block (re-checked after every redirect), body cap, per-run fetch cap, every URL
+  in the transcript, fetched bytes delimited as untrusted data, and **specific** failures for the
+  two measured cases (page renders in a browser / site refused an automated request). Add it to
+  `COMING_CAPABILITIES` the moment it is agreed, so the app stops implying agents can already read
+  the web. **Closes the §4/P2 gap, not a new idea.**
+- **P6b — the web provider seam (§4f), only when a real target needs it:** one deployment setting —
+  `direct` free by default, or an owner-supplied key for a rendering/anti-bot API or a structured
+  search API — behind a single unchanged agent-facing tool. **Deliberately NOT on the critical
+  path:** §4f measured that Google Flights serves a no-JS fallback a plain fetch can read, so the
+  flight-price watch ships in P6a with no key and no third party. P6b buys the targets that stay
+  shut (retail comparison, airline-direct booking, the 403s). Resolve the three §4f questions
+  before building it (who pays, data leaving the account, terms of service).
 - **P7 — recipes (§15l):** a tab of tested agent setups; a recipe fills the editor and never grants
   a capability. Ships only recipes that have been run live. Whether any are paid is a §15
   positioning decision, not a build decision — resolve it before the copy is written.
