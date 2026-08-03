@@ -664,6 +664,34 @@ of this feature is retrieval** — which makes P6b the whole job rather than hal
    technically and contractually sound. Default the documentation to those, and never ship a §15l
    recipe pointed at a site whose terms forbid it — a recipe is us telling someone to do it.
 
+#### What building it actually taught (P6a implemented, 2026-08-03)
+
+Three things the plan above did not know, all found by pointing the finished tool at the
+real page rather than at a test double:
+
+1. **A self-identifying User-Agent is worse than a browser one — not politer.** The first
+   implementation sent `CrewPoppy/1.0 (+https://crewpoppy.com/)`, the conventional courtesy.
+   Google answered it with `/travel/flights/unsupported`: an "unsupported browser" page, 629
+   characters, no fares, HTTP 200. The identical request with an ordinary Chrome string
+   reached the real results. Self-identifying does not get a fetch politely declined — it
+   gets it silently handed a worse page. `lambdas/src/web.ts` now sends a browser string and
+   the comment above the constant states the boundary that replaces it: one request, no
+   retries, no proxy rotation, no CAPTCHA solving, and a 403 reported as a refusal.
+2. **The EU consent bounce is why the early probes looked flaky.** From the Netherlands the
+   URL redirects to `consent.google.com` and back before reaching results — three hops. The
+   probe's `curl -L` followed them silently; the "Loading results" and 2,140-character
+   variants seen earlier were this chain ending somewhere unhelpful. The manual,
+   re-checked-per-hop redirect handling §4e specified for SSRF turns out to be load-bearing
+   for the feature working at all, and every hop lands in the transcript.
+3. **The 40,000-character cap is exactly right, and it truncates.** Live result: 40,037
+   characters returned (the extra being the truncation notice), fares €97 · €100 · €101 ·
+   €102 · €121 · €126 · €135 · €141 · €143, four runs out of four. The whole answer fits.
+
+**Status: P6a is built** — `lambdas/src/web.ts` (fetch, address vetting, extraction),
+`web_fetch` in the shared catalogue, the dispatcher case, 24 new tests. Manifest re-verified
+against the real assessor: **still `medium`, no new action**, as predicted. Not yet live-run
+inside a deployment; that is the founder gate.
+
 **Recommended order:** **P6a now, and stop there until it has been used.** It delivers the flight
 watch by itself, which was the thing worth proving. Then re-run the probe against whatever people
 actually ask for, and build the P6b seam with **one** backend only when a real target needs it —
