@@ -473,6 +473,79 @@ out of the box. "Emma auto-publishes to your FB/IG/X" needs the connectors (post
 webhook-to-Buffer/Zapier path (MVP) — and either way you'll want her behind `ask_user` until you
 trust her. No fine-tuning anywhere in that story.
 
+### 4e. Web access — the tool §4 promised and P2 never shipped (founder, 2026-08-03: BUILD IT)
+
+**Start with the discrepancy, because it is the point.** §4's MVP catalogue opens with
+`web_fetch` / `web_search`, and P2's scope line names `web_fetch` explicitly. Neither exists.
+The shipped catalogue is nine tools (`shared/src/tools.ts:20`) and **not one of them can retrieve
+anything from outside the deployment** — no fetch, no search, no browse, no HTTP egress an agent
+can direct. An agent's entire input is what the owner typed, what is in its own folder, and what
+it wrote down last time. This was never decided; it fell out of P2 and nobody wrote it down. It is
+not even in `COMING_CAPABILITIES`, so the app doesn't admit the gap to users either.
+
+**The founder's decision and reasoning (2026-08-03), recorded because the risk framing is the
+part that matters:**
+
+> *"we need to give the users the choice to let an agent browse the web, otherwise their power and
+> so use cases are minimal. Additionally there are much less risk to allow a CrewPoppy agent on the
+> web rather than on the personal machine, because our agents can't access the user machine. Users
+> are not stupid… will more likely provide urls and if the agents will find impossible to access
+> that url, will likely communicate that to the user."*
+
+The comparison is correct and load-bearing. The thing people fear about agents with web access is
+an agent loose on *their computer* — files, browser sessions, credentials, other apps. A CrewPoppy
+agent has none of that. It is a Lambda in the owner's AWS holding no AWS credentials of its own
+(§4), reaching one DynamoDB table and one S3 prefix scoped to itself. Adding outbound HTTPS to that
+does not widen its reach into anything the owner cares about; it widens what it can *read*.
+
+**What this costs to build, which is less than it sounds:**
+- **No new AWS permission, no rating change, no STS budget impact.** Outbound HTTPS is not an IAM
+  action. The runner Lambda has no `VpcConfig` (verified in `infra/src/template.ts`), so it is
+  already on the public internet with no NAT gateway to add — the manifest and the permission set
+  are untouched. This is the rare feature with no §8 consequence at all.
+- **Opt-in per agent, through the existing ceremony.** It is a capability in the §4c set the owner
+  approves when creating or editing an agent — never a global switch, never on by default. An
+  agent without it gets no tool spec for it at all (`specsFor`, `shared/src/tools.ts:325`).
+
+**Decisions for the implementation session:**
+
+1. **`web_fetch(url)` first; `web_search` second.** The founder's model is that people supply URLs,
+   and that is also the version with no third-party dependency. `web_search` needs a search
+   provider, a key the owner supplies and a per-query cost, so it is its own decision — but without
+   it an agent can only go where it is pointed, which caps the "watch this for me" use cases. Ship
+   fetch, then judge.
+2. **Fetched bytes are DATA.** The posture already exists in code and in the system prompt, which
+   names web pages specifically (`lambdas/src/agent-runner.ts:218`). Deliver the body inside an
+   explicitly delimited block that says whose text it is and that it is untrusted.
+3. **Block the private network.** Resolve the host and refuse non-public addresses — loopback,
+   RFC1918, link-local (`169.254.0.0/16`), and the same check applied again after **every**
+   redirect, since a public host can 302 to `127.0.0.1`. Lambda has no IMDS to steal, but this is
+   four lines and closes the class.
+4. **Every URL an agent fetches goes in the transcript.** This is the honest containment for the
+   one risk the founder's framing does not cover: an agent that can read its own memory and files
+   *and* fetch a URL can put what it read into a query string and hand it to a stranger's server.
+   No allowlist survives contact with "browse the web", so the answer is visibility — the owner
+   sees every address, in the same conversation they already read.
+5. **Bound the cost.** Cap the body (truncate at ~200 KB), cap fetches per run, and let the existing
+   per-run iteration/token/wall-clock limits and the monthly spend cap do the rest (§7). A page of
+   HTML is a lot of tokens; this is a cost feature as much as a safety one.
+
+**The one thing that must not be promised — say it before a user discovers it.** `web_fetch`
+retrieves HTML. Google Flights, and most modern booking sites, are JavaScript applications: the
+first response is an empty shell and the prices arrive later from XHR calls the fetch never makes.
+So the founder's own example — *"the agent could simply browse google flights"* — **does not work
+with `web_fetch` alone**, and it will not be the agent's fault. Three honest routes: (a) accept it
+and let the agent report the failure, which the founder already expects it to do, and let people
+point it at pages that are server-rendered; (b) a real headless browser, which means a container
+image for the runner and a much heavier Lambda; (c) a flight-price API, which means a key. The
+scheduled-price-watch story needs (b) or (c). Do not put a flight example in the marketing until
+one of them exists — the crewpoppy.com copy deliberately does not.
+
+**Schedule granularity, while we are here.** `every 4 hours` is not expressible: the kinds are
+`hourly | daily | weekly` (`shared/src/schedule.ts:23`). Hourly covers the overnight-price case at
+4× the runs. If arbitrary intervals are wanted, that is a small addition to the same enum and the
+`isDue` maths — not a new mechanism.
+
 ## 5. Execution model
 
 - **`agent-runner` Lambda per run.** The agentic loop: load def → call Bedrock (system prompt +
@@ -1485,6 +1558,54 @@ The coherent alternative — genuinely making phone approvals PRO-only — is re
 deliberately crippling the free app, and it strengthens the payware reading rather than weakening
 it.
 
+### 15l. Recipes — a tab of tested agent setups (founder, 2026-08-03: PLAN IT)
+
+> *"to rush up the user experience and learning curve on utilising the agents, I want we have in
+> plan to add in CrewPoppy a nice additional tab with .md templates and suggested agent setup for
+> various use case we have been tested, we could potentially transform this into another payware
+> feature, where some nice .md required the user to purchase them."*
+
+**The problem it solves is real and is the biggest one left.** A new owner meets an empty grid and
+a blank instructions box. Everything the product can do is downstream of writing a good brief, and
+"describe the job in a sentence or two" is only easy once you have seen five that work. The editor
+already has the fields; what is missing is knowing what to put in them.
+
+**Two different things are called "templates" here — keep them apart.** §4d's templates are
+*document* templates that live in an agent's own workspace (`invoice-template.md`) and are read at
+run time by `workspace_read`. A **recipe** is the setup of the agent itself. The founder's sentence
+asks for both — *".md templates AND suggested agent setup"* — and they belong together: the
+offer-writing recipe is useless without the invoice template it is told to follow. So a recipe may
+carry **workspace files**, written into the new agent's folder when it is applied. That is the same
+data path the Files panel already uses, so it needs no new mechanism and no new permission.
+
+**A recipe is data, not code, and this is the load-bearing rule.** A recipe carries a name, a role,
+a suggested face, the `.md` brief, any workspace files it needs, a *suggested* tool set, a
+*suggested* schedule and *suggested* caps. Applying one **fills the editor and stops** — the owner
+still performs the §4c granting
+ceremony, still ticks each capability, still presses save. A recipe must never be able to grant a
+capability, and especially never `send_email` or (per §4e) web access. Otherwise "install this
+recipe" becomes a way to talk someone into approving a tool set they did not read, which is exactly
+the ceremony's purpose. Say it in the UI too: *these are suggestions; you still choose what it may
+do.*
+
+**Only ship what has actually been run.** The founder's phrase is "use cases we have been tested",
+and that is the whole value — anyone can generate plausible prompts, and a recipe that fails on
+first contact costs more trust than the empty box it replaced. Each recipe needs a live run before
+it ships, and the honest starting set is small: the offer/invoice-from-template agent (Max, which
+already exists and works), a documents-questions agent, a greeter (Postie), a scheduled digest.
+Several obvious candidates are blocked on §4e and must wait for it rather than ship broken.
+
+**On charging for them — flagging a conflict, not objecting to it.** §15 locks "free core + ONE
+premium", and the whole positioning §1 rests on it; the site says the phone notifications are *the*
+paid extra, in those words. Paid recipe packs make that two, and the sentence on crewpoppy.com
+becomes false the day they ship. That is the founder's call, but it is a positioning change and not
+a feature addition, so it should be made deliberately and the copy changed in the same release.
+
+Two practical notes if it goes ahead: the entitlement plumbing already exists (§12, per-deployment,
+checked against the AgentsPoppy checkout) so the mechanism is not new work — and **a `.md` file is
+plain text the buyer can copy and repost**, so the defensible value is curation, testing and
+updates over time, never secrecy. Price it as a subscription to a maintained set, or not at all.
+
 ## 16. Plan
 
 - **P0 — walking skeleton:** scaffold (vm-poppy layout) → manifest + permission set verified against
@@ -1501,6 +1622,14 @@ it.
 - **P4 — premium: CrewPoppy Mobile** — fork the MailPoppy mobile codebase (RN/Expo, Cognito SRP,
   push pipeline, store runbooks) into the agent-chat app; entitlement-gate it per deployment via
   the AgentsPoppy checkout; store submissions per the MailPoppy RUNBOOK lessons (org account!).
+- **P6 — web access (§4e):** `web_fetch` as an opt-in per-agent capability — private-network block
+  (re-checked after every redirect), body cap, per-run fetch cap, every URL in the transcript,
+  fetched bytes delimited as untrusted data. Add it to `COMING_CAPABILITIES` the moment it is
+  agreed, so the app stops implying agents can already read the web. `web_search` is a separate
+  decision (needs a provider and an owner-supplied key). **Closes the §4/P2 gap, not a new idea.**
+- **P7 — recipes (§15l):** a tab of tested agent setups; a recipe fills the editor and never grants
+  a capability. Ships only recipes that have been run live. Whether any are paid is a §15
+  positioning decision, not a build decision — resolve it before the copy is written.
 - Founder check-in at every phase gate; every live test torn down + verified clean (CLAUDE.md will
   encode this). **Bedrock note:** live tests need model access enabled in the founder's Bedrock
   console + real token spend — coordinate, and keep caps tiny during testing.
