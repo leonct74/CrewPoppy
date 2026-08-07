@@ -27,6 +27,7 @@ export const TOOL_NAMES = [
   "ask_user",
   "email_owner",
   "send_email",
+  "web_fetch",
 ] as const;
 
 export type ToolName = (typeof TOOL_NAMES)[number];
@@ -96,6 +97,11 @@ export const TOOL_NOTES: Record<ToolName, ToolNote> = {
     what: "Lets this agent email customers, colleagues, anyone — a reply to an enquiry, a follow-up you asked for.",
     risk: "Every message to anyone but you pauses for your approval: you see the address and the exact words before it goes.",
   },
+  web_fetch: {
+    label: "Read web pages",
+    what: "Lets this agent open a web address you or it names and read the text on the page — a price, a timetable, a document. It can only READ: it cannot fill anything in, buy anything or sign in anywhere.",
+    risk: "It reads words written by strangers, and treats them as information rather than orders. Every address it opens is written into your conversation, so you can see where it went. Pages are big: give an agent that reads the web a higher token limit below, or it will use its whole run on one page.",
+  },
 };
 
 /**
@@ -138,7 +144,7 @@ export const TOOL_GROUPS: ToolGroup[] = [
     key: "world",
     label: "Reaching the outside world",
     what: "Anything that leaves your account. Grant this deliberately.",
-    tools: ["send_email"],
+    tools: ["send_email", "web_fetch"],
   },
 ];
 
@@ -317,6 +323,21 @@ export const TOOL_SPECS: Record<ToolName, ToolSpec> = {
         },
       },
       required: ["to", "subject", "body"],
+    },
+  },
+  web_fetch: {
+    name: "web_fetch",
+    // Written to set expectations the tool can actually meet (DESIGN §4f measured them):
+    // a page may be unreadable because it needs a browser, or because the site refuses
+    // automated requests. A model told this in advance reports it instead of retrying.
+    description:
+      "Open one public web address and read the text of the page. Read-only: you cannot fill in forms, sign in, buy anything or send anything. Give a complete address starting with https://. You will get the page as plain text, or a sentence explaining why it could not be read — some pages only work inside a real browser, and some sites refuse automated requests. When that happens, say so plainly rather than guessing what the page said. Long pages are cut short, so fetch the most specific address you can rather than a whole site.",
+    input_schema: {
+      type: "object",
+      properties: {
+        url: { type: "string", description: "The full web address, starting with https://" },
+      },
+      required: ["url"],
     },
   },
 };
