@@ -33,13 +33,13 @@ export function Feedback() {
   }, []);
 
   return (
-    <section className="stack">
-      <h2 className="section-title">Feedback</h2>
+    <div className="stack">
+      <h2 className="section-title" style={{ marginTop: 0 }}>Feedback</h2>
       <p className="muted" style={{ marginTop: 0 }}>
         Tell us how CrewPoppy is doing. Your rating shows on the AgentsPoppy catalogue, and
         everything here is anonymous unless you choose to leave your email.
       </p>
       <div ref={slot} />
-    </section>
+    </div>
   );
 }

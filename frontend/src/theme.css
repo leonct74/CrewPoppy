@@ -99,6 +99,10 @@ textarea.input { font-family: var(--poppy-font-mono); font-size: 13px; min-heigh
 .modal { background: var(--poppy-surface-1); border: 1px solid var(--poppy-border-strong); border-radius: var(--poppy-radius); padding: 20px; max-width: 460px; width: 100%; }
 .chip { font-family: var(--poppy-font-mono); font-size: 12px; background: var(--poppy-surface-0); border: 1px solid var(--poppy-border); border-radius: 6px; padding: 2px 7px; }
 
+.tabs { display: inline-flex; gap: 2px; background: var(--poppy-surface-2); border-radius: 8px; padding: 3px; }
+.tab { border: none; background: transparent; color: var(--poppy-muted-2); padding: 5px 12px; border-radius: 6px; cursor: pointer; font: inherit; }
+.tab.active { background: var(--poppy-surface-0); color: var(--poppy-text); }
+
 /* The crew grid (founder, 2026-07-29): the whole team at a glance. Columns as the
    window allows, rows without limit — ten agents scroll DOWN a little rather than
    burying each other. */

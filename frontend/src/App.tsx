@@ -23,6 +23,9 @@ export function App() {
   const [status, setStatus] = useState<DeploymentStatus | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [showDetails, setShowDetails] = useState(false);
+  // Two tabs, because the Feedback tab is mandatory and must be the LAST one (AGENTS.md §9a).
+  // Panels stay MOUNTED (hidden), so the deploy polling keeps running while you're on Feedback.
+  const [tab, setTab] = useState<"crew" | "feedback">("crew");
   const [models, setModels] = useState<ModelChoice[]>([]);
   const [crewSize, setCrewSize] = useState(0);
   const pollRef = useRef<number | null>(null);
@@ -152,6 +155,25 @@ export function App() {
 
       {err && <div className="banner err" style={{ marginBottom: 14 }}>{err}</div>}
 
+      <div className="tabs" role="tablist" aria-label="CrewPoppy sections" style={{ marginBottom: 14 }}>
+        {([["crew", "Your crew"], ["feedback", "Feedback"]] as const).map(([key, label]) => (
+          <button
+            key={key}
+            role="tab"
+            aria-selected={tab === key}
+            className={`tab${tab === key ? " active" : ""}`}
+            onClick={() => setTab(key)}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+
+      <div hidden={tab !== "feedback"}>
+        <Feedback />
+      </div>
+
+      <div hidden={tab !== "crew"}>
       {phaseKey === "none" && (
         <div className="card stack">
           <h2 className="section-title">Set up your Crew HQ</h2>
@@ -286,8 +308,7 @@ export function App() {
         </div>
       )}
 
-      {/* Mandatory in every poppy, and always LAST (AGENTS.md §9a). */}
-      <div className="card" style={{ marginTop: 18 }}><Feedback /></div>
+      </div>
     </div>
   );
 }
