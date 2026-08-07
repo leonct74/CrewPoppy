@@ -57,21 +57,5 @@ export const host = {
     call("invokeBackend", [request], timeoutMs),
   openExternal: (url: string): Promise<void> => call("openExternal", [url]),
   notify: (n: { title: string; body?: string }): Promise<void> => call("notify", [n]),
-  /**
-   * Feedback (capability `feedback:submit`) — what the mandatory Feedback tab submits. The host
-   * answers using the same anonymous per-install id it uses for purchases, so none of this needs
-   * an account and we never learn who rated us. The vendored `<agentspoppy-feedback>` element
-   * takes this object directly; these four methods are the shape it expects.
-   */
-  ratingInfo: (): Promise<RatingInfo> => call("ratingInfo", []),
-  rate: (stars: number): Promise<RatingInfo> => call("rate", [stars]),
-  sendFeatureRequest: (text: string): Promise<void> => call("sendFeatureRequest", [text]),
-  donate: (amountUsd: number, message?: string): Promise<void> =>
-    call("donate", message === undefined ? [amountUsd] : [amountUsd, message]),
 };
 
-export interface RatingInfo {
-  average: number;
-  count: number;
-  yours: number | null;
-}

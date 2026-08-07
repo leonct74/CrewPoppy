@@ -8,11 +8,14 @@ import { useEffect, useRef } from "react";
 import { host } from "./host";
 import { defineFeedbackTab } from "./vendor/agentspoppy-feedback-tab";
 
+/** This poppy's manifest id — what the rating is recorded against. */
+const POPPY_ID = "com.crewpoppy.desktop";
+
 /** Where a bug goes — the public issue tracker, mirroring `bugsUrl` in extension.json. */
 const BUGS_URL = "https://github.com/leonct74/CrewPoppy/issues";
 
-// The element takes the bridge once, at definition; our inlined `host` satisfies the shape it
-// needs structurally, so there's nothing to adapt.
+// The tab calls the AgentsPoppy feedback API itself; the only thing it needs from the host is
+// `openExternal` (a sandboxed frame can't open an OS window), which our bridge already has.
 defineFeedbackTab(host);
 
 export function Feedback() {
@@ -23,6 +26,7 @@ export function Feedback() {
     const mount = slot.current;
     if (!mount || mount.firstChild) return;
     const el = document.createElement("agentspoppy-feedback");
+    el.setAttribute("poppy", POPPY_ID);
     el.setAttribute("bugs", BUGS_URL);
     el.setAttribute("name", "CrewPoppy");
     mount.appendChild(el);
