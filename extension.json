@@ -1,14 +1,14 @@
 {
   "id": "com.crewpoppy.desktop",
   "name": "CrewPoppy",
-  "version": "0.5.3",
-  "description": "The HQ for your AI crew \u2014 task-specific AI agents that run entirely in your own AWS, with hard spend caps and every action visible.",
+  "version": "0.6.0",
+  "description": "The HQ for your AI crew — task-specific AI agents that run entirely in your own AWS, with hard spend caps and every action visible.",
   "bugsUrl": "https://github.com/leonct74/CrewPoppy/issues",
   "icon": "frontend/crewpoppy-icon.png",
   "permissionSet": {
     "id": "crewpoppy-backend",
     "name": "CrewPoppy backend",
-    "description": "Deploys and removes its own CloudFormation stack (CrewPoppyStack): the agents table, the agent workspace bucket, the agent-runner function and its execution role. Every change and delete is limited to resources named CrewPoppy*/crewpoppy-* \u2014 it cannot touch anything else in your account. The one role it creates is the runner's own, name-locked to CrewPoppy*, and only that role can invoke AI models (Bedrock) \u2014 billed to your AWS, capped by CrewPoppy's spend limits. If you let an agent send email, that role can also send from addresses you have ALREADY verified in SES \u2014 it can never verify a new one, and CrewPoppy refuses to send to anyone but you until you approve that exact message. Here it only READS whether an address is verified. For the phone app it also creates one Cognito sign-in pool holding a single user \u2014 you \u2014 with no self-signup: only pairing from this desktop can create or reset that login, and removing CrewPoppy deletes the pool.",
+    "description": "Deploys and removes its own CloudFormation stack (CrewPoppyStack): the agents table, the agent workspace bucket, the agent-runner function and its execution role. Every change and delete is limited to resources named CrewPoppy*/crewpoppy-* — it cannot touch anything else in your account. The one role it creates is the runner's own, name-locked to CrewPoppy*, and only that role can invoke AI models (Bedrock) — billed to your AWS, capped by CrewPoppy's spend limits. If you let an agent send email, that role can also send from addresses you have ALREADY verified in SES — it can never verify a new one, and CrewPoppy refuses to send to anyone but you until you approve that exact message. Here it only READS whether an address is verified. For the phone app it also creates one Cognito sign-in pool holding a single user — you — with no self-signup: only pairing from this desktop can create or reset that login, and removing CrewPoppy deletes the pool.",
     "requiredTags": [
       "agentspoppy:account",
       "agentspoppy:app",
@@ -151,7 +151,7 @@
           "UntagResource"
         ],
         "resourceScope": "arn:aws:cognito-idp:*:*:userpool/*",
-        "reason": "The mobile app's login (P4): one user pool holding ONE user \u2014 the owner. Pool ids are generated, so creates can't be name-scoped narrower. Tag/UntagResource are how CloudFormation's own Cognito handler applies the attribution tags: it creates the pool, then tags it in a SEPARATE call (live failure 2026-07-30 \u2014 without TagResource the deploy rolls back on AccessDenied)."
+        "reason": "The mobile app's login (P4): one user pool holding ONE user — the owner. Pool ids are generated, so creates can't be name-scoped narrower. Tag/UntagResource are how CloudFormation's own Cognito handler applies the attribution tags: it creates the pool, then tags it in a SEPARATE call (live failure 2026-07-30 — without TagResource the deploy rolls back on AccessDenied)."
       },
       {
         "service": "cognito-idp",
@@ -165,7 +165,7 @@
           "AdminDeleteUser"
         ],
         "resourceScope": "tagged-as-self",
-        "reason": "Managing that same pool and its single owner account \u2014 only on pools CrewPoppy itself created (tag-enforced), incl. teardown."
+        "reason": "Managing that same pool and its single owner account — only on pools CrewPoppy itself created (tag-enforced), incl. teardown."
       }
     ],
     "limits": null
