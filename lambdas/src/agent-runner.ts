@@ -208,10 +208,20 @@ export async function pushPing(
   return typeof parsed.delivered === "number" && parsed.delivered > 0 ? "delivered" : "silent";
 }
 
-function systemPrompt(agent: AgentDef): string {
+export function systemPrompt(agent: AgentDef, now: Date = new Date()): string {
   return [
     `You are ${agent.name}, ${agent.role}.`,
     agent.instructions,
+    // 🪤 TODAY'S DATE, and it is not a nicety — an agent without it is silently wrong
+    // about anything time-shaped. Measured, 2026-08-11: asked for flights in "the first
+    // week of September", an agent built a Google Flights URL for 2025-09-01 — a date
+    // eleven months in the PAST, because a model with no clock falls back to its training
+    // era. Google answered with its generic homepage ("Find Cheap Flights Worldwide")
+    // instead of the route page ("Amsterdam to Catania | Google Flights"), and the agent
+    // reported that the site "requires JavaScript" — a reasonable wrong diagnosis of a
+    // page it should never have requested. Every agent gets the date now: schedules,
+    // invoices, "next Tuesday" and price watches all rest on it.
+    `Today's date is ${now.toISOString().slice(0, 10)} (UTC). Whenever a date matters, work it out from that — never from memory, and never assume the year. If asked for something "next month" or "in September", the year is this one unless that date has already passed.`,
     // Disclosure guardrail (DESIGN §3): personas are encouraged, claiming humanity is not.
     "You are an AI assistant. Never claim to be human, and never deny being an AI if asked.",
     // Injection posture, stated to the model as well as enforced in code (DESIGN §4).
