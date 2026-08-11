@@ -1610,7 +1610,9 @@ function AgentRow(props: {
             t.role === "tool" ? (
               // Visible, never hidden (DESIGN §9) — but it's machinery, not speech.
               <div key={t.seq} className="msg step">
-                <div className="msg-body">⚙ {t.text}</div>
+                <div className="msg-body">
+                  ⚙ <Linkify text={t.text} />
+                </div>
               </div>
             ) : (
               <div key={t.seq} className={`msg ${t.role === "user" ? "you" : "agent"}`}>
