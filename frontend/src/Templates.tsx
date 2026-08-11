@@ -13,18 +13,23 @@
 // so the ticks the owner meets in the editor are expected, not smuggled.
 import { useEffect, useState } from "react";
 import { api } from "./api";
+import { buildTemplateHelperPrompt } from "./helper-prompt";
 import { Avatar } from "./avatars";
-import type { Recipe, ToolCatalogue } from "./types";
+import type { ModelChoice, Recipe, ToolCatalogue } from "./types";
 
 export function Templates(props: {
   /** Hands the chosen recipe to the crew view, which opens the pre-filled editor. */
   onUse: (recipe: Recipe) => void;
   /** The deployment must exist first — an agent needs a home before it can be created. */
   ready: boolean;
+  /** For the helper prompt — the same model list the editor offers. */
+  models: ModelChoice[];
 }) {
   const [recipes, setRecipes] = useState<Recipe[] | null>(null);
   const [catalogue, setCatalogue] = useState<ToolCatalogue | null>(null);
   const [err, setErr] = useState<string | null>(null);
+  /** Which card just copied its helper prompt — for the "Copied ✓" flash. */
+  const [copiedKey, setCopiedKey] = useState<string | null>(null);
 
   useEffect(() => {
     void api
@@ -97,13 +102,34 @@ export function Templates(props: {
               </ul>
             )}
 
-            <div>
+            <div className="row" style={{ gap: 8, flexWrap: "wrap" }}>
               <button
                 className="btn btn-primary btn-sm"
                 disabled={!props.ready}
                 onClick={() => props.onUse(r)}
               >
                 Use this template
+              </button>
+              {/* The helper prompt, per TEMPLATE (founder, 2026-08-11): paste it into any
+                  AI and it explains this agent — schedule, abilities, files, limits —
+                  then helps make it yours. Carries the template verbatim plus the same
+                  live-built product guide the editor's helper uses, so it cannot drift
+                  from what the form actually offers. */}
+              <button
+                className="btn btn-ghost btn-sm"
+                onClick={async () => {
+                  await navigator.clipboard.writeText(
+                    buildTemplateHelperPrompt(
+                      r,
+                      catalogue ?? { tools: [], groups: [], needsEmail: [] },
+                      props.models,
+                    ),
+                  );
+                  setCopiedKey(r.key);
+                  window.setTimeout(() => setCopiedKey((k) => (k === r.key ? null : k)), 2500);
+                }}
+              >
+                {copiedKey === r.key ? "Copied ✓" : "✨ Copy the helper prompt"}
               </button>
             </div>
           </div>

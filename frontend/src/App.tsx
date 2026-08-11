@@ -179,6 +179,7 @@ export function App() {
       <div hidden={tab !== "templates"}>
         <Templates
           ready={phaseKey === "ready"}
+          models={models}
           onUse={(r) => {
             // Adopting a template = landing in the normal editor, pre-filled. The crew
             // tab owns the editor, so the pick travels there — nothing is created yet.

@@ -8,7 +8,7 @@
 // capability appears here the same instant its checkbox appears in the editor. A stale
 // helper that recommends options the form doesn't have would be worse than none.
 
-import type { ModelChoice, ToolCatalogue } from "./types";
+import type { ModelChoice, Recipe, ToolCatalogue } from "./types";
 
 export function buildHelperPrompt(catalogue: ToolCatalogue, models: ModelChoice[]): string {
   const capabilityLines = catalogue.groups
@@ -67,4 +67,55 @@ ANSWER IN EXACTLY THIS SHAPE:
 9. Files to upload first: … with a ready-to-paste draft of each, or "none"
 
 MY AGENT SHOULD: `;
+}
+
+
+/**
+ * The helper prompt for a TEMPLATE (founder, 2026-08-11): the user picked a ready-made
+ * agent and wants an AI to walk them through what it does and how to make it theirs.
+ *
+ * Reuses buildHelperPrompt VERBATIM as the product knowledge — one source of truth, so
+ * the template variant can never disagree with the form or go stale — and prepends the
+ * template itself plus a different mission: explain first, then customise.
+ */
+export function buildTemplateHelperPrompt(
+  recipe: Recipe,
+  catalogue: ToolCatalogue,
+  models: ModelChoice[],
+): string {
+  const labelFor = (t: string) => catalogue.tools.find((o) => o.name === t)?.label ?? t;
+  const schedule = recipe.schedule
+    ? `${recipe.schedule.kind === "hourly" ? "Every hour" : recipe.schedule.kind === "daily" ? `Every day at ${String(recipe.schedule.hour).padStart(2, "0")}:${String(recipe.schedule.minute).padStart(2, "0")}` : "Every week"} — task: ${recipe.schedule.task}`
+    : "none";
+  const files = (recipe.files ?? [])
+    .map((f) => `--- file: ${f.path} ---\n${f.content}`)
+    .join("\n\n");
+
+  return `You are helping me adopt a READY-MADE agent template in CrewPoppy — an app where task-specific AI agents run entirely in my own AWS account. The template below will pre-fill CrewPoppy's "New agent" form; nothing exists until I press save, and I can change anything first.
+
+Do this, in order:
+1. EXPLAIN the template in plain words: what this agent will do day to day, what each pre-ticked capability is for, what the schedule means (including that a scheduled agent keeps running until I untick it, and that the monthly spending limit is the hard stop), and what its starter files are for.
+2. ASK me what I want different — my details, my language, my routine. At most three short questions at a time.
+3. ANSWER with the exact edited values to put in the form, in the ANSWER shape given at the end. Only change what I asked to change; keep the rest of the template as it is, and never suggest ticking a capability the job doesn't need.
+
+THE TEMPLATE I PICKED — "${recipe.name}" (${recipe.role}):
+
+Instructions as pre-filled:
+"""
+${recipe.instructions}
+"""
+
+Pre-ticked capabilities: ${recipe.tools.map(labelFor).join(", ")}
+Monthly spending limit: $${recipe.capUsd}${recipe.maxTokensPerRun ? `
+Per-run token budget: ${recipe.maxTokensPerRun.toLocaleString("en-US")} (web pages are big — do not lower this if the agent reads the web)` : ""}
+Schedule: ${schedule}
+${files ? `
+Starter files written into the agent's folder:
+${files}
+` : ""}
+EVERYTHING BELOW IS THE PRODUCT KNOWLEDGE YOU NEED — the same form guide CrewPoppy gives for building an agent from scratch. Use it to explain and to customise, and respect its rules.
+
+${buildHelperPrompt(catalogue, models).replace(/\n\nMY AGENT SHOULD: $/, "")}
+
+(Instead of describing an agent from scratch, I am starting from the template above. Begin with step 1: explain it to me.)`;
 }
