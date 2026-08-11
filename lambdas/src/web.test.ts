@@ -6,7 +6,7 @@
 // address tricks a private-network block exists to stop.
 
 import { describe, expect, it, vi } from "vitest";
-import { MAX_LINKS, MAX_TEXT_CHARS, checkUrl, extractText, isPublicAddress, webFetch } from "./web";
+import { MAX_LINKS, MAX_TEXT_CHARS, checkUrl, extractText, isPublicAddress, looksUnrendered, webFetch } from "./web";
 
 const publicDns = async () => ["93.184.216.34"];
 
@@ -165,12 +165,14 @@ describe("webFetch", () => {
 
   it("names the browser-only case (measured: Ryanair 7 chars of text, tweakers 22)", async () => {
     const shell = `<html><head><title>x</title></head><body><div id="root"></div><script>${"x".repeat(4000)}</script></body></html>`;
+    let n = 0;
     const r = await webFetch("https://spa.example/", {
       resolve: publicDns,
-      fetchImpl: (async () => reply(shell)) as typeof fetch,
+      fetchImpl: (async () => (n++, reply(shell))) as typeof fetch,
     });
     expect(r.ok).toBe(false);
-    expect(r.text).toContain("builds its page inside a browser");
+    expect(r.text).toContain("builds itself inside a browser");
+    expect(n).toBe(2); // tried once more before giving up — the shell is often a hiccup
   });
 
   it("refuses content that is not text, by name", async () => {
@@ -262,5 +264,70 @@ describe("extractText keeps links (founder, 2026-08-03: press the link and buy t
     const out = extractText('<script>var a="<a href=\'https://evil.example\'>x</a>"</script><a href="https://ok.example/p">Real</a>');
     expect(out).toContain("Real [https://ok.example/p]");
     expect(out).not.toContain("evil.example");
+  });
+});
+
+describe("the loading shell (the founder's broken Jerry, 2026-08-11)", () => {
+  // Google Flights sometimes answers with ~2,100 chars of chrome inside 1.8 MB of HTML.
+  // The old `text < 200` rule let that through as SUCCESS, so the agent was handed a page
+  // with no prices and said "prices load dynamically, I couldn't capture them" — which
+  // reads like the product is broken rather than the page being empty.
+  const shell = () =>
+    new Response(
+      `<html><body><div>Google Flights Skip to main content Explore Flights Hotels Change appearance Sign in Loading results Flight search Round trip</div>${"<span></span>".repeat(40_000)}</body></html>`,
+      { status: 200, headers: { "content-type": "text/html" } },
+    );
+  const real = () =>
+    new Response(
+      `<html><body><p>${"KLM Nonstop 56 kg CO2e €97 round trip Departure Thu Sep 10. ".repeat(120)}</p></body></html>`,
+      { status: 200, headers: { "content-type": "text/html" } },
+    );
+
+  it("spots a huge document that renders to almost nothing", () => {
+    expect(looksUnrendered("x".repeat(2_100), "y".repeat(1_800_000))).toBe(true);
+    expect(looksUnrendered("x".repeat(7), "y".repeat(50_000))).toBe(true); // Ryanair
+  });
+
+  it("does not mistake a real results page for a shell", () => {
+    // The measured pair: 60,884 chars of text out of the same ~1.8 MB document.
+    expect(looksUnrendered("x".repeat(60_884), "y".repeat(1_800_000))).toBe(false);
+    // Nor an ordinary small page.
+    expect(looksUnrendered("x".repeat(2_500), "y".repeat(20_000))).toBe(false);
+  });
+
+  it("retries ONCE and returns the real page when the shell was a hiccup", async () => {
+    let n = 0;
+    const r = await webFetch("https://www.google.com/travel/flights?q=x", {
+      resolve: publicDns,
+      fetchImpl: (async () => (++n === 1 ? shell() : real())) as typeof fetch,
+    });
+    expect(n).toBe(2);
+    expect(r.ok).toBe(true);
+    expect(r.text).toContain("€97 round trip");
+  });
+
+  it("gives up honestly after the retry, and tells the model not to guess", async () => {
+    let n = 0;
+    const r = await webFetch("https://spa.example/", {
+      resolve: publicDns,
+      fetchImpl: (async () => (n++, shell())) as typeof fetch,
+    });
+    expect(n).toBe(2); // exactly one retry, never a loop
+    expect(r.ok).toBe(false);
+    expect(r.text).toContain("even after a second try");
+    expect(r.text).toContain("do NOT guess");
+  });
+
+  it("never retries a refusal — a site that said no is not asked twice", async () => {
+    let n = 0;
+    const r = await webFetch("https://shop.example/", {
+      resolve: publicDns,
+      fetchImpl: (async () => {
+        n++;
+        return new Response("nope", { status: 403, headers: { "content-type": "text/html" } });
+      }) as typeof fetch,
+    });
+    expect(n).toBe(1);
+    expect(r.text).toContain("refused an automated request");
   });
 });

@@ -48,12 +48,13 @@ const TIMEOUT_MS = 15_000;
  * ordinary Chrome string reached the real page. Self-identifying does not get a fetch
  * politely declined; it gets it silently given a worse page.
  *
- * So: an ordinary browser string. What that is NOT is a licence to escalate. One request
- * per call, no retries, no proxy rotation, no CAPTCHA solving, no cookie games, and a site
- * that answers 403 is reported to the model AS refusing (DESIGN §4f measured three of
- * eight doing exactly that) rather than worked around. If a future change adds any of
- * those, this comment is the one to revisit first — it is the line between fetching a page
- * a person asked for and scraping a site that said no.
+ * So: an ordinary browser string. What that is NOT is a licence to escalate. No proxy
+ * rotation, no CAPTCHA solving, no cookie games, and a site that answers 403 is reported to
+ * the model AS refusing (DESIGN §4f measured three of eight doing exactly that) rather than
+ * worked around. There is exactly ONE retry, and only when a page came back as an unrendered
+ * shell — a transport hiccup, not a refusal. A site that says no is never asked twice. If a
+ * future change adds anything beyond that, this comment is the one to revisit first: it is
+ * the line between fetching a page a person asked for and scraping a site that said no.
  */
 const USER_AGENT =
   "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36";
@@ -235,6 +236,21 @@ export function extractText(html: string, base?: string): string {
 
 // ── The fetch ──────────────────────────────────────────────────────────────
 
+/**
+ * Did the server send a page, or an empty application waiting to fill itself in?
+ *
+ * Two measured shapes (DESIGN §4f):
+ *   - almost no text at all — Ryanair returns 7 characters, tweakers 22;
+ *   - a big document that renders to a scrap — Google Flights' loading shell is ~2,100
+ *     characters of chrome inside 1.8 MB of HTML, while its REAL results page renders to
+ *     60,884 characters from the same size document. A 30x gap, so the threshold between
+ *     them is nowhere near either edge.
+ */
+export function looksUnrendered(text: string, html: string): boolean {
+  if (text.length < 200 && html.length > 1_000) return true;
+  return text.length < 3_000 && html.length > 300_000;
+}
+
 /** Content types worth turning into text. Anything else is refused by name, not silently. */
 function readableType(ct: string): boolean {
   const t = ct.toLowerCase().trim();
@@ -256,7 +272,12 @@ function readableType(ct: string): boolean {
  * holds no credentials an SSRF could steal and Lambda exposes no metadata endpoint. Do not
  * upgrade this module's reach without revisiting that sentence.
  */
-export async function webFetch(raw: string, deps: WebDeps = {}): Promise<WebFetchResult> {
+export async function webFetch(
+  raw: string,
+  deps: WebDeps = {},
+  /** Internal: set on the single retry, so a shell page can never recurse forever. */
+  isRetry = false,
+): Promise<WebFetchResult> {
   const doFetch = deps.fetchImpl ?? fetch;
   const visited: string[] = [];
   let target = raw;
@@ -322,10 +343,27 @@ export async function webFetch(raw: string, deps: WebDeps = {}): Promise<WebFetc
     // Measured, not guessed: a JavaScript-rendered page returns almost nothing here —
     // Ryanair yields 7 characters, tweakers 22 (DESIGN §4f). Returning "" invites the model
     // to invent what it "must have" said, so say what happened instead.
-    if (text.length < 200 && body.length > 1000) {
+    //
+    // 🪤 THE SECOND SHAPE, and it cost a founder a broken agent. Google Flights sometimes
+    // answers with a LOADING SHELL: ~2,100 characters of navigation furniture ending in
+    // "Loading results", inside 1.8 MB of HTML. That sails past a `< 200` test, so the tool
+    // reported SUCCESS and handed the model a page with no prices in it — and the agent
+    // dutifully said "prices load dynamically, I couldn't capture them", which reads like
+    // the product cannot do the thing it was built to do. The giveaway is the SHAPE, not
+    // any English string: an enormous document that renders to almost no text is an
+    // application shell in every language.
+    if (looksUnrendered(text, body)) {
+      // ONE retry, and only for this. The shell is intermittent — the same URL a second
+      // later usually returns the real page — so a single retry converts a broken answer
+      // into a correct one. A 403 is NEVER retried: that is a site saying no, and asking
+      // twice would be exactly the escalation the User-Agent comment rules out.
+      if (!isRetry) {
+        const second = await webFetch(raw, deps, true);
+        if (second.ok) return second;
+      }
       return {
         ok: false, visited, status: res.status,
-        text: `${checked.url.hostname} builds its page inside a browser, so a plain fetch returns no readable content. Tell your owner this page can't be read this way, and suggest a source that publishes plain pages.`,
+        text: `${checked.url.hostname} returned a page that builds itself inside a browser — the content was not in what it sent, even after a second try. Tell your owner plainly that this page could not be read, and do NOT guess at what it might have said.`,
       };
     }
 
