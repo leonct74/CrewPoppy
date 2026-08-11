@@ -70,6 +70,9 @@ export const RECIPES: Recipe[] = [
     needs: [
       "Read web pages — without it, it cannot see any prices",
       "Email you — for alerts when it runs on the schedule",
+      // The founder's own question, pre-answered on the card (2026-08-11): "will Jerry
+      // check until he is stopped?" Yes — and the monthly limit is the brake.
+      "Runs every hour until you untick its schedule. The monthly limit is a hard stop: once reached, it waits for next month",
     ],
     instructions: [
       "You watch flight prices for your owner.",
