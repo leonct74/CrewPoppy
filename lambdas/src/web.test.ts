@@ -6,7 +6,7 @@
 // address tricks a private-network block exists to stop.
 
 import { describe, expect, it, vi } from "vitest";
-import { MAX_TEXT_CHARS, checkUrl, extractText, isPublicAddress, webFetch } from "./web";
+import { MAX_LINKS, MAX_TEXT_CHARS, checkUrl, extractText, isPublicAddress, webFetch } from "./web";
 
 const publicDns = async () => ["93.184.216.34"];
 
@@ -212,5 +212,55 @@ describe("webFetch", () => {
 
     expect(r.ok).toBe(false);
     expect(r.text).toContain("took longer than");
+  });
+});
+
+describe("extractText keeps links (founder, 2026-08-03: press the link and buy the ticket)", () => {
+  it("writes a link inline as words followed by the address", () => {
+    const out = extractText('<p>KLM <a href="https://book.example/klm">Select flight</a> €97</p>');
+    expect(out).toBe("KLM Select flight [https://book.example/klm] €97");
+  });
+
+  it("resolves a relative href against the page it came from", () => {
+    const out = extractText('<a href="/basket?id=7">Buy</a>', "https://shop.example/deals/x");
+    expect(out).toBe("Buy [https://shop.example/basket?id=7]");
+  });
+
+  it("drops a relative href when there is no page to resolve it against, keeping the words", () => {
+    // Better than handing over "/basket", which nobody can open.
+    expect(extractText('<a href="/basket">Buy</a>')).toBe("Buy");
+  });
+
+  it("keeps the words but not the link for javascript:, mailto:, tel: and #anchors", () => {
+    for (const href of ["javascript:go()", "mailto:a@b.test", "tel:+3120", "#top"]) {
+      expect(extractText(`<a href="${href}">Go</a>`), href).toBe("Go");
+    }
+  });
+
+  it("annotates each address only once — nav repeats the same links on every page", () => {
+    const html = `<a href="https://x.example/a">Home</a><p>text</p><a href="https://x.example/a">Home</a>`;
+    expect(extractText(html).match(/https:\/\/x\.example\/a/g)).toHaveLength(1);
+  });
+
+  it("keeps neither for an icon link, because a bare URL with no words is noise", () => {
+    expect(extractText('<a href="https://x.example/i"><img src="i.png"></a>')).toBe("");
+  });
+
+  it("stops after MAX_LINKS so a link farm cannot eat the token budget", () => {
+    const html = Array.from({ length: MAX_LINKS + 40 }, (_, i) => `<a href="https://x.example/${i}">L${i}</a>`).join(" ");
+    const out = extractText(html);
+    expect((out.match(/https:\/\/x\.example/g) ?? []).length).toBe(MAX_LINKS);
+    expect(out).toContain(`L${MAX_LINKS + 39}`); // the words survive past the budget
+  });
+
+  it("decodes entities in the href — &amp; in a query string is common and breaks the URL", () => {
+    const out = extractText('<a href="https://x.example/s?a=1&amp;b=2">Find</a>');
+    expect(out).toBe("Find [https://x.example/s?a=1&b=2]");
+  });
+
+  it("still strips scripts around links", () => {
+    const out = extractText('<script>var a="<a href=\'https://evil.example\'>x</a>"</script><a href="https://ok.example/p">Real</a>');
+    expect(out).toContain("Real [https://ok.example/p]");
+    expect(out).not.toContain("evil.example");
   });
 });

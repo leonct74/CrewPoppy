@@ -331,7 +331,7 @@ export const TOOL_SPECS: Record<ToolName, ToolSpec> = {
     // a page may be unreadable because it needs a browser, or because the site refuses
     // automated requests. A model told this in advance reports it instead of retrying.
     description:
-      "Open one public web address and read the text of the page. Read-only: you cannot fill in forms, sign in, buy anything or send anything. Give a complete address starting with https://. You will get the page as plain text, or a sentence explaining why it could not be read — some pages only work inside a real browser, and some sites refuse automated requests. When that happens, say so plainly rather than guessing what the page said. Long pages are cut short, so fetch the most specific address you can rather than a whole site.",
+      "Open one public web address and read the text of the page. Read-only: you cannot fill in forms, sign in, buy anything or send anything. Give a complete address starting with https://. You will get the page as plain text, or a sentence explaining why it could not be read — some pages only work inside a real browser, and some sites refuse automated requests. When that happens, say so plainly rather than guessing what the page said. Long pages are cut short, so fetch the most specific address you can rather than a whole site. Links on the page are kept, written as words followed by the address in square brackets. ALWAYS pass the useful ones on to the person, and always tell them the address you read, so they can open it and act on it themselves — a price with no way to reach it is half an answer. Never invent an address: give only ones you actually saw.",
     input_schema: {
       type: "object",
       properties: {

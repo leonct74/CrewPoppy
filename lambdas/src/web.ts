@@ -174,15 +174,59 @@ function safeCodePoint(n: number): string {
 }
 
 /**
+ * Links kept per page. A navigation bar alone can carry a hundred, and every one costs
+ * tokens the owner pays for, so this is a budget rather than a target.
+ */
+export const MAX_LINKS = 80;
+
+/** Absolute http(s) form of an href, or null if it is not somewhere a person can go. */
+function absoluteHref(href: string, base?: string): string | null {
+  const raw = decodeEntities(href.trim());
+  if (!raw || raw.startsWith("#") || /^(javascript|mailto|tel|data):/i.test(raw)) return null;
+  try {
+    const u = new URL(raw, base);
+    return u.protocol === "http:" || u.protocol === "https:" ? u.toString() : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * What the model actually receives.
  *
  * Scripts and styles go FIRST and completely — see the trap at the top of this file. Block
  * elements become line breaks so a price list does not arrive as one unreadable paragraph.
+ *
+ * LINKS ARE KEPT, as `words [https://...]`, inline where they appear (founder, 2026-08-03:
+ * "it would be great if the response would include the links, so the user can actually press
+ * the link"). Inline rather than gathered into a list at the end, because a bare list of URLs
+ * separates every link from the thing it refers to — and the price it belongs to is the whole
+ * point. `base` resolves relative hrefs; without it "/basket" is dropped rather than handed
+ * over as something that cannot be opened.
+ *
+ * Each URL is annotated ONCE. Site navigation repeats the same twenty links in every page's
+ * header and footer, and repeating them spends the budget on furniture.
  */
-export function extractText(html: string): string {
+export function extractText(html: string, base?: string): string {
   let s = html.replace(/<(script|style|noscript|template|svg)[^>]*>.*?<\/\1>/gis, " ");
   s = s.replace(/<!--.*?-->/gis, " ");
-  s = s.replace(/<(br|\/p|\/div|\/li|\/tr|\/h[1-6]|\/section|\/article)[^>]*>/gi, "\n");
+
+  const seen = new Set<string>();
+  s = s.replace(
+    /<a\b[^>]*?href\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))[^>]*>([\s\S]*?)<\/a>/gi,
+    (_m: string, dq: string, sq: string, bare: string, inner: string) => {
+      const label = inner.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
+      const url = absoluteHref(dq ?? sq ?? bare ?? "", base);
+      // An empty label means an icon or image link. A bare URL with no words around it
+      // tells the model nothing and reads as noise, so keep neither.
+      if (!url || !label) return label;
+      if (seen.has(url) || seen.size >= MAX_LINKS) return label;
+      seen.add(url);
+      return `${label} [${url}]`;
+    },
+  );
+
+  s = s.replace(/<(\/p|\/div|\/li|\/tr|\/h[1-6]|\/section|\/article)[^>]*>/gi, "\n");
   s = s.replace(/<[^>]+>/gs, " ");
   s = decodeEntities(s);
   s = s.replace(/[ \t ]+/g, " ").replace(/ ?\n ?/g, "\n").replace(/\n{3,}/g, "\n\n");
@@ -273,7 +317,7 @@ export async function webFetch(raw: string, deps: WebDeps = {}): Promise<WebFetc
     }
 
     const body = await readCapped(res);
-    const text = extractText(body);
+    const text = extractText(body, checked.url.toString());
 
     // Measured, not guessed: a JavaScript-rendered page returns almost nothing here —
     // Ryanair yields 7 characters, tweakers 22 (DESIGN §4f). Returning "" invites the model

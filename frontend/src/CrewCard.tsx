@@ -5,6 +5,7 @@ import { buildHelperPrompt } from "./helper-prompt";
 import { Button } from "./Button";
 import { PhonePane } from "./PhonePane";
 import { host } from "./host";
+import { Linkify } from "./Linkify";
 import { describeSchedule } from "./schedule";
 import type {
   AgentSchedule, AgentSummary, ModelChoice, OwnerEmail, PendingSend, RunRecord, SchedulePreview,
@@ -1614,7 +1615,9 @@ function AgentRow(props: {
             ) : (
               <div key={t.seq} className={`msg ${t.role === "user" ? "you" : "agent"}`}>
                 <span className="msg-who">{t.role === "user" ? "You" : agent.name}</span>
-                <div className="msg-body">{t.text}</div>
+                <div className="msg-body">
+                  <Linkify text={t.text} />
+                </div>
               </div>
             ),
           )}
