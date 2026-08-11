@@ -181,6 +181,15 @@ textarea.input { font-family: var(--poppy-font-mono); font-size: 13px; min-heigh
 }
 .msg-link:hover { text-decoration-thickness: 2px; }
 .msg-link:focus-visible { outline: 2px solid var(--poppy-accent); outline-offset: 2px; border-radius: 3px; }
+
+/* ── The Templates tab (DESIGN §15l) ─────────────────────────
+   Cards, not a table: each template is a small pitch — face, job, what you get —
+   and the grid grows in rows like the crew grid does. */
+.tpl-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 12px; }
+.tpl-card { background: var(--poppy-surface-2); border: 1px solid var(--poppy-border); border-radius: 10px; padding: 14px; }
+.tpl-chips { display: flex; flex-wrap: wrap; gap: 5px; }
+.tpl-needs { margin: 0; padding-left: 18px; color: var(--poppy-muted-2); font-size: 12px; }
+.tpl-needs li { margin: 2px 0; }
 /* Sticky: while the conversation is on screen, the input rides the bottom of the
    window — a chat whose reply box can scroll out of reach isn't a chat. Solid
    background so history never shows through it. */

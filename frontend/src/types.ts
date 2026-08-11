@@ -186,6 +186,22 @@ export interface AgentSchedule {
   enabled: boolean;
 }
 
+/** A ready-made agent setup (DESIGN §15l). Mirrors @crewpoppy/shared recipes.ts. */
+export interface Recipe {
+  key: string;
+  name: string;
+  role: string;
+  avatar: string;
+  blurb: string;
+  needs: string[];
+  instructions: string;
+  tools: string[];
+  capUsd: number;
+  maxTokensPerRun?: number;
+  schedule?: { kind: "hourly" | "daily" | "weekly"; hour: number; minute: number; weekday: number; task: string };
+  files?: { path: string; content: string }[];
+}
+
 /** One file an agent wrote into its workspace. */
 export interface WorkspaceFile {
   path: string;

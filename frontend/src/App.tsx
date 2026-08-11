@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Feedback } from "./Feedback";
+import { Templates } from "./Templates";
 import { api } from "./api";
 import { Button } from "./Button";
 import { host, type AccessState } from "./host";
@@ -7,7 +8,7 @@ import { CrewCard } from "./CrewCard";
 import { EmailCard } from "./EmailCard";
 import { ModelsCard } from "./ModelsCard";
 import { RemovePanel } from "./RemovePanel";
-import type { DeploymentStatus, Meta, ModelChoice } from "./types";
+import type { DeploymentStatus, Meta, ModelChoice, Recipe } from "./types";
 
 // Served from frontend/public → dist root; the same file the manifest declares as our icon.
 const icon = "./crewpoppy-icon.png";
@@ -23,9 +24,11 @@ export function App() {
   const [status, setStatus] = useState<DeploymentStatus | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [showDetails, setShowDetails] = useState(false);
-  // Two tabs, because the Feedback tab is mandatory and must be the LAST one (AGENTS.md §9a).
-  // Panels stay MOUNTED (hidden), so the deploy polling keeps running while you're on Feedback.
-  const [tab, setTab] = useState<"crew" | "feedback">("crew");
+  // Feedback is mandatory and must be the LAST tab (AGENTS.md §9a). Panels stay
+  // MOUNTED (hidden), so the deploy polling keeps running whichever tab is open.
+  const [tab, setTab] = useState<"crew" | "templates" | "feedback">("crew");
+  // A template the user picked, waiting to open the pre-filled editor on the crew tab.
+  const [recipePick, setRecipePick] = useState<Recipe | null>(null);
   const [models, setModels] = useState<ModelChoice[]>([]);
   const [crewSize, setCrewSize] = useState(0);
   const pollRef = useRef<number | null>(null);
@@ -156,7 +159,7 @@ export function App() {
       {err && <div className="banner err" style={{ marginBottom: 14 }}>{err}</div>}
 
       <div className="tabs" role="tablist" aria-label="CrewPoppy sections" style={{ marginBottom: 14 }}>
-        {([["crew", "Your crew"], ["feedback", "Feedback"]] as const).map(([key, label]) => (
+        {([["crew", "Your crew"], ["templates", "Templates"], ["feedback", "Feedback"]] as const).map(([key, label]) => (
           <button
             key={key}
             role="tab"
@@ -171,6 +174,18 @@ export function App() {
 
       <div hidden={tab !== "feedback"}>
         <Feedback />
+      </div>
+
+      <div hidden={tab !== "templates"}>
+        <Templates
+          ready={phaseKey === "ready"}
+          onUse={(r) => {
+            // Adopting a template = landing in the normal editor, pre-filled. The crew
+            // tab owns the editor, so the pick travels there — nothing is created yet.
+            setRecipePick(r);
+            setTab("crew");
+          }}
+        />
       </div>
 
       <div hidden={tab !== "crew"}>
@@ -249,7 +264,12 @@ export function App() {
             </div>
           )}
           {/* Only meaningful once the stack exists — an agent needs both a home and a brain. */}
-          <CrewCard models={models} onCrewSize={setCrewSize} />
+          <CrewCard
+            models={models}
+            onCrewSize={setCrewSize}
+            preset={recipePick}
+            onPresetConsumed={() => setRecipePick(null)}
+          />
           <EmailCard />
           {/* Reference once a crew exists — collapsed, with the AWS page as a plain
               link. On first run it stays the full panel: choosing a model IS the task. */}

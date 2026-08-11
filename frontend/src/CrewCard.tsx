@@ -8,8 +8,8 @@ import { host } from "./host";
 import { Linkify } from "./Linkify";
 import { describeSchedule } from "./schedule";
 import type {
-  AgentSchedule, AgentSummary, ModelChoice, OwnerEmail, PendingSend, RunRecord, SchedulePreview,
-  TickerHealth, ToolCatalogue, TranscriptEntry, WorkspaceFile,
+  AgentSchedule, AgentSummary, ModelChoice, OwnerEmail, PendingSend, Recipe, RunRecord,
+  SchedulePreview, TickerHealth, ToolCatalogue, TranscriptEntry, WorkspaceFile,
 } from "./types";
 
 /**
@@ -94,6 +94,9 @@ export function CrewCard(props: {
   models: ModelChoice[];
   /** Lets the page demote reference panels once a crew actually exists. */
   onCrewSize?: (n: number) => void;
+  /** A template picked on the Templates tab, waiting to open the pre-filled editor. */
+  preset?: Recipe | null;
+  onPresetConsumed?: () => void;
 }) {
   const [agents, setAgents] = useState<AgentSummary[] | null>(null);
   const [catalogue, setCatalogue] = useState<ToolCatalogue | null>(null);
@@ -101,6 +104,16 @@ export function CrewCard(props: {
   const [ticker, setTicker] = useState<TickerHealth | null>(null);
   const [view, setView] = useState<CrewView>({ kind: "crew" });
   const [err, setErr] = useState<string | null>(null);
+  // Held locally so the form keeps its pre-fill even after App clears its copy — the
+  // consume callback fires immediately, and the editor must not blank out under the user.
+  const [recipe, setRecipe] = useState<Recipe | null>(null);
+  useEffect(() => {
+    if (!props.preset) return;
+    setRecipe(props.preset);
+    setView({ kind: "create" });
+    props.onPresetConsumed?.();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [props.preset]);
 
   const refresh = useCallback(async () => {
     try {
@@ -180,8 +193,13 @@ export function CrewCard(props: {
           models={props.models}
           catalogue={catalogue}
           owner={owner}
-          onCancel={() => setView({ kind: "crew" })}
+          preset={recipe}
+          onCancel={() => {
+            setRecipe(null);
+            setView({ kind: "crew" });
+          }}
           onSaved={async () => {
+            setRecipe(null);
             await refresh();
             setView({ kind: "crew" });
           }}
@@ -508,27 +526,34 @@ function AgentForm(props: {
   owner: OwnerEmail;
   /** Absent when creating. */
   agent?: AgentSummary;
+  /**
+   * A template to start from (DESIGN §15l). Pre-fills every field — including the
+   * capability ticks — and nothing more: the owner is looking at the same granting
+   * ceremony as always and still presses the button. A recipe suggests; it never grants.
+   */
+  preset?: Recipe | null;
   onCancel: () => void;
   onSaved: () => Promise<void>;
 }) {
   const editing = !!props.agent;
+  const preset = editing ? null : props.preset ?? null;
   // Models the ENGINE can drive. A model we can't talk to must never be the silent
   // default: that's how an agent ended up on Qwen and failed with "the provided model
   // identifier is invalid" the first time it was asked to do real work.
   const drivable = props.models.filter((m) => m.supported !== false);
   const usable = drivable.filter((m) => m.ready);
-  const [name, setName] = useState(props.agent?.name ?? "");
-  const [role, setRole] = useState(props.agent?.role ?? "");
-  const [instructions, setInstructions] = useState(props.agent?.instructions ?? "");
+  const [name, setName] = useState(props.agent?.name ?? preset?.name ?? "");
+  const [role, setRole] = useState(props.agent?.role ?? preset?.role ?? "");
+  const [instructions, setInstructions] = useState(props.agent?.instructions ?? preset?.instructions ?? "");
   const [modelId, setModelId] = useState(
     props.agent?.modelId ?? usable[0]?.id ?? drivable[0]?.id ?? "",
   );
-  const [cap, setCap] = useState(props.agent?.caps.monthlySpendCapUsd ?? 10);
+  const [cap, setCap] = useState(props.agent?.caps.monthlySpendCapUsd ?? preset?.capUsd ?? 10);
   // Nothing is on by default. An agent starts able only to read its task and answer —
   // every ability is something the owner deliberately grants (DESIGN §1b).
-  const [chosen, setChosen] = useState<string[]>(props.agent?.tools ?? []);
+  const [chosen, setChosen] = useState<string[]>(props.agent?.tools ?? preset?.tools ?? []);
   const [emailFrom, setEmailFrom] = useState(props.agent?.emailFrom ?? "");
-  const [avatar, setAvatar] = useState<string | undefined>(props.agent?.avatar);
+  const [avatar, setAvatar] = useState<string | undefined>(props.agent?.avatar ?? preset?.avatar);
   const [helperCopied, setHelperCopied] = useState(false);
   // The pulse stops the moment the button is first used — an invitation, not an alarm.
   const [helperUsed, setHelperUsed] = useState(false);
@@ -552,12 +577,23 @@ function AgentForm(props: {
   useEffect(() => {
     void api.mobileStatus().then((r) => setPhonePush(r.pushEnabled ?? false)).catch(() => {});
   }, []);
-  const [sched, setSched] = useState<AgentSchedule | null>(props.agent?.schedule ?? null);
+  const [sched, setSched] = useState<AgentSchedule | null>(
+    props.agent?.schedule ??
+      (preset?.schedule
+        ? {
+            ...preset.schedule,
+            timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC",
+            enabled: true,
+          }
+        : null),
+  );
 
   useEffect(() => {
     void api.agentMailboxes().then((r) => setMailboxes(r.mailboxes)).catch(() => {});
   }, []);
   const [preview, setPreview] = useState<SchedulePreview | null>(null);
+  /** Set once the create call has succeeded, so retries only ever re-run the file writes. */
+  const createdRef = useRef<string | null>(null);
   const [senderState, setSenderState] = useState<"unknown" | "checking" | "ok" | "bad">("unknown");
   const [err, setErr] = useState<string | null>(null);
   const ready = name.trim() && role.trim() && instructions.trim() && modelId;
@@ -1044,20 +1080,59 @@ function AgentForm(props: {
               if (ownerDraft.trim() && ownerDraft.trim() !== (props.owner.email ?? "")) {
                 await api.setOwnerEmail(ownerDraft.trim());
               }
-              await api.saveAgent({
-                ...(props.agent ? { id: props.agent.id } : {}),
-                name,
-                role,
-                instructions,
-                modelId,
-                tools: chosen,
-                emailFrom: emailFrom.trim(),
-                openInbox,
-                approvalChannel,
-                avatar: avatar ?? "",
-                schedule: sched && sched.task.trim() ? sched : null,
-                caps: { ...(props.agent?.caps ?? {}), monthlySpendCapUsd: cap },
-              });
+              // Idempotent across retries: if the agent was created but a starter file
+              // failed, pressing the button again must retry the FILES, not create a
+              // second agent (the re-runnable-writer rule).
+              let id = props.agent?.id ?? createdRef.current;
+              if (!id) {
+                const saved = await api.saveAgent({
+                  name,
+                  role,
+                  instructions,
+                  modelId,
+                  tools: chosen,
+                  emailFrom: emailFrom.trim(),
+                  openInbox,
+                  approvalChannel,
+                  avatar: avatar ?? "",
+                  schedule: sched && sched.task.trim() ? sched : null,
+                  caps: {
+                    monthlySpendCapUsd: cap,
+                    // A web-reading agent dies mid-run on the 20k default — one page is
+                    // ~10k tokens (DESIGN §4f) — so a recipe may size the budget to fit.
+                    ...(preset?.maxTokensPerRun ? { maxTokensPerRun: preset.maxTokensPerRun } : {}),
+                  },
+                });
+                id = saved.id;
+                createdRef.current = id;
+              } else if (props.agent) {
+                await api.saveAgent({
+                  id,
+                  name,
+                  role,
+                  instructions,
+                  modelId,
+                  tools: chosen,
+                  emailFrom: emailFrom.trim(),
+                  openInbox,
+                  approvalChannel,
+                  avatar: avatar ?? "",
+                  schedule: sched && sched.task.trim() ? sched : null,
+                  caps: { ...props.agent.caps, monthlySpendCapUsd: cap },
+                });
+              }
+              // The template's starter files — the document template the brief tells the
+              // agent to follow. Same path the Files panel writes through.
+              for (const f of preset?.files ?? []) {
+                try {
+                  await api.putFile(id, f.path, f.content);
+                } catch {
+                  throw new Error(
+                    `${name.trim()} was created, but its starter file ${f.path} couldn't be written. ` +
+                      `Press the button again to retry the file — the agent won't be duplicated.`,
+                  );
+                }
+              }
               await props.onSaved();
             } catch (e) {
               setErr((e as Error).message);

@@ -30,6 +30,9 @@ import {
   describeSchedule, nextRunAt, sanitiseSchedule,
   CONFIG_PK, LAST_TICK_SK, PUSH_SK, TICK_MINUTES,
 } from "@crewpoppy/shared";
+// Direct module import, NOT the barrel — see the note in shared/src/index.ts: the
+// barrel feeds the Lambda bundle, and the recipes must stay desktop-only.
+import { RECIPES } from "../../shared/src/recipes";
 
 const boot = readBootstrap();
 const credentials = brokerCredentialsProvider(boot);
@@ -150,6 +153,13 @@ const server = createServer(async (req, res) => {
     // The MailPoppy mailboxes assigned to agents — populates the editor's address SELECT.
     if (method === "GET" && parts[0] === "agent-mailboxes" && parts.length === 1) {
       return json(res, 200, { mailboxes: await listAgentMailboxes(ddb, tableName) });
+    }
+
+    // The ready-made agent setups (DESIGN §15l). Data only: choosing one fills the
+    // editor on the frontend — creation still goes through the normal save, so a
+    // recipe can never grant a capability by itself.
+    if (method === "GET" && parts[0] === "recipes" && parts.length === 1) {
+      return json(res, 200, { recipes: RECIPES });
     }
 
     // The tool catalogue, with the plain-language note shown beside each checkbox.

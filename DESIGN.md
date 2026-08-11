@@ -1710,7 +1710,7 @@ The coherent alternative — genuinely making phone approvals PRO-only — is re
 deliberately crippling the free app, and it strengthens the payware reading rather than weakening
 it.
 
-### 15l. Recipes — a tab of tested agent setups (founder, 2026-08-03: PLAN IT)
+### 15l. Recipes — a tab of tested agent setups (founder, 2026-08-03: PLAN IT; 2026-08-11: BUILT)
 
 > *"to rush up the user experience and learning curve on utilising the agents, I want we have in
 > plan to add in CrewPoppy a nice additional tab with .md templates and suggested agent setup for
@@ -1757,6 +1757,30 @@ Two practical notes if it goes ahead: the entitlement plumbing already exists (�
 checked against the AgentsPoppy checkout) so the mechanism is not new work — and **a `.md` file is
 plain text the buyer can copy and repost**, so the defensible value is curation, testing and
 updates over time, never secrecy. Price it as a subscription to a maintained set, or not at all.
+
+**BUILT (2026-08-11), free — the paid question stays open.** A **Templates** tab (between "Your
+crew" and Feedback, which stays last per AGENTS.md §9a) shows the catalogue as cards: face, role,
+what you get, the suggested abilities in the editor's own checkbox words, and an honest "needs"
+list ("Read web pages — without it, it cannot see any prices"). *Use this template* lands in the
+normal editor pre-filled — name, brief, ticks, schedule, caps — and stops; nothing exists until
+save. Starter files (the offer template, the pages list) are written through the same
+PUT /agents/:id/files path the Files panel uses, AFTER creation, with an idempotency guard: if a
+file write fails, retrying re-runs the files only, never creates a second agent.
+
+Four recipes ship, each backed by a named live run (`shared/src/recipes.ts` cites them): the
+flight-price watcher (Jerry, €90 fare found 2026-08-11), the offer/invoice writer (Max, the
+review-demo agent), the documents answerer (the workspace_read path Max exercises), and the
+morning web brief (web_fetch + schedule + email_owner, each leg live-verified). Web-reading
+recipes carry `maxTokensPerRun` ≥ 30k — a fetched page is ~10k tokens and the 20k default dies on
+page two — and a shared test enforces that rule on every future recipe, along with valid tool
+names, safe file paths and sane schedules (`recipes.test.ts`).
+
+🪤 One trap found during the build, recorded because it WILL recur: exporting recipes from the
+shared barrel baked the catalogue into the **Lambda zip** — 17 KB of desktop-only data changed the
+content hash and relit "update available" during the store-review freeze. recipes.ts is therefore
+kept OUT of `shared/src/index.ts` (the note in that file says why); the sidecar imports the module
+directly. The embedded zip is verified byte-identical (`lambda-code-71dd38c40cd0844f`), so this
+feature ships with no deploy and cannot touch the pairing identity.
 
 ## 16. Plan
 

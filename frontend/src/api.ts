@@ -5,7 +5,7 @@
 import { host, type BackendInvoke } from "./host";
 import type {
   AgentSummary, DeleteResult, DeploymentStatus, Meta, ModelAccess, ModelCatalogue, OwnerEmail,
-  RunRecord, RunView, SchedulePreview, TickerHealth, ToolCatalogue, WorkspaceFile,
+  Recipe, RunRecord, RunView, SchedulePreview, TickerHealth, ToolCatalogue, WorkspaceFile,
 } from "./types";
 
 /**
@@ -122,6 +122,9 @@ export const api = {
       path: `/agents/${id}/runs/${runId}/answer`,
       body: { answer, ...(approved ? { approved: true } : {}) },
     }),
+
+  /** The ready-made setups shown on the Templates tab (DESIGN §15l). */
+  listRecipes: (): Promise<{ recipes: Recipe[] }> => invoke({ method: "GET", path: "/recipes" }),
 
   /** The files this agent has written — the owner's window into its workspace. */
   listFiles: (id: string): Promise<{ files: WorkspaceFile[] }> =>
