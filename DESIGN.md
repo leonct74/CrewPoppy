@@ -692,6 +692,31 @@ real page rather than at a test double:
 against the real assessor: **still `medium`, no new action**, as predicted. Not yet live-run
 inside a deployment; that is the founder gate.
 
+#### ⛔ The flight recipe is WITHDRAWN, and the reason corrects §4f above (2026-08-11)
+
+Everything above about Google Flights being readable was measured **from a laptop**. From
+the founder's Lambda the same URL degraded over days: the first live run returned a €90
+fare, later runs returned the loading shell, and by the third day it was **403**. The
+laptop returned nine fares throughout, 8 attempts out of 8. The variable is the EGRESS —
+Google progressively blocks a datacentre address that keeps asking, and Lambda leaves from
+an AWS range.
+
+**So the headline finding of §4f is only true for residential egress.** `web_fetch` reaching
+a page from this machine says nothing about the same fetch from the deployment, and three
+releases (0.6.0, 0.6.1, 0.6.2) were spent fixing the wrong layer — a parser threshold, then
+a missing date — because the laptop kept confirming a world the Lambda did not live in.
+Both fixes were real and stay; the method was wrong. **Verify a web target from a real
+deployment, repeatedly, over days, before any recipe depends on it.**
+
+What survives: `web_fetch` itself, and the sites that do not defend against automation —
+reference, documentation, publishers, JSON APIs. What does not: any recipe promising a
+specific defended site's data.
+
+**P6b is back ON the critical path**, exactly reversing the note above. The flight watcher
+needs a flight API with an owner-supplied key (Amadeus Self-Service free tier, Duffel,
+Kiwi) rather than a scraped page. That is the honest route, and setting it aside was a
+decision made on laptop evidence.
+
 **Recommended order:** **P6a now, and stop there until it has been used.** It delivers the flight
 watch by itself, which was the thing worth proving. Then re-run the probe against whatever people
 actually ask for, and build the P6b seam with **one** backend only when a real target needs it —

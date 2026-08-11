@@ -56,71 +56,28 @@ export interface Recipe {
   files?: RecipeFile[];
 }
 
+// ⛔ WITHDRAWN 2026-08-11: the flight-price watcher (Jerry). It is not in this list on
+// purpose, and it must not be restored until a source exists that survives repeated use.
+//
+// What happened, in order: the first live run from the founder's Lambda read Google
+// Flights perfectly and reported a €90 fare. Later runs got a LOADING SHELL. Then 403s.
+// The same URL from a laptop returned nine fares throughout — 8 tries out of 8. The
+// difference is the EGRESS, not the URL, the date or the parser: Google progressively
+// blocks a datacentre address that keeps asking, and Lambda leaves from an AWS range.
+//
+// That is worse than never working. It passes a demo on a fresh deployment and dies in
+// use, so it fails exactly the §15l rule this catalogue exists to keep: ship only what
+// has been RUN — which has to mean run repeatedly, from where the agent actually runs.
+//
+// I shipped three releases (0.6.0, 0.6.1, 0.6.2) chasing this from the wrong machine.
+// The parser fix and the missing-date fix in those releases were real and are keeping
+// their place; the mistake was believing a laptop could stand in for the Lambda.
+//
+// The route back is a flight API with an owner-supplied key (Amadeus Self-Service has a
+// free tier, Duffel and Kiwi are alternatives) — DESIGN §4f's P6b provider seam, which
+// was set aside precisely because a laptop test made flights look solved. Restore this
+// recipe only when it has run from a real deployment, several times, over days.
 export const RECIPES: Recipe[] = [
-  {
-    // Backed by a live run: "Jerry" found a €90 AMS→LON fare via web_fetch on
-    // 2026-08-11, through the deployed tool, in the founder's own AWS (DESIGN §4f).
-    key: "flight-watch",
-    name: "Jerry",
-    role: "Watches flight prices",
-    avatar: "av-12",
-    blurb:
-      "Tell it where you want to fly and your budget. It checks Google Flights, tells you the " +
-      "cheapest fares it can see, and gives you the link to book.",
-    needs: [
-      "Read web pages — without it, it cannot see any prices",
-      "Email you — for alerts when it runs on the schedule",
-      // The founder's own question, pre-answered on the card (2026-08-11): "will Jerry
-      // check until he is stopped?" Yes — and the monthly limit is the brake.
-      "Runs every hour until you untick its schedule. The monthly limit is a hard stop: once reached, it waits for next month",
-    ],
-    instructions: [
-      "You watch flight prices for your owner.",
-      "",
-      "When asked about a route, build a Google Flights address in exactly this shape:",
-      "https://www.google.com/travel/flights?q=Flights+from+Amsterdam+to+Catania+on+2026-09-01",
-      "Replace the two cities and the date (YYYY-MM-DD); keep the + signs between words.",
-      "",
-      "THE DATE MUST BE IN THE FUTURE. Work it out from today's date, which is in your",
-      "instructions above — never assume a year. A past date makes Google return its general",
-      "homepage instead of the route, which looks like the page failed to load.",
-      "",
-      "Then read it with your web tool. CHECK WHAT CAME BACK: the page should name your",
-      "route, like \"Amsterdam to Catania | Google Flights\". If instead you see a general page",
-      "like \"Find Cheap Flights Worldwide\", your date or cities were wrong — fix them and try",
-      "once more. Any prices on that general page belong to other routes; never report them.",
-      "",
-      "REPORT THE ACTUAL FARES YOU READ — the cheapest few, with the airline and whether they",
-      "are nonstop. Never guess a price, and never offer the link INSTEAD of prices: a link on",
-      "its own is not an answer to \"what does it cost\".",
-      "",
-      "If your web tool tells you the page could not be read, say exactly that in one line and",
-      "offer to try again — do not dress it up as a result.",
-      "",
-      "Always include the address you read as well, so your owner can open it and book.",
-      "",
-      "Remember the route, the budget and the best price seen so far in your memory.",
-      "When you run on a schedule: read the saved route, check the page, and only email your",
-      "owner when the price is at or under their budget, or clearly lower than the best you",
-      "have seen. Otherwise just update your memory — nobody wants an email saying nothing",
-      "changed.",
-      "",
-      "If a page cannot be read, say so plainly and move on — do not invent fares.",
-    ].join("\n"),
-    tools: ["web_fetch", "memory_read", "memory_write", "email_owner"],
-    capUsd: 5,
-    // A fetched page is ~10k tokens by itself (DESIGN §4f) — the 20k default would die
-    // on the second look at a page.
-    maxTokensPerRun: 60_000,
-    schedule: {
-      kind: "hourly",
-      hour: 0,
-      minute: 0,
-      weekday: 1,
-      // The founder's observation that started all this: prices move overnight.
-      task: "Check the flight route saved in your memory and email your owner only if the price beat their budget or the best seen so far.",
-    },
-  },
   {
     // Backed by the longest-running live use there is: Max, the review-demo agent,
     // writes offers as PDFs from invoices-template.md and routes them through the
@@ -230,6 +187,11 @@ export const RECIPES: Recipe[] = [
     needs: [
       "Read web pages — the brief is read from the addresses you give it",
       "Email you — that is how the brief arrives",
+      // Learned the hard way from the withdrawn flight recipe: say this on the CARD, not
+      // after someone has adopted it. The difference that makes this one shippable is
+      // that it promises to read the pages YOU list and reports honestly when one refuses
+      // — it does not promise a particular site's data.
+      "Works with pages that allow automated reading — news, reference and publisher sites are fine; some large sites refuse, and it will tell you which",
     ],
     instructions: [
       "You prepare a short morning brief for your owner.",
