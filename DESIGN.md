@@ -723,6 +723,46 @@ actually ask for, and build the P6b seam with **one** backend only when a real t
 chosen by measurement, not by catalogue. The probe is the template: measure, then decide, and put
 the numbers in this document rather than the reasoning that preceded them.
 
+### 4g. P8 — Vision: agents that can look at an image (founder, 2026-08-11: PLAN)
+
+**The use case that asked for it:** *"an agent that takes copies of receipts and saves them
+in the right folder… but it might require an OCR."* It does not require an OCR, and that is
+the finding worth recording: three models in `shared/src/models.ts` are already flagged
+`vision: true`, and a vision model reads a photographed receipt — merchant, date, total,
+VAT — better than classical OCR, because it understands layout instead of lifting
+characters. What is missing is purely plumbing: **no image has ever been able to reach the
+model.** `workspace_read` does `transformToString()` (a JPEG becomes mojibake) and the
+Bedrock request builder emits text-only content blocks.
+
+**The design, kept to the §4 shape:**
+
+- **One new tool: `read_image`** (owner label: "Look at photos and scans", Files group).
+  Reads ONE image from the agent's OWN workspace prefix — same scoping rule as every file
+  tool, path validated by `isSafeRelativePath`, prefix built from the runner's agentId.
+- **The dispatcher gains one optional result field** (`image?: { mediaType, base64 }`)
+  and `loop.ts` renders it as an image content block inside the tool_result. Everything
+  else about the loop is unchanged.
+- **Non-vision models get a sentence, not a failure**: "your model cannot see images — ask
+  your owner to switch you to one that can." The editor already knows which models see
+  (`vision: true`) and should say so beside the model picker when this tool is ticked.
+- **Bounds**: jpeg/png/webp/gif only (sniffed, not just extension); reject over ~4.5 MB
+  with a message telling the owner to re-photograph rather than silently failing (Bedrock's
+  request ceiling; the Lambda has no image library to downscale with, on purpose — no new
+  dependencies in the runner).
+- **No new AWS permission**: S3 GetObject on the own-prefix and Bedrock InvokeModel are
+  both already granted. No manifest change, no rating change, no STS budget cost.
+- **Cost honesty**: an image is roughly 1–1.6k tokens on Claude-class models. Cheap per
+  receipt; the per-run cap and monthly cap already bound it.
+
+**What it unlocks beyond receipts**: photographed invoices and contracts, screenshots,
+whiteboard photos, the phone camera as an input device generally — the phone app already
+uploads images to the workspace today, they just land unreadable.
+
+**The lesson that gates it (this week's, §4f):** it ships only after being run from a REAL
+deployment — a receipt photographed on the founder's phone, uploaded from the app, read by
+the agent, filed and totalled — not after a unit test passes. There is no external service
+to blame here, but the rule is now general.
+
 ## 5. Execution model
 
 - **`agent-runner` Lambda per run.** The agentic loop: load def → call Bedrock (system prompt +
@@ -1839,6 +1879,10 @@ feature ships with no deploy and cannot touch the pairing identity.
 - **P7 — recipes (§15l):** a tab of tested agent setups; a recipe fills the editor and never grants
   a capability. Ships only recipes that have been run live. Whether any are paid is a §15
   positioning decision, not a build decision — resolve it before the copy is written.
+- **P8 — vision (§4g):** `read_image` — an agent looks at an image in its own workspace via a
+  vision model already in the list. One tool, one result field, image content blocks in the
+  loop; no new permission. Gated on a real-deployment run (photo from the phone → filed →
+  totalled), per the §4f lesson.
 - Founder check-in at every phase gate; every live test torn down + verified clean (CLAUDE.md will
   encode this). **Bedrock note:** live tests need model access enabled in the founder's Bedrock
   console + real token spend — coordinate, and keep caps tiny during testing.
