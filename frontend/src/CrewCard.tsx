@@ -91,10 +91,15 @@ function MoneyStrip(props: { agents: AgentSummary[] }) {
             <strong>Writing costs about four times reading.</strong> Producing a PDF or a long
             email is the expensive part of a job; asking for a short answer instead is cheaper.
           </li>
+          {/* Rewritten 2026-08-12: the founder read this and asked what it meant, which is
+              the only test that counts. It said what happens ("adds one line", "stays flat")
+              without the comparison that makes it mean anything, and called an expense list
+              a "ledger". Now it states the benefit in the thing the owner can see: their own
+              growing list of expenses. */}
           <li>
-            <strong>Adding to a list is nearly free.</strong> Agents that keep a ledger add one
-            line at a time rather than rewriting the file, so the cost stays flat however long
-            the list gets.
+            <strong>A long list doesn't cost more than a short one.</strong> When an agent logs
+            an expense it adds just that line, instead of reading your whole file and writing it
+            back. So your 500th expense costs the same as your first.
           </li>
           <li>
             <strong>Clearing a chat helps a little.</strong> Only the last few exchanges are
