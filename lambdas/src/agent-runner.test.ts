@@ -91,17 +91,29 @@ vi.mock("@aws-sdk/client-lambda", () => {
   };
 });
 
+// Both wires are mocked, and each answers in ITS OWN shape — a mock that replied
+// Anthropic-style to a Converse call would have hidden the whole translation layer.
 vi.mock("@aws-sdk/client-bedrock-runtime", () => {
   class InvokeModelCommand {
     constructor(public input: Record<string, unknown>) {}
   }
+  class ConverseCommand {
+    constructor(public input: Record<string, unknown>) {}
+  }
   return {
     InvokeModelCommand,
+    ConverseCommand,
     BedrockRuntimeClient: class {
-      async send(cmd: InvokeModelCommand) {
+      async send(cmd: InvokeModelCommand | ConverseCommand) {
         state.invocations.push(cmd.input);
         if (state.modelReply instanceof Error) throw state.modelReply;
         const r = state.modelReply;
+        if (cmd instanceof ConverseCommand) {
+          return {
+            output: { message: { role: "assistant", content: [{ text: r.text }] } },
+            usage: { inputTokens: r.inputTokens, outputTokens: r.outputTokens },
+          };
+        }
         return {
           body: new TextEncoder().encode(
             JSON.stringify({
@@ -132,6 +144,23 @@ const agent: AgentDef = {
   updatedAt: "2026-07-26T00:00:00.000Z",
 };
 
+/**
+ * What actually went to the model, read the same way whichever wire carried it. The
+ * tests below are about the CONVERSATION — the system prompt, what's replayed — and that
+ * must be identical on both wires, so they assert on this rather than on a body shape.
+ */
+const sentToModel = (i = 0): { system: string; messages: string[] } => {
+  const input = state.invocations[i]! as Record<string, any>;
+  if (input.body) {
+    const b = JSON.parse(String(input.body));
+    return { system: String(b.system ?? ""), messages: (b.messages ?? []).map((m: any) => String(m.content)) };
+  }
+  return {
+    system: (input.system ?? []).map((s: any) => s.text).join(""),
+    messages: (input.messages ?? []).map((m: any) => m.content.map((c: any) => c.text ?? "").join("")),
+  };
+};
+
 const runOf = (agentId = "a1") =>
   [...state.items.values()].find((i) => String(i.sk).startsWith("run#") && i.agentId === agentId) as any;
 
@@ -159,17 +188,28 @@ describe("a normal run", () => {
     expect(msgs.map((m) => m.role)).toEqual(["user", "assistant"]);
   });
 
-  it("invokes through the REGIONAL INFERENCE PROFILE, not the bare model id", async () => {
+  // BOTH halves of the id trap (DESIGN §2c). A cross-region model with a bare id fails
+  // with "on-demand throughput isn't supported"; an in-region model with a prefixed id
+  // fails with "the provided model identifier is invalid". Neither error names the cause.
+  it("invokes a CROSS-REGION model through its regional profile", async () => {
+    state.items.set(key(AGENTS_PK, agentSk("a1")), {
+      pk: AGENTS_PK, sk: agentSk("a1"), ...agent,
+      modelId: "anthropic.claude-haiku-4-5-20251001-v1:0",
+    });
     await handler({ runId: "r1", agentId: "a1", input: "Hi", tableName: TABLE });
-    // A bare id fails with "on-demand throughput isn't supported" (DESIGN §2c).
     expect(String(state.invocations[0]!.modelId)).toMatch(/^(eu|us|apac)\./);
+  });
+
+  it("invokes an IN-REGION model with its bare id — the prefixed form doesn't exist", async () => {
+    await handler({ runId: "r1", agentId: "a1", input: "Hi", tableName: TABLE });
+    expect(state.invocations[0]!.modelId).toBe("qwen.qwen3-32b-v1:0");
   });
 
   it("tells the model it is an AI and must not claim otherwise (DESIGN §3)", async () => {
     await handler({ runId: "r1", agentId: "a1", input: "Hi", tableName: TABLE });
-    const body = JSON.parse(String(state.invocations[0]!.body));
-    expect(body.system).toMatch(/never claim to be human/i);
-    expect(body.system).toContain("Emma");
+    const { system } = sentToModel();
+    expect(system).toMatch(/never claim to be human/i);
+    expect(system).toContain("Emma");
   });
 
   it("records the model as PROVEN, so the list can stop trusting a lagging status field", async () => {
@@ -780,27 +820,21 @@ describe("Memory means the chat continues (founder, 2026-07-31)", () => {
   it("an agent WITHOUT memory still starts every run fresh", async () => {
     pastRun(1);
     await handler({ runId: "new", agentId: "a1", input: "next question", tableName: TABLE } as never);
-    const body = JSON.parse(String(state.invocations[0]!.body));
-    expect(body.messages).toHaveLength(1);
-    expect(body.messages[0].content).toBe("next question");
+    expect(sentToModel().messages).toEqual(["next question"]);
   });
 
   it("an agent WITH memory sees what was said before", async () => {
     memoryAgent();
     pastRun(1);
     await handler({ runId: "new", agentId: "a1", input: "next question", tableName: TABLE } as never);
-    const body = JSON.parse(String(state.invocations[0]!.body));
-    expect(body.messages.map((m: { content: unknown }) => m.content)).toEqual([
-      "question 1", "answer 1", "next question",
-    ]);
+    expect(sentToModel().messages).toEqual(["question 1", "answer 1", "next question"]);
   });
 
   it("read-only memory is enough to remember the conversation", async () => {
     memoryAgent(["memory_read"]);
     pastRun(1);
     await handler({ runId: "new", agentId: "a1", input: "next question", tableName: TABLE } as never);
-    const body = JSON.parse(String(state.invocations[0]!.body));
-    expect(body.messages).toHaveLength(3);
+    expect(sentToModel().messages).toHaveLength(3);
   });
 });
 

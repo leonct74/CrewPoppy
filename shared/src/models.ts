@@ -14,26 +14,41 @@
 // 🪤 TWO ID FORMS (DESIGN §2c, learned from a live failure): the access APIs want the
 // BARE foundation-model id, while InvokeModel needs the REGIONAL INFERENCE PROFILE
 // (`eu.` + id) — a bare id fails with "on-demand throughput isn't supported".
+//
+// 🪤 …BUT NOT FOR EVERY MODEL (2026-08-12). That rule is Anthropic's, not Bedrock's. Qwen
+// and GPT-OSS are served IN-REGION in eu-west-1 and publish NO cross-region profile at
+// all, so for them the bare id is the only id that works and the `eu.` prefix is what
+// fails. Prefixing is therefore a PER-MODEL fact (`crossRegion`), not a per-region one —
+// see `invocationIdFor`. Getting this backwards is what made Qwen look unavailable.
 
 export type CostBand = "$" | "$$" | "$$$";
 
 /**
- * Which request/response format a model speaks on Bedrock's InvokeModel.
+ * How the runner talks to a model.
  *
  * 🪤 LIVE FAILURE (2026-07-26): the runner only ever built Anthropic's body
  * (`anthropic_version` + content blocks) and only ever parsed Anthropic's reply, while
  * the picker offered five models. Choosing a non-Anthropic one produced "The provided
- * model identifier is invalid" — Bedrock's answer for a profile that doesn't exist,
- * because `eu.qwen…`/`eu.openai…` aren't real inference profiles in eu-west-1 either.
+ * model identifier is invalid" — which we read as "no such profile" and half-blamed on
+ * the wire format. Both diagnoses were incomplete: the id was wrong (see the prefix trap
+ * above) AND the body was wrong.
  *
- * So the wire format is now DECLARED, and a model the engine can't drive can't be
- * selected. Nova and the open-weight models return when their adapters are written —
- * that's an engine change, not a catalogue edit.
+ * THE FIX (2026-08-12) is one adapter, not three. Bedrock's **Converse** API already
+ * normalises messages, tool specs, tool calls and token usage across every model that
+ * supports it — so instead of writing a bespoke body for Nova and another for the
+ * open-weight models, non-Anthropic models go through `converse`. Anthropic keeps its
+ * native InvokeModel path untouched: it works, it drives every agent in the field, and
+ * moving it would risk a regression for no gain.
+ *
+ * Authorisation note: Converse is covered by the `bedrock:InvokeModel` grant the stack
+ * already has (AWS: "Other actions, such as Converse … are blocked automatically when
+ * InvokeModel is denied"). So this adds NO permission and NO template change — which is
+ * what lets it ship while `infra/` is frozen for the Apple review.
  */
-export type ModelWire = "anthropic" | "nova" | "openai-compatible";
+export type ModelWire = "anthropic" | "converse";
 
 /** The formats the agent-runner actually implements today. */
-export const SUPPORTED_WIRES: readonly ModelWire[] = ["anthropic"];
+export const SUPPORTED_WIRES: readonly ModelWire[] = ["anthropic", "converse"];
 
 export interface ModelOption {
   /** The bare foundation-model id — what the access APIs accept. */
@@ -64,6 +79,16 @@ export interface ModelOption {
   /** How the runner must talk to it. Only SUPPORTED_WIRES can be chosen today. */
   wire: ModelWire;
   /**
+   * True when this model is reached through a CROSS-REGION inference profile (`eu.` +
+   * id), false when it is served in-region and wants the bare id.
+   *
+   * Not a stylistic choice — each is the ONLY id that works for its model, and using the
+   * other one produces a confusing "model identifier is invalid". Verified per model
+   * against the Bedrock model cards (2026-08-12): Anthropic and Nova publish EU profiles;
+   * Qwen3 32B and GPT-OSS 120B list eu-west-1 as In-Region with "Geo: Not supported".
+   */
+  crossRegion: boolean;
+  /**
    * True for models whose provider demands a one-time account form (Anthropic only).
    * A HINT for copy — the authoritative answer is the live availability check, so the
    * badge self-corrects the moment the owner completes the form.
@@ -92,6 +117,7 @@ export const MODEL_CATALOGUE: ModelOption[] = [
     vision: true,
     cost: "$$",
     wire: "anthropic",
+    crossRegion: true,
     formLikely: true,
   },
   {
@@ -103,6 +129,7 @@ export const MODEL_CATALOGUE: ModelOption[] = [
     vision: true,
     cost: "$$$",
     wire: "anthropic",
+    crossRegion: true,
     formLikely: true,
   },
   {
@@ -113,18 +140,22 @@ export const MODEL_CATALOGUE: ModelOption[] = [
     toolUse: true,
     vision: true,
     cost: "$",
-    wire: "nova",
+    wire: "converse",
+    crossRegion: true,
     formLikely: false,
   },
   {
     id: "qwen.qwen3-32b-v1:0",
     label: "Qwen3 32B",
     provider: "Qwen",
-    goodAt: "Solid general text work at a very low price. Good with code.",
+    goodAt:
+      "Solid general text work at a fraction of the price. Good with code. It cannot look at " +
+      "pictures, and it holds less of a long conversation than the others.",
     toolUse: true,
     vision: false,
     cost: "$",
-    wire: "openai-compatible",
+    wire: "converse",
+    crossRegion: false,
     formLikely: false,
   },
   {
@@ -135,7 +166,8 @@ export const MODEL_CATALOGUE: ModelOption[] = [
     toolUse: true,
     vision: false,
     cost: "$",
-    wire: "openai-compatible",
+    wire: "converse",
+    crossRegion: false,
     formLikely: false,
   },
 ];
@@ -158,6 +190,15 @@ export function isDrivable(model: { wire: ModelWire }): boolean {
 }
 
 /**
+ * How to talk to this model id. An id we don't recognise is assumed to be Anthropic —
+ * the only wire an agent could have been saved with before Converse existed, so an old
+ * agent carrying a since-removed Claude id still runs the way it always did.
+ */
+export function wireFor(modelId: string): ModelWire {
+  return MODEL_CATALOGUE.find((m) => m.id === modelId)?.wire ?? "anthropic";
+}
+
+/**
  * The cross-region inference-profile prefix for a region. Verified for `eu-` and `us-`;
  * Asia-Pacific uses `apac`. An unknown region falls back to the bare id rather than
  * inventing a prefix — a clear "not supported" error beats a mysterious 404.
@@ -171,4 +212,19 @@ export function inferenceProfileFor(modelId: string, region: string): string {
         ? "apac"
         : null;
   return prefix ? `${prefix}.${modelId}` : modelId;
+}
+
+/**
+ * The id to actually put on an InvokeModel/Converse call — the ONE thing the runner
+ * should use. Cross-region models get the regional profile; in-region models get the
+ * bare id, because for them the prefixed form does not exist.
+ *
+ * An id we don't have a catalogue entry for is left BARE rather than prefixed: an agent
+ * could be carrying a model we've since removed, and the bare id at least names something
+ * real, so the error says "model not found" instead of inventing a profile that never
+ * existed.
+ */
+export function invocationIdFor(modelId: string, region: string): string {
+  const model = MODEL_CATALOGUE.find((m) => m.id === modelId);
+  return model?.crossRegion ? inferenceProfileFor(modelId, region) : modelId;
 }

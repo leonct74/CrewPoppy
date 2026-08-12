@@ -186,6 +186,44 @@ them counter to the documentation:
    naming the model and the fix. **Rule: a model joins `SUPPORTED_WIRES` in the same change as
    its adapter, never before.** Nova and the open-weight models return when those adapters are
    written — that is engine work, not a catalogue edit.
+7. **🪤 THE PREFIX RULE IS PER-MODEL, NOT PER-REGION — and getting that backwards is what
+   made Qwen look impossible for a fortnight (2026-08-12).** Finding #1 is true *of Anthropic*,
+   and we generalised it into `inferenceProfileFor`, which prefixes `eu.` for everything. But
+   Bedrock's model cards say plainly: Qwen3 32B and GPT-OSS 120B are served **In-Region** in
+   eu-west-1 with **"Geo: Not supported"**. There is no `eu.qwen…` — so for those models the
+   *bare* id is the only id that works, and our prefix was manufacturing the very
+   "model identifier is invalid" we then blamed on the wire format. Both diagnoses in #6 were
+   half-right; each hid the other. **Fix:** `crossRegion` is now a declared per-model fact and
+   `invocationIdFor()` is the single place that decides. Lesson for the family: when a live
+   error teaches you a rule, ask which *thing* the rule belongs to before promoting it to a
+   global.
+8. **One adapter, not three: the Converse API (2026-08-12).** #6 planned a bespoke body for
+   Nova and another for the OpenAI-shaped models. That was unnecessary — Bedrock's **Converse**
+   API already normalises messages, tool specs, tool calls and token usage across every model
+   that supports it, and Qwen3 32B, GPT-OSS 120B and Nova Lite all do. So `ModelWire` collapses
+   to `anthropic | converse`. Claude keeps its native `InvokeModel` path **untouched**: it works,
+   it drives every agent in the field, and moving it would risk a regression for nothing.
+   - **No new permission, no template change.** AWS: *"Other actions, such as Converse … are
+     blocked automatically when InvokeModel is denied"* — Converse is authorised by the
+     `bedrock:InvokeModel` grant the stack has had since P0. This is what let it ship while
+     `infra/` was frozen for the Apple review; the pairing guard stayed green throughout.
+   - **The translation lives at the boundary, in `lambdas/src/converse.ts`, and nowhere else.**
+     The loop, the dispatcher, the stored conversation and the resume path all keep ONE message
+     shape — Anthropic's — because that is what every agent in the field already has written
+     down. A Qwen agent storing Converse-shaped messages would be unreadable to the Anthropic
+     path if its owner later switched it to Claude.
+   - **Nothing is dropped in translation.** Qwen3 has a thinking mode and returns blocks with no
+     Anthropic equivalent; the model asks for its own reasoning back on the next turn. Those
+     ride through the loop as opaque `__converse` blocks and are handed back verbatim.
+   - **What this buys:** Qwen3 32B is **$0.00009/$0.00035** per 1K in/out against Claude's
+     $$/$$$ band — roughly an order of magnitude cheaper, which is the founder's ask. It cannot
+     see pictures and holds 32K of context, so it is the wrong brain for a receipt-reader and
+     the right one for text work. Nova Lite becomes drivable in the same change and is cheaper
+     still **and** can see.
+   - **Verification, honestly:** every fact above is from the Bedrock model cards and 497 green
+     tests, **not** from a live call — no local credential in this account can invoke Bedrock.
+     Per the §4f rule that is NOT proof. One real run on a Qwen agent is the gate before the
+     catalogue is seeded.
 
 ## 3. What an "agent" is (the data model)
 

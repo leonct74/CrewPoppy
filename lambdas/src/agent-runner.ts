@@ -18,7 +18,7 @@ import {
 } from "@aws-sdk/lib-dynamodb";
 import { InvokeCommand, LambdaClient } from "@aws-sdk/client-lambda";
 import { S3Client } from "@aws-sdk/client-s3";
-import { BedrockRuntimeClient, InvokeModelCommand } from "@aws-sdk/client-bedrock-runtime";
+import { BedrockRuntimeClient, ConverseCommand, InvokeModelCommand } from "@aws-sdk/client-bedrock-runtime";
 import { SESv2Client, SendEmailCommand } from "@aws-sdk/client-sesv2";
 import { createHash, randomBytes } from "node:crypto";
 import {
@@ -40,7 +40,7 @@ import {
   checkStart,
   checkpointPk,
   costFor,
-  inferenceProfileFor,
+  invocationIdFor,
   isEmailAddress,
   mailboxSk,
   monthKeyOf,
@@ -52,6 +52,7 @@ import {
   spendSk,
   transcriptPk,
   transcriptSk,
+  wireFor,
   type AgentDef,
   type MailboxEvent,
   type MailEvent,
@@ -63,6 +64,7 @@ import {
   type TokenUsage,
 } from "@crewpoppy/shared";
 import { dispatch, sendMail, type DispatchContext } from "./dispatcher";
+import { fromConverseOutput, toConverseRequest } from "./converse";
 import { runLoop, type ModelReply } from "./loop";
 
 const REGION = process.env.AWS_REGION ?? "eu-west-1";
@@ -74,10 +76,14 @@ const ses = new SESv2Client({ region: REGION });
 const lambda = new LambdaClient({ region: REGION });
 
 /**
- * Call the model through the REGIONAL INFERENCE PROFILE.
+ * Call the model.
  *
- * 🪤 The profile id is required: a bare foundation-model id fails with "on-demand
- * throughput isn't supported" (DESIGN §2c — this cost a live test).
+ * 🪤 THE ID IS PER-MODEL, not per-region (DESIGN §2c — the first form cost a live test,
+ * the second cost Qwen being written off as unavailable for a fortnight). `invocationIdFor`
+ * knows which models want the `eu.` profile and which want the bare id.
+ *
+ * Claude keeps its native InvokeModel body; everything else goes through Converse, which
+ * Bedrock normalises. Two paths, not five.
  */
 async function callModel(args: {
   modelId: string;
@@ -86,9 +92,14 @@ async function callModel(args: {
   tools: unknown[];
   maxOutputTokens: number;
 }): Promise<ModelReply> {
+  const modelId = invocationIdFor(args.modelId, REGION);
+  if (wireFor(args.modelId) === "converse") {
+    const out = await bedrock.send(new ConverseCommand(toConverseRequest({ ...args, modelId }) as never));
+    return fromConverseOutput(out);
+  }
   const out = await bedrock.send(
     new InvokeModelCommand({
-      modelId: inferenceProfileFor(args.modelId, REGION),
+      modelId,
       body: JSON.stringify({
         anthropic_version: "bedrock-2023-05-31",
         max_tokens: Math.max(1, args.maxOutputTokens),

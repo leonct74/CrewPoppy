@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
-  DEFAULT_MODEL_ID, MODEL_CATALOGUE, SUPPORTED_WIRES, inferenceProfileFor, isDrivable,
+  DEFAULT_MODEL_ID, MODEL_CATALOGUE, SUPPORTED_WIRES, inferenceProfileFor, invocationIdFor,
+  isDrivable, wireFor,
 } from "./models";
 
 describe("the curated model catalogue", () => {
@@ -50,6 +51,41 @@ describe("inference profile ids (the trap that cost a live test — DESIGN §2c)
   });
 });
 
+// The SECOND half of the same trap, found 2026-08-12: prefixing is per-MODEL, not
+// per-region. Qwen and GPT-OSS are served in-region in eu-west-1 and publish no
+// cross-region profile, so `eu.qwen…` names nothing — which is why Qwen looked
+// unavailable and got written off as needing an adapter it didn't need.
+describe("invocation ids are a per-model fact", () => {
+  it("gives cross-region models the regional profile", () => {
+    expect(invocationIdFor(DEFAULT_MODEL_ID, "eu-west-1")).toBe(`eu.${DEFAULT_MODEL_ID}`);
+    expect(invocationIdFor("amazon.nova-lite-v1:0", "eu-west-1")).toBe("eu.amazon.nova-lite-v1:0");
+  });
+
+  it("gives in-region models the BARE id — the prefixed form does not exist", () => {
+    expect(invocationIdFor("qwen.qwen3-32b-v1:0", "eu-west-1")).toBe("qwen.qwen3-32b-v1:0");
+    expect(invocationIdFor("openai.gpt-oss-120b-1:0", "eu-west-1")).toBe("openai.gpt-oss-120b-1:0");
+  });
+
+  it("leaves an unknown id bare rather than inventing a profile for it", () => {
+    expect(invocationIdFor("some.retired-model-v9:0", "eu-west-1")).toBe("some.retired-model-v9:0");
+  });
+
+  it("every catalogue entry declares which form it needs", () => {
+    for (const m of MODEL_CATALOGUE) expect(typeof m.crossRegion).toBe("boolean");
+  });
+});
+
+describe("wireFor", () => {
+  it("reads the wire off the catalogue", () => {
+    expect(wireFor(DEFAULT_MODEL_ID)).toBe("anthropic");
+    expect(wireFor("qwen.qwen3-32b-v1:0")).toBe("converse");
+  });
+
+  it("assumes Anthropic for an unknown id — the only wire an old agent could carry", () => {
+    expect(wireFor("some.retired-model-v9:0")).toBe("anthropic");
+  });
+});
+
 // Live failure, 2026-07-26: an agent on a non-Anthropic model failed with "The provided
 // model identifier is invalid". The runner only ever spoke Anthropic's format, while the
 // picker offered five models — so the catalogue could hand out a brain the engine can't
@@ -57,7 +93,7 @@ describe("inference profile ids (the trap that cost a live test — DESIGN §2c)
 describe("the catalogue never offers a model the engine can't drive", () => {
   it("marks every entry with the format it speaks", () => {
     for (const m of MODEL_CATALOGUE) {
-      expect(["anthropic", "nova", "openai-compatible"]).toContain(m.wire);
+      expect(["anthropic", "converse"]).toContain(m.wire);
     }
   });
 
