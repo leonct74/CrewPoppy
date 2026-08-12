@@ -220,10 +220,12 @@ them counter to the documentation:
      see pictures and holds 32K of context, so it is the wrong brain for a receipt-reader and
      the right one for text work. Nova Lite becomes drivable in the same change and is cheaper
      still **and** can see.
-   - **Verification, honestly:** every fact above is from the Bedrock model cards and 497 green
-     tests, **not** from a live call — no local credential in this account can invoke Bedrock.
-     Per the §4f rule that is NOT proof. One real run on a Qwen agent is the gate before the
-     catalogue is seeded.
+   - **VERIFIED LIVE 2026-08-12 (founder): a Qwen3 32B agent ran.** Everything above was
+     written from the model cards and 497 green tests, which under the §4f rule is not proof;
+     the gate was one real run, and it passed. So the bare id is right, the Converse body is
+     right, and the translation holds on a real deployment. **GPT-OSS 120B and Nova Lite are
+     still unproven** — same wire, same code path, but the §4f rule does not let one model's
+     success stand in for another's.
 
 ## 3. What an "agent" is (the data model)
 
