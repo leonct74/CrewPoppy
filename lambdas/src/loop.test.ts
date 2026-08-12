@@ -212,3 +212,88 @@ describe("ask_user suspends the run (DESIGN §5)", () => {
     expect(recorded.some((r) => r.text.includes("Waiting for you: Approve?"))).toBe(true);
   });
 });
+
+// The founder's question, 2026-08-12: "when Penny accumulates a large table, at a certain
+// point it won't be able to report it". Right — and until this change the half-table came
+// back looking like a finished answer. The model always said it had run out of room; we
+// never read it. Same fault as the partial ledger READ fixed in 0.8.1, on the way out.
+describe("an answer that ran out of room is never passed off as finished", () => {
+  it("stops, and says the answer was cut off", async () => {
+    const { d } = deps({ replies: [reply({ text: "| Jan | 12 |\n| Feb | 3", truncated: true })] });
+    const out = await runLoop(agent, "sys", "show me the table", 0, 0, d);
+
+    expect(out.status).toBe("stopped");
+    expect(out.stopReason).toBe("max_tokens");
+    expect(out.message).toMatch(/cut off/i);
+    // The partial text is still shown — it is not worthless, it is just not complete.
+    expect(out.output).toContain("| Jan | 12 |");
+  });
+
+  it("names the two things the owner can do about it", async () => {
+    const { d } = deps({ replies: [reply({ text: "half a table", truncated: true })] });
+    const out = await runLoop(agent, "sys", "show me the table", 0, 0, d);
+    expect(out.message).toMatch(/shorter/i);
+    expect(out.message).toMatch(/file/i);
+  });
+
+  it("puts the warning in the visible transcript, not only in the run record", async () => {
+    const { d, recorded } = deps({ replies: [reply({ text: "half a table", truncated: true })] });
+    await runLoop(agent, "sys", "show me the table", 0, 0, d);
+    expect(recorded.some((r) => /cut off/i.test(r.text))).toBe(true);
+  });
+
+  it("does NOT act on a tool call that was cut off halfway", async () => {
+    // A truncated turn can carry a half-written tool call. Sending it would mean acting
+    // on arguments the model never finished writing.
+    const { d, dispatched } = deps({
+      replies: [reply({ toolUses: [{ id: "t1", name: "memory_write", input: { key: "k" } }], truncated: true })],
+    });
+    const out = await runLoop(agent, "sys", "remember this", 0, 0, d);
+    expect(dispatched).toHaveLength(0);
+    expect(out.stopReason).toBe("max_tokens");
+  });
+
+  it("leaves an ordinary answer alone", async () => {
+    const { d } = deps({ replies: [reply({ text: "All done." })] });
+    const out = await runLoop(agent, "sys", "hello", 0, 0, d);
+    expect(out.status).toBe("succeeded");
+    expect(out.stopReason).toBe("completed");
+  });
+});
+
+// "the stop has to be based and proportional with the model capability" (founder).
+describe("how much the model may write comes from the model", () => {
+  it("gives a big model its own ceiling, not a flat 4,096", async () => {
+    // The per-run cap has to be lifted to see this: on DEFAULT_CAPS the owner's 20,000
+    // binds first, which is the intended order — the model says what is possible, the
+    // owner says what is allowed, and the smaller wins.
+    const claude = {
+      ...agent,
+      modelId: "anthropic.claude-haiku-4-5-20251001-v1:0",
+      caps: { ...DEFAULT_CAPS, maxTokensPerRun: 200_000 },
+    };
+    const { d, sent } = deps();
+    await runLoop(claude, "sys", "write me a long report", 0, 0, d);
+    expect((sent[0] as { maxOutputTokens: number }).maxOutputTokens).toBe(64_000);
+  });
+
+  it("gives a small model its smaller ceiling — asking for more is an API error", async () => {
+    const { d, sent } = deps();
+    await runLoop(agent, "sys", "hello", 0, 0, d); // Qwen3 32B: 8K
+    expect((sent[0] as { maxOutputTokens: number }).maxOutputTokens).toBe(8_000);
+  });
+
+  it("still obeys the OWNER'S cap when it is the smaller of the two", async () => {
+    const tight = { ...agent, caps: { ...DEFAULT_CAPS, maxTokensPerRun: 500 } };
+    const { d, sent } = deps();
+    await runLoop(tight, "sys", "hello", 0, 0, d);
+    expect((sent[0] as { maxOutputTokens: number }).maxOutputTokens).toBe(500);
+  });
+
+  it("falls back to the smallest safe figure for a model it doesn't know", async () => {
+    const unknown = { ...agent, modelId: "some.retired-model-v9:0" };
+    const { d, sent } = deps();
+    await runLoop(unknown, "sys", "hello", 0, 0, d);
+    expect((sent[0] as { maxOutputTokens: number }).maxOutputTokens).toBe(4_096);
+  });
+});

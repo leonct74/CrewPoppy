@@ -227,6 +227,33 @@ them counter to the documentation:
      still unproven** — same wire, same code path, but the §4f rule does not let one model's
      success stand in for another's.
 
+9. **🪤 A CUT-OFF ANSWER WAS PRESENTED AS A FINISHED ONE (2026-08-12, found by a founder
+   question, not by a failure).** Asked what happens when Penny's ledger grows, the honest
+   answer exposed a defect: `remainingOutputBudget` shrinks the allowance as a run consumes
+   its budget, so near the ceiling the model is given room for only part of its answer — and
+   **the runner never read the model's stop reason.** Both wires say it plainly
+   (`stop_reason` / `stopReason` = `max_tokens`); we parsed the text and the token counts and
+   threw that field away. A table cut off mid-row came back as a completed answer. This is
+   the same fault as the partial `workspace_read` fixed in 0.8.1, on the way **out** instead
+   of in, and the same rule applies: **a half-answer that looks whole is worse than a
+   refusal.** Fixed — a truncated turn stops the run with `max_tokens`, keeps the partial
+   text (it isn't worthless, it just isn't complete), and says so in the transcript. It also
+   refuses to dispatch a tool call from a truncated turn, since the arguments may be
+   half-written.
+10. **Limits now come from the model, not from a constant (founder: "the stop has to be
+    based and proportional with the model capability").** The runner handed every model the
+    same 4,096-token allowance. That silently held Claude to a sixteenth of the 64K it can
+    write, and would have over-asked of anything smaller. `contextTokens`/`maxOutputTokens`
+    are now declared per model from the Bedrock cards (verified 2026-08-12): Claude Haiku 4.5
+    and Sonnet 4.5 **200K/64K** · Nova Lite **300K/5K** · Qwen3 32B **32K/8K** · GPT-OSS 120B
+    **128K/16K**. An unrecognised id falls back to 4,096, asserted by test to be no larger
+    than the least capable model in the catalogue — asking for more than a model permits is a
+    hard API error on every run.
+    **The order matters and is deliberate: the model says what is POSSIBLE, the owner's
+    `maxTokensPerRun` says what is ALLOWED, and the smaller wins.** On `DEFAULT_CAPS`
+    (20,000) the owner's cap still binds first, so this raises no bill by itself; it only
+    stops a capable model being throttled for no reason.
+
 ## 3. What an "agent" is (the data model)
 
 An agent is a stored definition (DynamoDB), not code:

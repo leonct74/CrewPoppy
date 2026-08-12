@@ -104,6 +104,16 @@ function MoneyStrip(props: { agents: AgentSummary[] }) {
             writes it all back for every entry, which gets dearer as the list grows. Tick it,
             and say so in the agent's instructions — the ready-made templates already do both.
           </li>
+          {/* The founder's own question, 2026-08-12: what happens when the ledger gets
+              big? Asking an agent to retype a long list is the most expensive thing you
+              can ask it, AND the thing most likely to be cut off — so the lever and the
+              limit are the same fact, and belong in one bullet. */}
+          <li>
+            <strong>Ask for the file, not the whole list.</strong> Retyping a long table back
+            to you is the dearest kind of answer, and past a certain length it will not fit in
+            one reply at all. "Send me the ledger" or "just the totals" costs a fraction of
+            "show me every line".
+          </li>
           <li>
             <strong>Clearing a chat helps a little.</strong> Only the last few exchanges are
             ever included, so this is a small saving — try the abilities first.

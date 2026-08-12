@@ -89,6 +89,20 @@ export interface ModelOption {
    */
   crossRegion: boolean;
   /**
+   * How much conversation this model holds at once, and how much it can write in ONE
+   * reply. From the Bedrock model cards, verified per model on 2026-08-12.
+   *
+   * Recorded rather than assumed, because the runner used to hand every model the same
+   * 4,096-token allowance. That silently shrank Claude — which can write 64K — to a
+   * sixteenth of what it can do, and would have over-asked of any model able to write
+   * less. A ceiling should come from the model, not from a number somebody once typed.
+   *
+   * The agent's own per-run budget still applies on top, and is usually the smaller of
+   * the two: capability raises the ceiling, it never removes the owner's cap.
+   */
+  contextTokens: number;
+  maxOutputTokens: number;
+  /**
    * True for models whose provider demands a one-time account form (Anthropic only).
    * A HINT for copy — the authoritative answer is the live availability check, so the
    * badge self-corrects the moment the owner completes the form.
@@ -118,6 +132,8 @@ export const MODEL_CATALOGUE: ModelOption[] = [
     cost: "$$",
     wire: "anthropic",
     crossRegion: true,
+    contextTokens: 200_000,
+    maxOutputTokens: 64_000,
     formLikely: true,
   },
   {
@@ -130,6 +146,8 @@ export const MODEL_CATALOGUE: ModelOption[] = [
     cost: "$$$",
     wire: "anthropic",
     crossRegion: true,
+    contextTokens: 200_000,
+    maxOutputTokens: 64_000,
     formLikely: true,
   },
   {
@@ -142,6 +160,8 @@ export const MODEL_CATALOGUE: ModelOption[] = [
     cost: "$",
     wire: "converse",
     crossRegion: true,
+    contextTokens: 300_000,
+    maxOutputTokens: 5_000,
     formLikely: false,
   },
   {
@@ -156,6 +176,8 @@ export const MODEL_CATALOGUE: ModelOption[] = [
     cost: "$",
     wire: "converse",
     crossRegion: false,
+    contextTokens: 32_000,
+    maxOutputTokens: 8_000,
     formLikely: false,
   },
   {
@@ -168,6 +190,8 @@ export const MODEL_CATALOGUE: ModelOption[] = [
     cost: "$",
     wire: "converse",
     crossRegion: false,
+    contextTokens: 128_000,
+    maxOutputTokens: 16_000,
     formLikely: false,
   },
 ];
@@ -196,6 +220,25 @@ export function isDrivable(model: { wire: ModelWire }): boolean {
  */
 export function wireFor(modelId: string): ModelWire {
   return MODEL_CATALOGUE.find((m) => m.id === modelId)?.wire ?? "anthropic";
+}
+
+/**
+ * The old flat allowance, kept for one purpose: a model we don't recognise. Asking for
+ * more than a model permits is a hard API error, so an unknown id gets the smallest
+ * figure any model in the catalogue has ever allowed.
+ */
+export const FALLBACK_OUTPUT_TOKENS = 4_096;
+
+/**
+ * The most this model may write in ONE reply — its own limit, not a house rule.
+ *
+ * The agent's per-run budget is applied on top of this by the loop, and is usually the
+ * binding one. This function answers "what can the model do", never "what is this owner
+ * willing to spend": the two questions have different answers and conflating them is how
+ * Claude ended up writing at a sixteenth of its ability.
+ */
+export function outputCeilingFor(modelId: string): number {
+  return MODEL_CATALOGUE.find((m) => m.id === modelId)?.maxOutputTokens ?? FALLBACK_OUTPUT_TOKENS;
 }
 
 /**

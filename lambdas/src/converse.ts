@@ -139,6 +139,7 @@ export function fromConverseOutput(out: unknown): ModelReply {
   const o = out as {
     output?: { message?: { content?: Block[] } };
     usage?: { inputTokens?: number; outputTokens?: number };
+    stopReason?: string;
   };
   const blocks = o.output?.message?.content ?? [];
   const raw: Block[] = [];
@@ -167,5 +168,7 @@ export function fromConverseOutput(out: unknown): ModelReply {
       inputTokens: o.usage?.inputTokens ?? 0,
       outputTokens: o.usage?.outputTokens ?? 0,
     },
+    // Converse spells it the same as Anthropic does; both mean "I wasn't finished".
+    ...(o.stopReason === "max_tokens" ? { truncated: true } : {}),
   };
 }

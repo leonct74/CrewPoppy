@@ -15,6 +15,7 @@
 import {
   capCostFor,
   checkContinue,
+  outputCeilingFor,
   remainingOutputBudget,
   specsFor,
   type AgentCaps,
@@ -38,6 +39,16 @@ export interface ModelReply {
   usage: TokenUsage;
   /** The raw assistant content blocks, replayed verbatim into the next request. */
   raw: unknown[];
+  /**
+   * True when the model stopped because it ran out of room, not because it had finished.
+   *
+   * 🪤 LIVE-ADJACENT BUG, found by the founder asking what happens to a growing table
+   * (2026-08-12): the model has always told us this, and we have always ignored it. A
+   * long answer cut off mid-row was returned as a completed answer — the same fault as
+   * the partial ledger read fixed in 0.8.1, but on the way OUT. A half-finished table
+   * that looks finished is a wrong answer, and worse than a refusal.
+   */
+  truncated?: boolean;
 }
 
 /** Everything the loop needs from the outside world, all injectable for tests. */
@@ -68,7 +79,11 @@ export interface LoopOutcome {
   suspend?: { question: string; draft?: string; messages: unknown[]; pending?: PendingSend };
 }
 
-const MAX_OUTPUT_TOKENS = 4096;
+/** One calm sentence, and the two things the owner can actually do about it. */
+export const CUT_SHORT_MESSAGE =
+  "The answer was cut off — it was longer than this agent can write in one go. Ask for a " +
+  "shorter version (a summary, or just the totals), or ask for the file instead of the " +
+  "full text. What you can see above is only part of the answer; don't rely on it as complete.";
 
 export async function runLoop(
   agent: AgentDef,
@@ -123,7 +138,9 @@ export async function runLoop(
       system,
       messages,
       tools,
-      maxOutputTokens: remainingOutputBudget(caps, usage, MAX_OUTPUT_TOKENS),
+      // The model's own ceiling, then the owner's remaining budget on top. Capability
+      // raises what's possible; the cap decides what's allowed.
+      maxOutputTokens: remainingOutputBudget(caps, usage, outputCeilingFor(agent.modelId)),
     });
     iterations += 1;
     usage.inputTokens += reply.usage.inputTokens;
@@ -131,6 +148,20 @@ export async function runLoop(
     if (reply.text) {
       lastText = reply.text;
       await deps.record("assistant", reply.text);
+    }
+
+    // Ran out of room mid-answer. Stop and SAY SO — including when tool calls came back
+    // too, because a tool call truncated halfway is a malformed request we must not send.
+    if (reply.truncated) {
+      await deps.record("tool", CUT_SHORT_MESSAGE);
+      return {
+        status: "stopped",
+        stopReason: "max_tokens",
+        message: CUT_SHORT_MESSAGE,
+        output: reply.text || undefined,
+        usage,
+        iterations,
+      };
     }
 
     // No tools requested → the model has answered, and we're done.

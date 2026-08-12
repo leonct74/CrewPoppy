@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
-  DEFAULT_MODEL_ID, MODEL_CATALOGUE, SUPPORTED_WIRES, inferenceProfileFor, invocationIdFor,
-  isDrivable, wireFor,
+  DEFAULT_MODEL_ID, FALLBACK_OUTPUT_TOKENS, MODEL_CATALOGUE, SUPPORTED_WIRES,
+  inferenceProfileFor, invocationIdFor, isDrivable, outputCeilingFor, wireFor,
 } from "./models";
 
 describe("the curated model catalogue", () => {
@@ -112,5 +112,34 @@ describe("the catalogue never offers a model the engine can't drive", () => {
 
   it("has at least one drivable model, or nobody can create an agent at all", () => {
     expect(MODEL_CATALOGUE.some(isDrivable)).toBe(true);
+  });
+});
+
+// "the stop has to be based and proportional with the model capability" (founder,
+// 2026-08-12). These are the model cards' own numbers; getting one WRONG-HIGH is an API
+// error on every run, so they are asserted rather than trusted.
+describe("each model's own limits", () => {
+  it("records what every entry can hold and can write", () => {
+    for (const m of MODEL_CATALOGUE) {
+      expect(m.contextTokens).toBeGreaterThan(0);
+      expect(m.maxOutputTokens).toBeGreaterThan(0);
+      // Nobody can write more than they can hold.
+      expect(m.maxOutputTokens).toBeLessThanOrEqual(m.contextTokens);
+    }
+  });
+
+  it("reads the ceiling off the catalogue", () => {
+    expect(outputCeilingFor("anthropic.claude-haiku-4-5-20251001-v1:0")).toBe(64_000);
+    expect(outputCeilingFor("qwen.qwen3-32b-v1:0")).toBe(8_000);
+    expect(outputCeilingFor("amazon.nova-lite-v1:0")).toBe(5_000);
+  });
+
+  it("falls back to the smallest safe figure for an unknown id", () => {
+    expect(outputCeilingFor("some.retired-model-v9:0")).toBe(FALLBACK_OUTPUT_TOKENS);
+  });
+
+  it("never falls back to more than the least capable model allows", () => {
+    const smallest = Math.min(...MODEL_CATALOGUE.map((m) => m.maxOutputTokens));
+    expect(FALLBACK_OUTPUT_TOKENS).toBeLessThanOrEqual(smallest);
   });
 });

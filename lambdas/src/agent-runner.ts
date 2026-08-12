@@ -112,6 +112,7 @@ async function callModel(args: {
   const body = JSON.parse(new TextDecoder().decode(out.body)) as {
     content?: { type: string; text?: string; id?: string; name?: string; input?: Record<string, unknown> }[];
     usage?: { input_tokens?: number; output_tokens?: number };
+    stop_reason?: string;
   };
   const blocks = body.content ?? [];
   return {
@@ -124,6 +125,8 @@ async function callModel(args: {
       inputTokens: body.usage?.input_tokens ?? 0,
       outputTokens: body.usage?.output_tokens ?? 0,
     },
+    // The model has always told us it ran out of room; until now nothing read it.
+    ...(body.stop_reason === "max_tokens" ? { truncated: true } : {}),
   };
 }
 
