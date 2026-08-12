@@ -113,6 +113,11 @@ const MAX_MEMORY_VALUE = 100_000;
 const MAX_FILE_BYTES = 500_000;
 /** Bedrock rejects an oversized request outright, so refuse here with a sentence instead. */
 const MAX_IMAGE_BYTES = 4_500_000;
+/**
+ * The most text one read may hand the model. ~25k tokens: large enough for a year of
+ * expenses, small enough that one file cannot exhaust a run's whole budget.
+ */
+const MAX_READ_CHARS = 100_000;
 
 /**
  * Execute one tool call on the agent's behalf.
@@ -193,8 +198,38 @@ async function run(ctx: DispatchContext, name: ToolName, args: Record<string, un
       const r = await ctx.s3.send(
         new GetObjectCommand({ Bucket: ctx.bucket, Key: workspaceKeyFor(ctx.agentId, path) }),
       );
-      const body = await r.Body?.transformToString();
-      return { content: body ?? "" };
+      const bytes = await r.Body?.transformToByteArray();
+      if (!bytes?.length) return { content: "" };
+
+      // 🪤 MEASURED FAILURE (founder, 2026-08-12): this used to be transformToString() with
+      // no check and no ceiling. A PDF dropped in the folder became ~200,000 tokens of
+      // mojibake and killed the run at 212,500 tokens — the file was never text, and
+      // nothing here noticed. Reads are now typed and bounded like every other input.
+      const image = sniffImage(bytes);
+      if (image) {
+        return {
+          content: `${path} is a picture (${image}), not text. Use your image tool to LOOK at it instead of reading it.`,
+          isError: true,
+        };
+      }
+      if (looksBinary(bytes)) {
+        return {
+          content: `${path} is not a text file — it looks like a PDF or another binary document, which comes out as gibberish if read as text. Tell your owner you cannot read this kind of file, and ask for a photo or a text version instead.`,
+          isError: true,
+        };
+      }
+
+      const text = new TextDecoder("utf-8", { fatal: false }).decode(bytes);
+      if (text.length <= MAX_READ_CHARS) return { content: text };
+      // Loud, not silent: a partial ledger totalled as if whole is a WRONG NUMBER, which
+      // is worse than a refusal. Say what fraction this is and forbid summarising it.
+      return {
+        content:
+          `${text.slice(0, MAX_READ_CHARS)}\n\n[CUT SHORT: this file is ${text.length} characters and only the first ` +
+          `${MAX_READ_CHARS} are shown. Do NOT add up or summarise from this partial view — the rest is missing. ` +
+          `Tell your owner the file has grown too large and should be split, e.g. one per month.]`,
+        isError: true,
+      };
     }
 
     case "workspace_write": {
@@ -567,6 +602,24 @@ function sniffImage(b: Uint8Array): string | null {
     b[8] === 0x57 && b[9] === 0x45 && b[10] === 0x42 && b[11] === 0x50
   ) return "image/webp";
   return null;
+}
+
+/**
+ * Is this file binary rather than text?
+ *
+ * A NUL byte settles it — real text never contains one — and otherwise the share of
+ * control characters does. Deliberately cheap and only looking at the first kilobyte:
+ * this exists to stop a PDF being read as words, not to classify file formats.
+ */
+function looksBinary(b: Uint8Array): boolean {
+  const n = Math.min(b.length, 1024);
+  let odd = 0;
+  for (let i = 0; i < n; i++) {
+    const c = b[i]!;
+    if (c === 0) return true;
+    if (c < 9 || (c > 13 && c < 32)) odd++;
+  }
+  return odd / n > 0.1;
 }
 
 function badPath(): string {
