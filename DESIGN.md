@@ -725,6 +725,17 @@ the numbers in this document rather than the reasoning that preceded them.
 
 ### 4g. P8 — Vision: agents that can look at an image (founder, 2026-08-11; BUILT 2026-08-12)
 
+> **PARKED 2026-08-12 (founder): no further vision work until Apple approves iOS build 16.**
+> The code below is built, released in 0.8.0/0.8.1 and lives behind an unticked capability,
+> so nothing is half-shipped. What is parked is the *verification*, and it is parked because
+> it cannot be done: the founder's test path is a photograph taken on the phone, and the
+> phone cannot reach its own camera roll until a new mobile build ships — which waits on the
+> review queue. Two commits sit ready and unbuilt in `crewpoppy-mobile` (`782a3c4` tappable
+> links, `e816af4` camera/library attach + the corrected permission strings). Under the §4f
+> rule an unverified feature is not seeded to the catalogue, so 0.8.x stays unlisted.
+> **PDF reading is a named gap, not an oversight** — 0.8.1 refuses PDFs by name rather than
+> feeding 200k tokens of mojibake to the model. Resume by building the mobile app first.
+
 **The use case that asked for it:** *"an agent that takes copies of receipts and saves them
 in the right folder… but it might require an OCR."* It does not require an OCR, and that is
 the finding worth recording: three models in `shared/src/models.ts` are already flagged
@@ -1902,7 +1913,8 @@ feature ships with no deploy and cannot touch the pairing identity.
 - **P8 — vision (§4g):** `read_image` — an agent looks at an image in its own workspace via a
   vision model already in the list. One tool, one result field, image content blocks in the
   loop; no new permission. Gated on a real-deployment run (photo from the phone → filed →
-  totalled), per the §4f lesson.
+  totalled), per the §4f lesson. **Built and released, verification PARKED until Apple
+  approves — see the banner in §4g.**
 - Founder check-in at every phase gate; every live test torn down + verified clean (CLAUDE.md will
   encode this). **Bedrock note:** live tests need model access enabled in the founder's Bedrock
   console + real token spend — coordinate, and keep caps tiny during testing.
