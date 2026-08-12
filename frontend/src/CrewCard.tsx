@@ -70,6 +70,38 @@ function MoneyStrip(props: { agents: AgentSummary[] }) {
         published price are counted high on purpose, so a limit stops you early, never late.
         Your AWS bill is the final word.
       </p>
+      {/* The actionable half (founder, 2026-08-12). The line above explains that the
+          number may be high; this explains what MOVES it — and the levers are ranked by
+          what they are actually worth, measured: ticked abilities are re-sent on every
+          step of every run, so they beat clearing chat, which is already capped. */}
+      <details className="money-why">
+        <summary>Why does a job cost what it does?</summary>
+        <ul>
+          <li>
+            <strong>Every step re-reads everything.</strong> A job takes several steps, and at
+            each one the agent re-reads its whole brief, the list of what it is allowed to do,
+            and your recent conversation. A longer brief costs a little more every step.
+          </li>
+          <li>
+            <strong>Untick abilities it doesn't need — this is the biggest lever.</strong> Each
+            ticked ability is re-read on every step, so removing two you never use saves on
+            every job the agent ever does.
+          </li>
+          <li>
+            <strong>Writing costs about four times reading.</strong> Producing a PDF or a long
+            email is the expensive part of a job; asking for a short answer instead is cheaper.
+          </li>
+          <li>
+            <strong>Adding to a list is nearly free.</strong> Agents that keep a ledger add one
+            line at a time rather than rewriting the file, so the cost stays flat however long
+            the list gets.
+          </li>
+          <li>
+            <strong>Clearing a chat helps a little.</strong> Only the last few exchanges are
+            ever included, so this is a small saving — try the abilities first.
+          </li>
+        </ul>
+      </details>
     </div>
   );
 }

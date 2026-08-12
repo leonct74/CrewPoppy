@@ -188,3 +188,25 @@ describe("the money line", () => {
     expect((await screen.findByText(/nothing is being billed/i)).textContent).toMatch(/\$0\.00/);
   });
 });
+
+// The spend line answers "what am I paying?"; this answers the question people ask next,
+// and the levers are ordered by what they are actually worth (founder, 2026-08-12).
+describe("the cost explainer", () => {
+  it("is collapsed by default — the money line is the headline, not this", async () => {
+    mountWithOneAgent();
+    const why = await screen.findByText("Why does a job cost what it does?");
+    expect(why.closest("details")!.hasAttribute("open")).toBe(false);
+  });
+
+  it("leads with unticking abilities, because that beats clearing chat", async () => {
+    mountWithOneAgent();
+    const why = await screen.findByText("Why does a job cost what it does?");
+    const items = [...why.closest("details")!.querySelectorAll("li")].map((li) => li.textContent ?? "");
+    const abilities = items.findIndex((t) => /Untick abilities/.test(t));
+    const chat = items.findIndex((t) => /Clearing a chat/.test(t));
+    expect(abilities).toBeGreaterThanOrEqual(0);
+    expect(abilities).toBeLessThan(chat);
+    // …and it says plainly that clearing chat is the small one, so nobody starts there.
+    expect(items[chat]).toMatch(/small saving/);
+  });
+});

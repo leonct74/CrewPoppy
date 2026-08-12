@@ -190,6 +190,22 @@ textarea.input { font-family: var(--poppy-font-mono); font-size: 13px; min-heigh
 .tpl-chips { display: flex; flex-wrap: wrap; gap: 5px; }
 .tpl-needs { margin: 0; padding-left: 18px; color: var(--poppy-muted-2); font-size: 12px; }
 .tpl-needs li { margin: 2px 0; }
+
+/* "Why does a job cost what it does?" — collapsed by default: the money line answers
+   the question people have, this answers the one they ask next (AGENTS.md §9, relocate
+   technical detail rather than deleting it). */
+.money-why { margin: 6px 0 0; }
+.money-why > summary {
+  cursor: pointer; font-size: 12px; color: var(--poppy-muted-2);
+  list-style: none; display: inline-flex; align-items: center; gap: 5px;
+}
+.money-why > summary::-webkit-details-marker { display: none; }
+.money-why > summary::before { content: "▸"; font-size: 10px; }
+.money-why[open] > summary::before { content: "▾"; }
+.money-why > summary:hover { color: var(--poppy-text); }
+.money-why ul { margin: 8px 0 0; padding-left: 18px; }
+.money-why li { font-size: 12px; color: var(--poppy-muted-2); margin: 0 0 6px; line-height: 1.5; }
+.money-why strong { color: var(--poppy-text); font-weight: 600; }
 /* Sticky: while the conversation is on screen, the input rides the bottom of the
    window — a chat whose reply box can scroll out of reach isn't a chat. Solid
    background so history never shows through it. */
