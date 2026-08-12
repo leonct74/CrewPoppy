@@ -542,3 +542,95 @@ describe("web_fetch is gated and its result is data", () => {
     expect(r.content).toContain("needs a 'url'");
   });
 });
+
+// ── workspace_append ────────────────────────────────────────────────────────
+// Exists because the read-modify-write alternative costs linearly more as the file
+// grows AND risks the model retyping 500 lines wrongly. The point of these tests is
+// that the file's existing contents never leave S3.
+describe("workspace_append keeps the ledger out of the model's context", () => {
+  function s3With(existing: string | null) {
+    const cmds: unknown[] = [];
+    return {
+      cmds,
+      send: vi.fn(async (c: unknown) => {
+        cmds.push(c);
+        if (c instanceof GetObjectCommand) {
+          if (existing === null) throw Object.assign(new Error("no key"), { name: "NoSuchKey" });
+          return { Body: { transformToString: async () => existing } };
+        }
+        return {};
+      }),
+    };
+  }
+
+  it("appends to the agent's OWN prefix and returns no file contents", async () => {
+    const { ctx } = harness({ agentId: "a1" });
+    const s3 = s3With("date,amount\n2026-08-01,10.00\n");
+    (ctx.s3 as unknown as { send: unknown }).send = s3.send;
+
+    const r = await dispatch(ctx, "workspace_append", { path: "expenses-2026.csv", line: "2026-08-11,34.00" });
+
+    expect(r.isError).toBeFalsy();
+    // The whole point: what comes back is an acknowledgement, not the ledger.
+    expect(r.content).toBe("Added one line to expenses-2026.csv.");
+    expect(r.content).not.toContain("2026-08-01");
+
+    const put = s3.cmds.find((c) => c instanceof PutObjectCommand) as PutObjectCommand;
+    expect(put.input.Key).toBe("agents/a1/expenses-2026.csv");
+    expect(put.input.Body).toBe("date,amount\n2026-08-01,10.00\n2026-08-11,34.00\n");
+  });
+
+  it("creates the file when it does not exist yet — the normal first call", async () => {
+    const { ctx } = harness();
+    const s3 = s3With(null);
+    (ctx.s3 as unknown as { send: unknown }).send = s3.send;
+    const r = await dispatch(ctx, "workspace_append", { path: "log.csv", line: "first" });
+    expect(r.isError).toBeFalsy();
+    const put = s3.cmds.find((c) => c instanceof PutObjectCommand) as PutObjectCommand;
+    expect(put.input.Body).toBe("first\n");
+  });
+
+  it("adds the missing newline when the file did not end with one", async () => {
+    const { ctx } = harness();
+    const s3 = s3With("a,b");
+    (ctx.s3 as unknown as { send: unknown }).send = s3.send;
+    await dispatch(ctx, "workspace_append", { path: "log.csv", line: "c,d" });
+    const put = s3.cmds.find((c) => c instanceof PutObjectCommand) as PutObjectCommand;
+    expect(put.input.Body).toBe("a,b\nc,d\n");
+  });
+
+  it("cannot be talked out of the agent's folder", async () => {
+    const { ctx } = harness({ agentId: "a1" });
+    const r = await dispatch(ctx, "workspace_append", { path: "../a2/ledger.csv", line: "x" });
+    expect(r.isError).toBe(true);
+  });
+
+  it("refuses a multi-line 'line', which would let one call write anything", async () => {
+    const { ctx } = harness();
+    const r = await dispatch(ctx, "workspace_append", { path: "log.csv", line: "a\nb" });
+    expect(r.isError).toBe(true);
+    expect(r.content).toContain("one line at a time");
+  });
+
+  it("refuses rather than silently overwriting when a read fails for a real reason", async () => {
+    const { ctx } = harness();
+    (ctx.s3 as unknown as { send: unknown }).send = vi.fn(async (c: unknown) => {
+      if (c instanceof GetObjectCommand) throw Object.assign(new Error("denied"), { name: "AccessDenied" });
+      return {};
+    });
+    const r = await dispatch(ctx, "workspace_append", { path: "log.csv", line: "x" });
+    expect(r.isError).toBe(true);
+    // Generic message: an AWS error must never reach the model verbatim.
+    expect(r.content).toContain("couldn't complete that request");
+  });
+
+  it("tells the owner to start a new file rather than growing past the limit", async () => {
+    const { ctx } = harness();
+    const s3 = s3With("x".repeat(500_000));
+    (ctx.s3 as unknown as { send: unknown }).send = s3.send;
+    const r = await dispatch(ctx, "workspace_append", { path: "big.csv", line: "one more" });
+    expect(r.isError).toBe(true);
+    expect(r.content).toMatch(/file per month/);
+    expect(s3.cmds.some((c) => c instanceof PutObjectCommand)).toBe(false);
+  });
+});

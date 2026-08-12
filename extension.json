@@ -1,7 +1,7 @@
 {
   "id": "com.crewpoppy.desktop",
   "name": "CrewPoppy",
-  "version": "0.7.0",
+  "version": "0.7.1",
   "description": "The HQ for your AI crew — task-specific AI agents that run entirely in your own AWS, with hard spend caps and every action visible.",
   "bugsUrl": "https://github.com/leonct74/CrewPoppy/issues",
   "icon": "frontend/crewpoppy-icon.png",

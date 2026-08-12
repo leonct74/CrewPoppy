@@ -264,6 +264,43 @@ async function run(ctx: DispatchContext, name: ToolName, args: Record<string, un
       };
     }
 
+    case "workspace_append": {
+      const path = args.path;
+      if (!isSafeRelativePath(path)) return { content: badPath(), isError: true };
+      const line = typeof args.line === "string" ? args.line : "";
+      if (!line.trim()) return { content: "workspace_append needs a 'line'.", isError: true };
+      if (line.includes("\n") || line.includes("\r")) {
+        return { content: "A line cannot contain a line break — append one line at a time.", isError: true };
+      }
+
+      const key = workspaceKeyFor(ctx.agentId, path);
+      // Read-modify-write, but SERVER-SIDE: the existing contents never enter the model's
+      // context, which is the whole point (see the trap note on the tool spec). S3 has no
+      // native append, so this is as close as it gets without another service.
+      let existing = "";
+      try {
+        const r = await ctx.s3.send(new GetObjectCommand({ Bucket: ctx.bucket, Key: key }));
+        existing = (await r.Body?.transformToString()) ?? "";
+      } catch (e) {
+        // A file that isn't there yet is the normal first call, not a failure. Anything
+        // else is a real error and must not be swallowed into a silent overwrite.
+        const name = (e as { name?: string })?.name;
+        if (name !== "NoSuchKey" && name !== "NotFound") throw e;
+      }
+
+      const next = existing && !existing.endsWith("\n") ? `${existing}\n${line}\n` : `${existing}${line}\n`;
+      if (Buffer.byteLength(next, "utf8") > MAX_FILE_BYTES) {
+        return {
+          content: `That file has reached its size limit (${Math.floor(MAX_FILE_BYTES / 1000)} KB). Start a new one — e.g. a file per month — and tell your owner you have done so.`,
+          isError: true,
+        };
+      }
+      await ctx.s3.send(
+        new PutObjectCommand({ Bucket: ctx.bucket, Key: key, Body: next, ContentType: "text/plain; charset=utf-8" }),
+      );
+      return { content: `Added one line to ${path}.` };
+    }
+
     case "save_pdf": {
       const path = args.path;
       const body = typeof args.body === "string" ? args.body : "";

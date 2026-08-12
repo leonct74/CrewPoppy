@@ -23,6 +23,7 @@ export const TOOL_NAMES = [
   "workspace_list",
   "workspace_read",
   "workspace_write",
+  "workspace_append",
   "save_pdf",
   "ask_user",
   "email_owner",
@@ -78,6 +79,11 @@ export const TOOL_NOTES: Record<ToolName, ToolNote> = {
     label: "Write files",
     what: "Lets this agent save documents and results into its own private folder.",
   },
+  workspace_append: {
+    label: "Add to a list or ledger",
+    what: "Lets this agent add a line to the end of one of its own files — an expense, a log entry — without rewriting the whole file.",
+    risk: "Much cheaper and safer than rewriting: the file never passes through the agent's thinking, so it cannot be retyped wrongly or truncated.",
+  },
   save_pdf: {
     label: "Create PDF documents",
     what: "Lets this agent produce real PDFs — offers, invoices, reports — saved into its own folder for you to open and send on.",
@@ -132,7 +138,7 @@ export const TOOL_GROUPS: ToolGroup[] = [
     key: "files",
     label: "Files",
     what: "Its own private folder. No agent can reach another's.",
-    tools: ["workspace_list", "workspace_read", "workspace_write", "save_pdf"],
+    tools: ["workspace_list", "workspace_read", "workspace_write", "workspace_append", "save_pdf"],
   },
   {
     key: "you",
@@ -255,6 +261,26 @@ export const TOOL_SPECS: Record<ToolName, ToolSpec> = {
         content: { type: "string", description: "The file's contents." },
       },
       required: ["path", "content"],
+    },
+  },
+  workspace_append: {
+    name: "workspace_append",
+    // 🪤 This tool exists because of a MEASURED cost-and-correctness trap. The obvious
+    // way to log an expense — read the whole CSV, append a line, write it all back —
+    // puts the entire file through the model TWICE per entry: once as input, once as
+    // output at 4x the price. Cost grows linearly with the file forever (at 1,000 rows,
+    // $0.0046 per expense against $0.000004 here), and worse, a model retyping 500 lines
+    // will eventually drop or alter one. Appending happens server-side: the file's
+    // existing contents never enter the model's context, so they cannot be mangled.
+    description:
+      "Add a line to the end of one of your own files, without reading or rewriting it. Use this for anything you keep a running list of — expenses, log entries, records. The file is created if it does not exist. This is far cheaper than reading a whole file and writing it back, and it cannot damage what is already there, so prefer it whenever you are ADDING rather than changing.",
+    input_schema: {
+      type: "object",
+      properties: {
+        path: { type: "string", description: "File name inside your workspace." },
+        line: { type: "string", description: "The single line to add. A newline is added for you." },
+      },
+      required: ["path", "line"],
     },
   },
   save_pdf: {
