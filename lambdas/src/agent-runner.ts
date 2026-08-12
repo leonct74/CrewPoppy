@@ -662,6 +662,8 @@ async function runSegment(event: RunnerEvent): Promise<{ ok: boolean; status: st
       ownerEmail,
       fromAddress: agent.emailFrom || ownerEmail,
       approvalChannel: agent.approvalChannel,
+      // So read_image can refuse early on a model that cannot see (DESIGN §4g).
+      modelId: agent.modelId,
       maxEmailsPerDay: MAX_EMAILS_PER_DAY,
     };
 

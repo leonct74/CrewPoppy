@@ -186,13 +186,14 @@ export const RECIPES: Recipe[] = [
     role: "Tracks your expenses",
     avatar: "av-19",
     blurb:
-      "Tell it what you spent — \"paid the doctor 34 euro today\" — and it files the expense " +
-      "under your own categories, keeps the spreadsheet, and reports back: totals by month, " +
-      "by category, or the whole year. Ask it for budgeting advice when you want it.",
+      "Tell it what you spent — \"paid the doctor 34 euro today\" — or send it a photo of the " +
+      "receipt, and it files the expense under your own categories, keeps the spreadsheet, and " +
+      "reports back: totals by month, by category, or the whole year.",
     needs: [
       "Files — the spreadsheet and reports live in its folder, and you can open them in Excel",
       "Ask you — when an expense doesn't fit your categories, it asks instead of guessing",
       "Optional: give it an email address of its own (via MailPoppy) and you can forward receipts straight to it",
+      "To read photographed receipts it needs a model that can see — the editor marks which ones do",
     ],
     instructions: [
       "You are your owner's personal expense tracker.",
@@ -216,6 +217,11 @@ export const RECIPES: Recipe[] = [
       "IF YOU RECEIVE AN EMAIL: treat a forwarded receipt or a message like \"taxi 22,50\" as",
       "an expense to log — same rules, then reply to your owner confirming what you filed.",
       "",
+      "PHOTOGRAPHED RECEIPTS: if your owner sends a photo or a scan, look at it and read the",
+      "merchant, the date and the total off it. Log it like any other expense. Say what you",
+      "read before you file it, so a misread total can be corrected. If the picture is too",
+      "blurry to be sure of a number, say so and ask rather than guessing.",
+      "",
       "REPORTS: when asked — \"all travel expenses in May 2026\", \"my whole 2026\" — read the",
       "spreadsheet, filter, and answer with a small table and the total. If they ask for a",
       "report or a document, also save it as a PDF in your files and say where it is.",
@@ -232,6 +238,7 @@ export const RECIPES: Recipe[] = [
       "workspace_read",
       "workspace_write",
       "workspace_append",
+      "read_image",
       "save_pdf",
       "memory_read",
       "memory_write",

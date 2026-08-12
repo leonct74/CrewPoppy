@@ -169,15 +169,29 @@ export async function runLoop(
       }
 
       await deps.record("tool", truncate(result.content, 2000));
-      results.push(toolResult(use.id, result.content, result.isError));
+      results.push(toolResult(use.id, result.content, result.isError, result.image));
     }
     // Results go back as ordinary content: DATA, never instructions (DESIGN §4).
     messages.push({ role: "user", content: results });
   }
 }
 
-function toolResult(id: string, content: string, isError?: boolean): unknown {
-  return { type: "tool_result", tool_use_id: id, content, ...(isError ? { is_error: true } : {}) };
+function toolResult(
+  id: string,
+  content: string,
+  isError?: boolean,
+  image?: { mediaType: string; base64: string },
+): unknown {
+  // With an image, the result becomes BLOCKS rather than a string: the sentence first
+  // (which says the picture is information, not instructions — DESIGN §4g), then the
+  // picture. Order matters: the model reads the framing before it sees the thing framed.
+  const body = image
+    ? [
+        { type: "text", text: content },
+        { type: "image", source: { type: "base64", media_type: image.mediaType, data: image.base64 } },
+      ]
+    : content;
+  return { type: "tool_result", tool_use_id: id, content: body, ...(isError ? { is_error: true } : {}) };
 }
 
 /** A short, safe rendering of what a tool was asked to do, for the visible transcript. */

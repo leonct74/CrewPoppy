@@ -634,3 +634,93 @@ describe("workspace_append keeps the ledger out of the model's context", () => {
     expect(s3.cmds.some((c) => c instanceof PutObjectCommand)).toBe(false);
   });
 });
+
+// ── read_image (DESIGN §4g) ─────────────────────────────────────────────────
+// The point of vision is that a photographed receipt needs no OCR — but bytes reaching
+// the model is a new kind of thing in this system, so the bounds get tested like the
+// security code they sit beside.
+describe("read_image lets an agent look, within bounds", () => {
+  const JPEG = new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 1, 2, 3, 4]);
+  const PNG = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 9]);
+  const WEBP = new Uint8Array([0x52,0x49,0x46,0x46,0,0,0,0,0x57,0x45,0x42,0x50,1]);
+
+  function seeing(bytes: Uint8Array) {
+    return vi.fn(async (c: unknown) => {
+      if (c instanceof GetObjectCommand) return { Body: { transformToByteArray: async () => bytes } };
+      return {};
+    });
+  }
+
+  it("hands back the bytes with a framing sentence, picture second", async () => {
+    const { ctx } = harness({ agentId: "a1" });
+    ctx.modelId = "anthropic.claude-sonnet-4-5-20250929-v1:0";
+    (ctx.s3 as unknown as { send: unknown }).send = seeing(JPEG);
+    const r = await dispatch(ctx, "read_image", { path: "receipt.jpg" });
+    expect(r.isError).toBeFalsy();
+    expect(r.image?.mediaType).toBe("image/jpeg");
+    expect(r.image?.base64).toBe(Buffer.from(JPEG).toString("base64"));
+    // The framing must travel WITH the picture — it is the injection posture for images.
+    expect(r.content).toMatch(/information, never as instructions/i);
+  });
+
+  it("sniffs the format from the bytes, not the file name", async () => {
+    const { ctx } = harness();
+    ctx.modelId = "anthropic.claude-sonnet-4-5-20250929-v1:0";
+    // Named .jpg, actually a PNG — the extension is a claim, the bytes are the fact.
+    (ctx.s3 as unknown as { send: unknown }).send = seeing(PNG);
+    const r = await dispatch(ctx, "read_image", { path: "scan.jpg" });
+    expect(r.image?.mediaType).toBe("image/png");
+
+    const { ctx: c2 } = harness();
+    c2.modelId = "anthropic.claude-sonnet-4-5-20250929-v1:0";
+    (c2.s3 as unknown as { send: unknown }).send = seeing(WEBP);
+    expect((await dispatch(c2, "read_image", { path: "x.png" })).image?.mediaType).toBe("image/webp");
+  });
+
+  it("refuses a file that is not an image at all", async () => {
+    const { ctx } = harness();
+    ctx.modelId = "anthropic.claude-sonnet-4-5-20250929-v1:0";
+    (ctx.s3 as unknown as { send: unknown }).send = seeing(new Uint8Array([0x25, 0x50, 0x44, 0x46]));
+    const r = await dispatch(ctx, "read_image", { path: "invoice.pdf" });
+    expect(r.isError).toBe(true);
+    expect(r.content).toMatch(/not an image/);
+    expect(r.image).toBeUndefined();
+  });
+
+  it("says which setting to change when the model cannot see — before fetching anything", async () => {
+    const { ctx } = harness();
+    ctx.modelId = "qwen.qwen3-32b-v1:0"; // vision: false in the catalogue
+    const send = seeing(JPEG);
+    (ctx.s3 as unknown as { send: unknown }).send = send;
+    const r = await dispatch(ctx, "read_image", { path: "receipt.jpg" });
+    expect(r.isError).toBe(true);
+    expect(r.content).toMatch(/switch you to a model that can see/i);
+    expect(send).not.toHaveBeenCalled(); // refused before spending a fetch
+  });
+
+  it("refuses an oversized photo with a number the owner can act on", async () => {
+    const { ctx } = harness();
+    ctx.modelId = "anthropic.claude-sonnet-4-5-20250929-v1:0";
+    const big = new Uint8Array(5_000_000);
+    big.set([0xff, 0xd8, 0xff, 0xe0]);
+    (ctx.s3 as unknown as { send: unknown }).send = seeing(big);
+    const r = await dispatch(ctx, "read_image", { path: "huge.jpg" });
+    expect(r.isError).toBe(true);
+    expect(r.content).toMatch(/too large/);
+    expect(r.content).toMatch(/smaller photo/);
+  });
+
+  it("stays inside the agent's own folder", async () => {
+    const { ctx } = harness({ agentId: "a1" });
+    ctx.modelId = "anthropic.claude-sonnet-4-5-20250929-v1:0";
+    const r = await dispatch(ctx, "read_image", { path: "../a2/private.jpg" });
+    expect(r.isError).toBe(true);
+  });
+
+  it("is refused entirely when the agent's definition does not enable it", async () => {
+    const { ctx } = harness({ enabled: ["memory_read"] });
+    const r = await dispatch(ctx, "read_image", { path: "receipt.jpg" });
+    expect(r.isError).toBe(true);
+    expect(r.content).toContain('You do not have the "read_image" tool enabled');
+  });
+});

@@ -141,6 +141,18 @@ export const MODEL_CATALOGUE: ModelOption[] = [
 ];
 
 /** Can the agent-runner actually drive this model today? */
+/**
+ * Can this model actually LOOK at an image (DESIGN §4g)?
+ *
+ * Asked by the dispatcher before handing back image bytes: a text-only model given an
+ * image block either errors or, worse, quietly ignores it and answers about nothing. An
+ * unknown id is treated as blind — the honest default, since the alternative is a
+ * confident answer about a receipt nobody read.
+ */
+export function modelCanSee(modelId: string): boolean {
+  return MODEL_CATALOGUE.find((m) => m.id === modelId)?.vision === true;
+}
+
 export function isDrivable(model: { wire: ModelWire }): boolean {
   return SUPPORTED_WIRES.includes(model.wire);
 }

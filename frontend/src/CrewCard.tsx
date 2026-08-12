@@ -766,6 +766,20 @@ function AgentForm(props: {
               </option>
             ))}
           </select>
+          {/* The one place a capability depends on the MODEL rather than a tick (§4g).
+              Warn where the choice is made, and say which models can see — otherwise the
+              agent accepts "look at this receipt", refuses at run time, and the owner has
+              to work out that the model was the problem. */}
+          {chosen.includes("read_image") &&
+            !props.models.find((m) => m.id === modelId)?.vision && (
+              <small className="banner warn" style={{ fontSize: 12, display: "block", marginTop: 6 }}>
+                This agent may look at photos, but <strong>this model can't see</strong>. Pick one
+                that can:{" "}
+                {props.models.filter((m) => m.vision && m.supported !== false).map((m) => m.label).join(", ") ||
+                  "none available in this account yet"}
+                .
+              </small>
+            )}
           {props.models.some((m) => m.supported === false) && (
             <small className="muted" style={{ fontSize: 12 }}>
               Some models are greyed out because CrewPoppy's engine doesn't speak their
