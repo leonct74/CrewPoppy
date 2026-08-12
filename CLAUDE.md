@@ -1,5 +1,27 @@
 # CLAUDE.md — CrewPoppy
 
+> # 🔒 FREEZE IN FORCE — the phone pairing must not break (founder, 2026-08-12)
+>
+> CrewPoppy Mobile is in Apple's review queue, paired to a live deployment with **one**
+> pairing code. If that code stops working the reviewer cannot open the app and the
+> submission fails — and giving Apple a replacement may restart the queue.
+>
+> **NEVER, until Apple has approved:**
+> - press "show a new pairing code" / regenerate the QR — it calls `AdminSetUserPassword`
+>   on the deployment's only user (`backend/src/mobile.ts`), killing every code ever issued
+> - remove CrewPoppy or tear down the stack — that deletes the pool the code belongs to
+> - change anything under `infra/` — replacing `MobileUserPool`, `MobileUserPoolClient` or
+>   the `MobileApiUrl` function URL changes poolId/clientId/apiUrl, which ARE the pairing
+>
+> **Safe, and proven repeatedly (0.6.0 → 0.7.1):** Lambda code, shared code, frontend,
+> recipes. CloudFormation swaps function code and replaces no resource, so a paired phone
+> never notices.
+>
+> `npm run build` now runs `scripts/check-pairing-safety.mjs` and FAILS the build if
+> `infra/` has moved from v0.4.0 or the template hash changes. Verified to fail on a real
+> template edit, not just assumed to. **Do not raise its expected values to silence it.**
+
+
 Operating guide for working in this repo. **`DESIGN.md` is the source of truth** — read it fully
 before any work; when a design decision changes, update DESIGN.md in the same change. Founder
 decisions live in DESIGN §14 and are final unless the founder revisits them.

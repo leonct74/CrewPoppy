@@ -2,7 +2,7 @@
   "name": "crewpoppy",
   "version": "0.1.0",
   "private": true,
-  "description": "CrewPoppy \u2014 the Crew HQ for your AI crew. An AgentsPoppy extension: task-specific AI agents that run entirely in your own AWS.",
+  "description": "CrewPoppy — the Crew HQ for your AI crew. An AgentsPoppy extension: task-specific AI agents that run entirely in your own AWS.",
   "type": "module",
   "license": "PolyForm-Shield-1.0.0",
   "workspaces": [
@@ -18,12 +18,13 @@
     "gen:backend": "node scripts/build-backend-bundle.mjs",
     "build": "npm run build:frontend && npm run build:bundle",
     "build:frontend": "npm run build -w @crewpoppy/frontend",
-    "build:bundle": "node scripts/build-node-bundle.mjs",
+    "build:bundle": "node scripts/build-node-bundle.mjs && node scripts/check-pairing-safety.mjs",
     "validate-manifest": "node scripts/validate-manifest.mjs",
     "install-dev": "node ${AGENTSPOPPY_REPO:-../agentspoppy}/scripts/install-dev-extension.mjs --src . --frontend frontend/dist --backend backend/index.cjs",
     "certify": "npm --prefix ${AGENTSPOPPY_REPO:-../agentspoppy} run certify -- --extension $PWD",
     "sync-feedback": "node ${AGENTSPOPPY_REPO:-../agentspoppy}/scripts/sync-feedback-tab.mjs --dest frontend/src/vendor",
-    "check-feedback": "node ${AGENTSPOPPY_REPO:-../agentspoppy}/scripts/sync-feedback-tab.mjs --dest frontend/src/vendor --check"
+    "check-feedback": "node ${AGENTSPOPPY_REPO:-../agentspoppy}/scripts/sync-feedback-tab.mjs --dest frontend/src/vendor --check",
+    "check-pairing": "node scripts/check-pairing-safety.mjs"
   },
   "devDependencies": {
     "esbuild": "^0.24.0",
