@@ -91,15 +91,18 @@ function MoneyStrip(props: { agents: AgentSummary[] }) {
             <strong>Writing costs about four times reading.</strong> Producing a PDF or a long
             email is the expensive part of a job; asking for a short answer instead is cheaper.
           </li>
-          {/* Rewritten 2026-08-12: the founder read this and asked what it meant, which is
-              the only test that counts. It said what happens ("adds one line", "stays flat")
-              without the comparison that makes it mean anything, and called an expense list
-              a "ledger". Now it states the benefit in the thing the owner can see: their own
-              growing list of expenses. */}
+          {/* Twice rewritten, and the second objection was the real one (founder,
+              2026-08-12): every other bullet is something the owner can DO, and this one
+              merely announced that a thing is already handled — which answers no question
+              anyone has while looking at a bill. The control does exist, in two places
+              (the ability tick and the wording of the brief), so name them. It matters
+              most for an agent someone writes themselves, or a template they edit: drop
+              either half and the expensive behaviour comes back silently. */}
           <li>
-            <strong>A long list doesn't cost more than a short one.</strong> When an agent logs
-            an expense it adds just that line, instead of reading your whole file and writing it
-            back. So your 500th expense costs the same as your first.
+            <strong>If an agent keeps a list, give it "Add to a list or ledger".</strong> With
+            that ability it adds one line at a time; without it, it reads the whole file and
+            writes it all back for every entry, which gets dearer as the list grows. Tick it,
+            and say so in the agent's instructions — the ready-made templates already do both.
           </li>
           <li>
             <strong>Clearing a chat helps a little.</strong> Only the last few exchanges are
