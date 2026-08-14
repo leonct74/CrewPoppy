@@ -1988,6 +1988,27 @@ feature ships with no deploy and cannot touch the pairing identity.
 
 ## 17. Status
 
+**2026-08-12: 0.9.1 RELEASED AND LISTED — the cheap models, and answers that admit they
+were cut off.** Pack 6.4 MB, sha `4293a947…dc9516`; live catalogue confirmed serving
+0.9.1. Four repo versions in one listing (0.8.0 → 0.9.1), because 0.8.x was deliberately
+held while vision stayed unverified (§4g). **No permission change since the 0.4.0
+consent** — the manifest diff against 0.7.3 is the version string alone, so this went
+through the automatic update tier; `infra/` and the template hash are untouched, and the
+pairing guard was green on every build. Contents: §2c findings 7–10 (per-model prefix,
+the Converse wire, the silent truncation, per-model limits) · 0.8.1's typed and bounded
+`workspace_read` · 0.8.0 vision, shipped dormant behind an unticked ability.
+
+**🪤 RELEASE-DAY TRAP FOR THE FAMILY — the catalogue repo can be BEHIND what it serves.**
+`agentspoppy-web` on this machine was 4 commits behind origin: its seed said 0.6.3 while
+the live catalogue served 0.7.3. Editing the working copy as found and pushing would have
+published a **two-version rollback to every installed user** — the runbook's "rollback is
+a release" rule broken by accident rather than intent, and invisible until users' Update
+buttons started offering them older software. **Always `git fetch` and compare the seed's
+version against the LIVE catalogue before editing it.** The check costs one command; the
+mistake is a bad release for everyone. (The same pull also revealed an unpushed listing
+for a different poppy sitting on the branch — a second reason never to push the catalogue
+repo without looking at what else is riding along.)
+
 **2026-08-01: 0.5.0 RELEASED — approval channels, the spreadsheet, and the fix the
 catalogue needed.** Pack 6.3 MB, sha `5b57482d…`. **No certify, deliberately:**
 `extension.json` and `infra/` are BYTE-IDENTICAL to the 0.4.0 tag, so the deployed
