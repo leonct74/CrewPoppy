@@ -6,6 +6,20 @@ import { useCallback, useEffect, useState } from "react";
 import qrcode from "qrcode-generator";
 import { api, type PairingPayload } from "./api";
 import { Button } from "./Button";
+import { host } from "./host";
+
+/**
+ * Where the phone app actually comes from (both stores approved 2026-08-12).
+ *
+ * The Apple link is the STOREFRONT-NEUTRAL form (`/app/id…`, no country segment): Apple
+ * redirects it to the visitor's own country store, whereas the `/nl/` form the lookup API
+ * hands back would send an Italian or American user to the wrong storefront.
+ *
+ * These open through `host.openExternal` — a poppy frontend is a sandboxed frame and a
+ * plain <a target="_blank"> silently does nothing (the same trap that killed downloads).
+ */
+const APP_STORE = "https://apps.apple.com/app/id6796639369";
+const PLAY_STORE = "https://play.google.com/store/apps/details?id=com.crewpoppy.mobile";
 
 /**
  * The QR itself. Always dark-on-white whatever the app theme: phone cameras want
@@ -58,6 +72,23 @@ export function PhonePane(props: { onBack: () => void }) {
         approvals, nothing routed through anyone else. Chat with your agents, answer their
         questions and approve or stop work from wherever you are.
       </p>
+
+      {/* The pane told people to "open the CrewPoppy app" without ever saying where to get
+          it — obvious once both stores were live and someone had to go and find it. Placed
+          BEFORE the pairing button, because installing is the step that comes first. */}
+      <div className="stack" style={{ gap: 8 }}>
+        <p className="muted" style={{ margin: 0 }}>
+          Don't have it yet? It's free, and it's the same app on both:
+        </p>
+        <div className="spread" style={{ justifyContent: "flex-start", gap: 8 }}>
+          <button className="btn btn-ghost btn-sm" onClick={() => void host.openExternal(APP_STORE)}>
+             App Store ↗
+          </button>
+          <button className="btn btn-ghost btn-sm" onClick={() => void host.openExternal(PLAY_STORE)}>
+            ▶ Google Play ↗
+          </button>
+        </div>
+      </div>
 
       {err && <div className="banner err">{err}</div>}
       {!status && !err && <p className="muted">Checking your deployment…</p>}
