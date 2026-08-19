@@ -2007,9 +2007,15 @@ unknown token, and the AWS path fails calmly; the same flags deny `~/.aws/creden
 Unit tests: 23 backend (crew-csv + local-download) + 58 frontend, all green. **Listing
 requirement:** the catalogue entry MUST carry `minHost: "0.3.1"` — an older host silently
 ignores `isolation` and runs the poppy unconfined. Manifest diff vs 0.9.2 is `version` +
-`backend.isolation` only; no permission change since the 0.4.0 consent. **Still to prove in
-the installed container (founder):** click "Download the crew" and get a file in the
-browser's downloads — the functional pass no rig can do.
+`backend.isolation` only; no permission change since the 0.4.0 consent. **Proven in the installed
+container too (2026-08-19, dev-install into the running AgentsPoppy 0.3.3):** `ps eww` on the
+live backend showed `NODE_OPTIONS=--permission` with exactly the install root, data dir and
+temp allowlisted and zero `AWS_*` variables; the poppy loaded the 4-agent crew (DynamoDB
+reads work confined); "Download the crew" → Chrome opened, saved `crewpoppy-agents (4).csv`
+(4,611 B, BOM intact, all four agents), and the poppy said "Your browser is downloading…".
+The installed copy was then restored to the catalogue 0.9.2 so the dev-ahead "update to
+0.9.2" rollback banner is not left armed, and so the real 0.9.2 → 0.9.3 update path gets
+exercised at release.
 
 **2026-08-12: 0.9.1 RELEASED AND LISTED — the cheap models, and answers that admit they
 were cut off.** Pack 6.4 MB, sha `4293a947…dc9516`; live catalogue confirmed serving
