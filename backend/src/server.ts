@@ -20,7 +20,8 @@ import {
   listAgentMailboxes, listFiles, listRuns, putOwnerFile, readFileContent, saveAgent, startRun,
   stopRun, withStaleness,
 } from "./agents";
-import { applyImport, crewToCsv, planImport, saveCsvToDownloads } from "./crew-csv";
+import { applyImport, crewToCsv, planImport } from "./crew-csv";
+import { contentDisposition, csvFile, stageDownload, takeDownload } from "./local-download";
 import { getOwnerEmail, isVerifiedSender, setOwnerEmail } from "./email";
 import { getMobileStatus, pairMobile, revokeMobile } from "./mobile";
 import { CognitoIdentityProviderClient } from "@aws-sdk/client-cognito-identity-provider";
@@ -216,12 +217,28 @@ const server = createServer(async (req, res) => {
     // POST validates an uploaded CSV and returns the PLAN — counts, combined
     // monthly cap, errors; only `apply: true` (sent after the owner has seen that
     // plan) writes anything, and only when the plan is error-free.
-    // The sandboxed frame can't save a file itself (see saveCsvToDownloads) — the
-    // sidecar writes it and reports the name the owner should look for.
-    if (parts[0] === "crew-csv" && parts[1] === "save" && parts.length === 2 && method === "POST") {
+    // Neither the frame nor this confined backend can put a file on the owner's disk
+    // (see local-download.ts). POST stages the CSV under a one-shot token; the frontend
+    // has the host open the matching /ext-dl URL in the system browser, which saves it.
+    if (parts[0] === "crew-csv" && parts[1] === "export" && parts.length === 2 && method === "POST") {
       const now = new Date().toISOString();
       const csv = crewToCsv(await listAgents(ddb, tableName, now));
-      return json(res, 200, await saveCsvToDownloads(csv, "crewpoppy-agents.csv"));
+      return json(res, 200, stageDownload(csvFile(csv, "crewpoppy-agents.csv")));
+    }
+    // The broker's /ext-dl passthrough fetches exactly this route, binary-safe, with the
+    // headers forwarded. Single-use: a second fetch of the same token is a 404.
+    if (parts[0] === "local-download" && parts.length === 2 && method === "GET") {
+      const file = takeDownload(decodeURIComponent(parts[1]!));
+      if (!file) {
+        res.statusCode = 404;
+        res.setHeader("content-type", "text/plain; charset=utf-8");
+        return res.end("This download link has expired or was already used. Go back to CrewPoppy and export again.");
+      }
+      res.statusCode = 200;
+      res.setHeader("content-type", file.contentType);
+      res.setHeader("content-disposition", contentDisposition(file.filename));
+      res.setHeader("content-length", String(file.bytes.length));
+      return res.end(file.bytes);
     }
     if (parts[0] === "crew-csv" && parts.length === 1) {
       const now = new Date().toISOString();

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "./api";
+import { downloadUrlFor } from "./download";
 import { Avatar, AvatarPicker } from "./avatars";
 import { buildHelperPrompt } from "./helper-prompt";
 import { Button } from "./Button";
@@ -356,19 +357,34 @@ function CrewSpreadsheet(props: { empty: boolean; onChanged: () => void | Promis
   >(null);
   const [done, setDone] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
+  // The download link to show when the host couldn't open the browser itself —
+  // the file is still waiting behind it for a minute.
+  const [manualUrl, setManualUrl] = useState<string | null>(null);
   const [pasting, setPasting] = useState(false);
   const [pasted, setPasted] = useState("");
   const fileRef = useRef<HTMLInputElement>(null);
 
-  // 🪤 NOT a blob + `<a download>`: the host renders us in a sandboxed frame, where
-  // that silently does nothing at all — a button that looks fine and never produces a
-  // file (founder, 2026-08-01). The sidecar writes it and tells us the name.
+  // 🪤 NOT a blob + `<a download>`: the host renders us in a sandboxed frame inside a
+  // webview where that silently does nothing at all — a button that looks fine and never
+  // produces a file (founder, 2026-08-01). And NOT "the backend writes ~/Downloads": the
+  // backend is confined and can't. So: the backend stages the bytes under a one-shot
+  // token, and the system browser fetches them through the host (download.ts).
   const download = async () => {
     setErr(null);
     setDone(null);
+    setManualUrl(null);
     try {
-      const { savedAs } = await api.crewCsvSave();
-      setDone(`Saved to your Downloads folder as “${savedAs}”. Open it in Excel.`);
+      const { token, filename } = await api.crewCsvExport();
+      const url = downloadUrlFor(token, window.location.href);
+      if (!url) throw new Error("This page isn't being served by AgentsPoppy, so there is no way to hand you the file.");
+      try {
+        await host.openExternal(url);
+        setDone(`Your browser is downloading “${filename}” — find it in the browser's downloads, then open it in Excel.`);
+      } catch {
+        // The host couldn't open the browser: show the link instead. Same file, same
+        // token, still good for a minute.
+        setManualUrl(url);
+      }
     } catch (e) {
       setErr((e as Error).message);
     }
@@ -396,8 +412,8 @@ function CrewSpreadsheet(props: { empty: boolean; onChanged: () => void | Promis
           : "Download your agents as a file Excel opens, edit or add rows, and upload it back. Rows match agents by name — existing names update, new names create, and an upload never deletes anyone."}
       </p>
       <div className="row" style={{ gap: 8 }}>
-        <Button className="btn" busyLabel="Saving…" onClick={download}>
-          ⬇ {props.empty ? "Save the template to Downloads" : "Save the crew to Downloads"}
+        <Button className="btn" busyLabel="Preparing…" onClick={download}>
+          ⬇ {props.empty ? "Download the template" : "Download the crew"}
         </Button>
         <button className="btn" onClick={() => fileRef.current?.click()}>
           ⬆ Upload a spreadsheet
@@ -454,6 +470,25 @@ function CrewSpreadsheet(props: { empty: boolean; onChanged: () => void | Promis
 
       {err && <div className="banner err" style={{ marginTop: 8 }}>{err}</div>}
       {done && <div className="banner" style={{ marginTop: 8 }}>{done}</div>}
+      {manualUrl && (
+        <div className="banner" style={{ marginTop: 8 }}>
+          AgentsPoppy couldn't open your browser. Paste this address into any browser within a minute to get
+          the file:
+          <div className="row" style={{ gap: 8, marginTop: 6, alignItems: "center" }}>
+            <code style={{ fontSize: 12, overflowWrap: "anywhere", userSelect: "all" }}>{manualUrl}</code>
+            <Button
+              className="btn btn-sm"
+              busyLabel="Copying…"
+              onClick={async () => {
+                await navigator.clipboard.writeText(manualUrl);
+                setDone("Copied. Paste it into your browser's address bar.");
+              }}
+            >
+              Copy
+            </Button>
+          </div>
+        </div>
+      )}
 
       {plan && plan.errors.length > 0 && (
         <div className="banner err" style={{ marginTop: 8 }}>

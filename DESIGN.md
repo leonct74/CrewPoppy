@@ -1758,21 +1758,28 @@ position, so an owner may reorder or add columns of their own. Backend: `crew-cs
 only ever PLANS. 15 tests cover the round-trip, the Excel-locale traps, the save, and
 that a broken file writes nothing.
 
-**🪤 A POPPY FRONTEND CANNOT DOWNLOAD ANYTHING.** The first version shipped the ordinary
-web idiom — a blob URL and `<a download>` — and the button was simply DEAD: no file, no
-error, nothing (founder, live, 2026-08-01). The host renders every poppy in a SANDBOXED
-frame, and a sandbox without `allow-downloads` silently discards exactly that. Two ways
-out exist and both live in the BACKEND, which is an ordinary local process:
-1. **Write it and say where** (chosen here, and MailPoppy's "professional path"):
-   `POST /crew-csv/save` → `saveCsvToDownloads()` writes into `~/Downloads`, never
-   overwriting (de-duplicates to "crewpoppy-agents (2).csv"), and returns the filename
-   so the UI can name it. No browser window at all.
-2. The broker's one-shot passthrough (`/ext-dl/<id>/local-download/<token>`) +
-   `openExternal` — needed only when the bytes exist ONLY in the webview (MailPoppy's
-   decrypted attachments). Ours come from the backend already, so (1) is strictly less
-   machinery. Documented here so the next poppy doesn't rediscover the dead button.
+**🪤 A POPPY FRONTEND CANNOT DOWNLOAD ANYTHING — AND SINCE 0.9.3, NEITHER CAN THE
+BACKEND WRITE THE USER'S DISK.** The first version shipped the ordinary web idiom — a blob
+URL and `<a download>` — and the button was simply DEAD: no file, no error, nothing
+(founder, live, 2026-08-01). The host's iframe sandbox has carried `allow-downloads` since
+June; it is the desktop WEBVIEW that drops the save, so no sandbox flag will ever fix it.
+The 0.5.0 fix had the backend write `~/Downloads` directly. **That is no longer possible
+either:** 0.9.3 declares `backend.isolation: "strict"` (host ≥ 0.3.1), so Node's permission
+model confines the backend to its install folder (read) + the host's data folder and the OS
+temp dir (read/write), and refuses child processes. `~/Downloads` and `~/.aws/credentials`
+are denied by the RUNTIME, not by convention — that is the whole point. The only path left,
+and the host's sanctioned one: `POST /crew-csv/export` stages the CSV under a random
+single-use token (`backend/src/local-download.ts`, in memory, 60 s TTL); the frontend
+derives `<broker-origin>/ext-dl/<poppy-id>/local-download/<token>` from its own location
+(`frontend/src/download.ts`) and asks `host.openExternal` to open it in the SYSTEM BROWSER,
+which saves it via `Content-Disposition: attachment`. If the host can't open a browser the
+UI shows the address to paste. Nothing is written to disk by us. Two traps for the next
+poppy: (a) under `--permission`, `existsSync` on a denied path THROWS rather than returning
+false, so "check then fall back" code dies on the check; (b) the broker's `/ext-dl` is an
+auth-exempt asset route (http.ts) — that is why a browser with no token can fetch it, and
+why the route is restricted to the `/local-download` prefix.
 Also: the export is written with a UTF-8 BOM — without it Excel reads our own file in
-the local codepage and mangles "Niccolò". Uploads keep the file picker (sandbox gates
+the local codepage and mangles "Niccolò". Uploads keep the file picker (the sandbox gates
 downloads, not pickers) AND accept pasted text, which is why the parser learned TABS:
 copying cells out of Excel puts tab-separated text on the clipboard.
 
@@ -1987,6 +1994,22 @@ feature ships with no deploy and cannot touch the pairing identity.
   console + real token spend — coordinate, and keep caps tiny during testing.
 
 ## 17. Status
+
+**2026-08-19: 0.9.3 BUILT — the backend is CONFINED (`isolation: "strict"`), not yet
+released.** The first poppy migrated under AgentsPoppy's confinement plan
+(`agentspoppy/docs/CONFINEMENT-MIGRATION.md`, step 7). One behaviour change: the crew CSV
+no longer lands in `~/Downloads` (the runtime forbids it); it is handed to the system
+browser through the host's `/ext-dl` one-shot passthrough (§15j, updated). Proof, run on
+the built `backend/index.cjs` under the EXACT `NODE_OPTIONS` the host constructs: the
+backend boots, `/health` answers, the new `/local-download/:token` route answers 404 for an
+unknown token, and the AWS path fails calmly; the same flags deny `~/.aws/credentials`,
+`~/Downloads` and `execSync` with `ERR_ACCESS_DENIED` and allow a write to the data dir.
+Unit tests: 23 backend (crew-csv + local-download) + 58 frontend, all green. **Listing
+requirement:** the catalogue entry MUST carry `minHost: "0.3.1"` — an older host silently
+ignores `isolation` and runs the poppy unconfined. Manifest diff vs 0.9.2 is `version` +
+`backend.isolation` only; no permission change since the 0.4.0 consent. **Still to prove in
+the installed container (founder):** click "Download the crew" and get a file in the
+browser's downloads — the functional pass no rig can do.
 
 **2026-08-12: 0.9.1 RELEASED AND LISTED — the cheap models, and answers that admit they
 were cut off.** Pack 6.4 MB, sha `4293a947…dc9516`; live catalogue confirmed serving

@@ -86,12 +86,14 @@ export const api = {
     invoke({ method: "DELETE", path: `/agents/${id}` }),
 
   /**
-   * Write the crew (or the template) into the user's Downloads folder and report the
-   * filename. 🪤 The SIDECAR saves it, not the browser: we run in a sandboxed frame
-   * where `<a download>` and blob: URLs silently do nothing (founder, 2026-08-01).
+   * Stage the crew (or the template) as a CSV under a one-shot download token. 🪤 Neither
+   * side can save a file directly: this frame is sandboxed in a webview where `<a download>`
+   * and blob: URLs silently do nothing (founder, 2026-08-01), and the backend is CONFINED
+   * and can't write the user's Downloads folder. So the backend holds the bytes for a
+   * minute and the SYSTEM BROWSER fetches them — see `downloadUrlFor` in download.ts.
    */
-  crewCsvSave: (): Promise<{ savedAs: string; path: string }> =>
-    invoke({ method: "POST", path: "/crew-csv/save", body: {} }),
+  crewCsvExport: (): Promise<{ token: string; filename: string }> =>
+    invoke({ method: "POST", path: "/crew-csv/export", body: {} }),
 
   /**
    * Validate an uploaded CSV (apply=false → the plan: counts, combined cap, errors)

@@ -10,10 +10,6 @@
 //  - every row goes through the same saveAgent sanitisers as the editor, so a
 //    spreadsheet can't store anything the form couldn't.
 import { randomUUID } from "node:crypto";
-import { existsSync } from "node:fs";
-import { mkdir, writeFile } from "node:fs/promises";
-import { homedir } from "node:os";
-import { join } from "node:path";
 import type { DynamoDBDocumentClient } from "@aws-sdk/lib-dynamodb";
 import { sanitiseSchedule, type AgentDef, type AgentSchedule } from "@crewpoppy/shared";
 import { listAgents, saveAgent, type AgentInput } from "./agents";
@@ -99,38 +95,9 @@ export function crewToCsv(agents: AgentDef[]): string {
     .join("\r\n") + "\r\n";
 }
 
-/**
- * Write the file the OWNER asked for into their Downloads folder, and report where it
- * landed.
- *
- * 🪤 The frontend CANNOT download anything itself. The host renders every poppy in a
- * SANDBOXED frame, and a sandbox without `allow-downloads` makes `<a download>` and
- * blob: URLs do exactly nothing — no error, no file, a dead button (founder, live,
- * 2026-08-01; MailPoppy hit the same wall in its webview and solved it the same way).
- * So the bytes are written HERE, by the local sidecar, which is an ordinary process on
- * the user's own machine. No browser window, no handoff, no token.
- *
- * Names are de-duplicated ("crewpoppy-agents (2).csv") and never overwritten: an export
- * is a snapshot, and silently replacing yesterday's is a way to lose work.
- */
-export async function saveCsvToDownloads(
-  csv: string,
-  filename: string,
-  dir = join(homedir(), "Downloads"),
-): Promise<{ savedAs: string; path: string }> {
-  // Base name only — no separators (traversal), no leading dot (hidden file).
-  const cleaned = (filename || "crew.csv").replace(/[/\\]/g, "_").replace(/^\.+/, "_") || "crew.csv";
-  await mkdir(dir, { recursive: true });
-  const dot = cleaned.lastIndexOf(".");
-  const stem = dot > 0 ? cleaned.slice(0, dot) : cleaned;
-  const ext = dot > 0 ? cleaned.slice(dot) : "";
-  let target = join(dir, cleaned);
-  for (let n = 2; existsSync(target); n++) target = join(dir, `${stem} (${n})${ext}`);
-  // BOM: Excel reads a UTF-8 CSV as the local codepage without it, so an agent called
-  // "Niccolò" comes back mangled — from OUR OWN export.
-  await writeFile(target, "﻿" + csv, "utf8");
-  return { savedAs: target.slice(dir.length + 1), path: target };
-}
+// Getting the file to the owner is NOT done here any more. The backend is confined
+// (extension.json `backend.isolation: "strict"`) and can't write `~/Downloads`; see
+// local-download.ts for the one-shot token handoff that replaced `saveCsvToDownloads`.
 
 // ---------------------------------------------------------------- import
 
