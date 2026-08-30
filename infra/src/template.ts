@@ -64,9 +64,25 @@ export interface CfnTemplate {
   AWSTemplateFormatVersion: string;
   Description: string;
   Parameters: Record<string, unknown>;
+  Conditions: Record<string, unknown>;
   Resources: Record<string, unknown>;
   Outputs: Record<string, unknown>;
 }
+
+/**
+ * AgentsPoppy's permissions boundary (broker-role-v2 step 2), attached to EVERY IAM role
+ * this stack creates. A boundary CAPS what a role can ever do and grants it nothing, so
+ * every policy below reads the same with or without it — the runner's own permissions are
+ * untouched either way.
+ *
+ * Applied through a condition rather than unconditionally because an empty
+ * PermissionsBoundaryArn must deploy UNBOUNDED: naming a managed policy the account
+ * doesn't have makes CreateRole fail outright, and pre-boundary AgentsPoppy setups (and
+ * hosts too old to send the ARN at all) are the normal state during the migration.
+ */
+const PERMISSIONS_BOUNDARY = {
+  "Fn::If": ["HasPermissionsBoundary", { Ref: "PermissionsBoundaryArn" }, { Ref: "AWS::NoValue" }],
+};
 
 /**
  * Build the template. Pure — same input, same bytes — so the content-addressed hash the
@@ -102,6 +118,19 @@ export function buildTemplate(): CfnTemplate {
       AttributionConnection: {
         Type: "String",
         Description: "The AgentsPoppy connection id, for the agentspoppy:connection tag.",
+      },
+      // The host passes this ONLY once it has confirmed the account's AgentsPoppyBoundary
+      // managed policy exists; absent, the stack deploys exactly as it always has.
+      PermissionsBoundaryArn: {
+        Type: "String",
+        Default: "",
+        Description:
+          "ARN of a managed policy to attach as the permissions boundary on every IAM role this stack creates (AgentsPoppy's AgentsPoppyBoundary). Empty = no boundary.",
+      },
+    },
+    Conditions: {
+      HasPermissionsBoundary: {
+        "Fn::Not": [{ "Fn::Equals": [{ Ref: "PermissionsBoundaryArn" }, ""] }],
       },
     },
     Resources: {
@@ -160,6 +189,7 @@ export function buildTemplate(): CfnTemplate {
         Type: "AWS::IAM::Role",
         Properties: {
           RoleName: RUNNER_ROLE_NAME,
+          PermissionsBoundary: PERMISSIONS_BOUNDARY,
           AssumeRolePolicyDocument: {
             Version: "2012-10-17",
             Statement: [
@@ -357,6 +387,7 @@ export function buildTemplate(): CfnTemplate {
         Type: "AWS::IAM::Role",
         Properties: {
           RoleName: APPROVAL_ROLE_NAME,
+          PermissionsBoundary: PERMISSIONS_BOUNDARY,
           AssumeRolePolicyDocument: {
             Version: "2012-10-17",
             Statement: [
@@ -526,6 +557,7 @@ export function buildTemplate(): CfnTemplate {
         Type: "AWS::IAM::Role",
         Properties: {
           RoleName: MOBILE_API_ROLE_NAME,
+          PermissionsBoundary: PERMISSIONS_BOUNDARY,
           AssumeRolePolicyDocument: {
             Version: "2012-10-17",
             Statement: [

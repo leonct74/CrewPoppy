@@ -10,6 +10,15 @@ export interface BackendBootstrap {
   credentialsUrl: string;
   credentialsToken?: string;
   port?: number;
+  /**
+   * ARN of the account's `AgentsPoppyBoundary` managed policy — sent ONLY when the host
+   * has confirmed the deployed AgentsPoppy setup actually carries it (broker-role-v2
+   * step 2). Set, the deploy passes it as the stack's `PermissionsBoundaryArn` so every
+   * role the stack creates is capped by it; absent, the deploy preserves whatever the
+   * stack already has, because a host-side hiccup must never strip an applied boundary
+   * and a role may never name a policy that might not exist.
+   */
+  permissionsBoundaryArn?: string;
   account: { accountId: string; region: string };
 }
 
@@ -36,7 +45,27 @@ export function readBootstrap(): BackendBootstrap {
   if (!boot.connectionId || !boot.credentialsUrl || !boot.account?.accountId) {
     throw new Error("AGENTSPOPPY_BOOTSTRAP is missing required fields (connectionId/credentialsUrl/account).");
   }
+  boot.permissionsBoundaryArn = boundaryArnOrUndefined(boot.permissionsBoundaryArn);
   return boot;
+}
+
+/**
+ * A confirmed boundary, or undefined — the value the deploy reads as
+ * preserve-what's-deployed rather than as an instruction to attach anything.
+ *
+ * Only something SHAPED like an IAM policy ARN counts. A truthy-but-malformed value —
+ * whitespace, a bare policy name, a half-substituted template string — would be passed
+ * through as the CFN parameter, make the `HasPermissionsBoundary` condition true, and
+ * fail EVERY CreateRole in the stack: a rolled-back deploy instead of the graceful
+ * unbounded one the optional-by-construction design promises. The check is deliberately
+ * cheap and structural (partition, 12-digit account, a non-empty policy path) — it can't
+ * prove the policy exists, which is exactly why only a host that has CONFIRMED it sends
+ * the ARN at all.
+ */
+export function boundaryArnOrUndefined(v: unknown): string | undefined {
+  if (typeof v !== "string") return undefined;
+  const arn = v.trim();
+  return /^arn:aws[a-z-]*:iam::\d{12}:policy\/.+/.test(arn) ? arn : undefined;
 }
 
 interface ScopedCredentialsDTO {

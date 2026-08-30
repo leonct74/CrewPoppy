@@ -101,6 +101,16 @@ export const TEMPLATE_KEY_TAG = "crewpoppy:templateKey";
  */
 export const LAMBDA_KEY_TAG = "crewpoppy:lambdaCodeKey";
 
+/**
+ * Statuses a stack cannot be UPDATED out of: the deploy deletes it and creates it again.
+ *
+ * Shared deliberately, because two places have to agree on what "about to be recreated"
+ * means — the recreate branch in `deploy` and the boundary rule that must not carry a
+ * dead stack's parameters into the fresh CreateStack. Listing them twice is how the two
+ * would silently drift the next time a status is added.
+ */
+const RECREATE_STATUSES: ReadonlySet<string> = new Set(["ROLLBACK_COMPLETE", "REVIEW_IN_PROGRESS"]);
+
 /** CloudFormation statuses that mean "AWS is mid-operation, poll me". */
 const IN_PROGRESS = /_IN_PROGRESS$/;
 /** Statuses that mean the last operation left the stack unusable. */
@@ -254,6 +264,61 @@ async function ensureCodeUploaded(s3: S3Client, ctx: AttributionContext, region:
 }
 
 /**
+ * What we tell the user when CloudFormation won't say what is currently deployed. The
+ * deploy STOPS there rather than guessing: "no stack" and "couldn't read the stack" are
+ * different answers, and only the first may deploy unbounded (see `describeForDeploy`).
+ */
+export const STACK_READ_FAILED =
+  "CrewPoppy couldn't read your current setup from AWS, so it stopped instead of guessing — changing your deployment from a half-read picture could remove security settings it should have kept. Nothing was changed. Try again in a moment.";
+
+/**
+ * The DescribeStacks the deploy runs before it changes anything, with the one distinction
+ * that matters made explicit: a positive "the stack does not exist" is `null` (a fresh
+ * create), and EVERY other failure — a throttle, a dropped connection, an expired
+ * credential — aborts. Answering `null` there would look identical to "no stack", and the
+ * deploy would then send an empty `PermissionsBoundaryArn`, silently STRIPPING the
+ * boundary off every role in a stack that had one.
+ */
+async function describeForDeploy(cfn: CloudFormationClient, name: string): Promise<Stack | null> {
+  try {
+    return await describe(cfn, name);
+  } catch (e) {
+    throw new Error(`${STACK_READ_FAILED} (AWS said: ${(e as Error).message})`);
+  }
+}
+
+/**
+ * The value for the stack's `PermissionsBoundaryArn` parameter (broker-role-v2 step 2 —
+ * AgentsPoppy's ceiling on every role the stack creates). Exported because this rule is
+ * the security-critical half of the change and the half with no AWS in it, so it is
+ * tested directly rather than only through the shape of the template. Fail-safe in every
+ * direction:
+ *
+ *   - the host CONFIRMED the boundary policy exists (it sent the ARN) → use it. Naming it
+ *     only when confirmed is what keeps CreateRole from failing on a missing policy;
+ *   - a stack about to be DELETED AND RECREATED carries nothing forward. It has no live
+ *     roles left to protect, so preserving buys no safety — and preserving would name an
+ *     UNCONFIRMED ARN in a fresh CreateRole, so if the boundary policy is absent the
+ *     create rolls back recording the same bad ARN and the next retry fails identically:
+ *     a self-perpetuating outage;
+ *   - otherwise PRESERVE what the deployed stack already carries. "No ARN in the
+ *     bootstrap" also covers a transient host-side read, and a code update must never
+ *     strip an applied boundary because of a hiccup;
+ *   - nothing deployed yet → empty, i.e. unbounded, which is the only thing a fresh
+ *     create can safely do.
+ *
+ * `existing` is the DescribeStacks result the deploy already needs for its status check —
+ * the parameter costs no extra call. An UNREADABLE stack never reaches here at all: it
+ * aborts in `describeForDeploy`, because it must not be mistaken for either case above.
+ */
+export function boundaryParameterValue(existing: Stack | null, confirmed: string | undefined): string {
+  if (confirmed) return confirmed;
+  const status = existing?.StackStatus;
+  if (status && RECREATE_STATUSES.has(status)) return "";
+  return existing?.Parameters?.find((p) => p.ParameterKey === "PermissionsBoundaryArn")?.ParameterValue ?? "";
+}
+
+/**
  * Create or update the stack. Returns as soon as AWS accepts the request — the work
  * runs in the background (AGENTS.md §5); poll getStatus for completion.
  */
@@ -262,6 +327,7 @@ export async function deploy(
   s3: S3Client,
   ctx: AttributionContext,
   region: string,
+  permissionsBoundaryArn?: string,
 ): Promise<DeployResult> {
   // The stack MUST carry attribution or AgentsPoppy can neither show nor tear down
   // what we made — so refuse rather than deploy an untrackable footprint.
@@ -279,6 +345,13 @@ export async function deploy(
     // the template — the two version independently.
     { Key: LAMBDA_KEY_TAG, Value: lambdaCodeKey },
   ];
+
+  // Read BEFORE the parameters are built: the boundary value depends on the status (a
+  // stack about to be recreated carries nothing forward), and an unreadable stack must
+  // stop the deploy rather than be flattened into "no stack".
+  const existing = await describeForDeploy(cfn, stackName);
+  const status = existing?.StackStatus;
+
   const args = {
     StackName: stackName,
     TemplateBody: templateJson,
@@ -289,6 +362,13 @@ export async function deploy(
       // template stamps these two into UserPoolTags itself (infra/src/template.ts).
       { ParameterKey: "AttributionAccount", ParameterValue: ctx.accountId },
       { ParameterKey: "AttributionConnection", ParameterValue: ctx.connectionId },
+      // Always an explicit value, never UsePreviousValue: the parameter is new to the
+      // template, and UsePreviousValue fails on the first update after a template gains
+      // one — which is every existing stack's next deploy.
+      {
+        ParameterKey: "PermissionsBoundaryArn",
+        ParameterValue: boundaryParameterValue(existing, permissionsBoundaryArn),
+      },
     ],
     // The template creates a NAMED role (CrewPoppyRunnerRole) — CloudFormation demands
     // this explicit acknowledgement before it will create IAM resources.
@@ -296,12 +376,9 @@ export async function deploy(
     Tags,
   };
 
-  const existing = await describe(cfn, stackName);
-  const status = existing?.StackStatus;
-
   // A previous failed create leaves ROLLBACK_COMPLETE: it can't be updated, and
   // creating over it fails until it's fully gone. Delete, wait, recreate.
-  if (status === "ROLLBACK_COMPLETE" || status === "REVIEW_IN_PROGRESS") {
+  if (status && RECREATE_STATUSES.has(status)) {
     await cfn.send(new DeleteStackCommand({ StackName: stackName }));
     await waitUntilStackDeleteComplete({ client: cfn, maxWaitTime: 300 }, { StackName: stackName });
     await cfn.send(new CreateStackCommand(args));

@@ -264,10 +264,58 @@ describe("buildTemplate", () => {
       // propagation skips user pools) — stack.ts passes them on every deploy.
       "AttributionAccount",
       "AttributionConnection",
+      // AgentsPoppy's permissions boundary, optional by construction (broker-role-v2 §2).
+      "PermissionsBoundaryArn",
     ]);
     expect(resources.RunnerFunction!.Properties.Code).toEqual({
       S3Bucket: { Ref: "LambdaCodeBucket" },
       S3Key: { Ref: "LambdaCodeKey" },
+    });
+  });
+
+  describe("AgentsPoppy's permissions boundary (broker-role-v2 step 2)", () => {
+    const roles = Object.entries(resources).filter(([, r]) => r.Type === "AWS::IAM::Role");
+
+    it("caps EVERY role the stack creates — a role added later must not be missed", () => {
+      // The whole property this step exists for: a poppy-created role cannot become an
+      // account administrator, whatever policy is later written onto it. One role left
+      // uncapped is the entire escape hatch, so this asserts across all of them rather
+      // than naming the three we have today.
+      expect(roles.map(([name]) => name).sort()).toEqual([
+        "ApprovalRole", "MobileApiRole", "RunnerRole",
+      ]);
+      for (const [, role] of roles) {
+        expect(role.Properties.PermissionsBoundary).toEqual({
+          "Fn::If": [
+            "HasPermissionsBoundary",
+            { Ref: "PermissionsBoundaryArn" },
+            { Ref: "AWS::NoValue" },
+          ],
+        });
+      }
+    });
+
+    it("defaults to empty, and empty means no boundary at all", () => {
+      // A CreateRole naming a managed policy the account doesn't have is refused by IAM,
+      // so the default MUST leave the property off entirely (AWS::NoValue) rather than
+      // pass an empty ARN — that is what lets this ship before every user has re-applied
+      // AgentsPoppy's setup.
+      const param = template.Parameters.PermissionsBoundaryArn as { Type: string; Default: string };
+      expect(param.Type).toBe("String");
+      expect(param.Default).toBe("");
+      expect(template.Conditions.HasPermissionsBoundary).toEqual({
+        "Fn::Not": [{ "Fn::Equals": [{ Ref: "PermissionsBoundaryArn" }, ""] }],
+      });
+    });
+
+    it("caps, and grants nothing — the roles' own policies are untouched by it", () => {
+      // A boundary is a ceiling, not a permission: nothing in it may appear as an Allow.
+      for (const [, role] of roles) {
+        const statements = role.Properties.Policies[0].PolicyDocument.Statement as Array<{
+          Action: string[];
+        }>;
+        expect(statements.flatMap((s) => s.Action).some((a) => a.startsWith("iam:"))).toBe(false);
+      }
     });
   });
 

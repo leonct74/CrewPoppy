@@ -17,9 +17,21 @@
 > recipes. CloudFormation swaps function code and replaces no resource, so a paired phone
 > never notices.
 >
-> `npm run build` now runs `scripts/check-pairing-safety.mjs` and FAILS the build if
-> `infra/` has moved from v0.4.0 or the template hash changes. Verified to fail on a real
-> template edit, not just assumed to. **Do not raise its expected values to silence it.**
+> `npm run build` runs `scripts/check-pairing-safety.mjs` and FAILS the build if any
+> resource a paired phone depends on changes: `MobileUserPool`, `MobileUserPoolClient`,
+> `MobileApiUrl`, `MobileApiFunction`, the two Lambda permissions that make the function
+> URL callable, and the three Outputs the app reads. The rest of the template and all
+> Lambda code may change freely. Verified to fail on a real edit to each, not assumed.
+> **Do not raise its expected value to silence it.**
+>
+> (Until 2026-08-30 it froze the WHOLE template against tag v0.4.0 — right for the App
+> Store review window, wrong afterwards: it failed on every infrastructure change whether
+> or not a pairing was at risk, so shipping anything meant raising the constant, which is
+> the rubber-stamp the file forbids. NOTE the old first clause also doubled as the proof
+> that `infra/` was byte-identical to the certified tag, which DESIGN §8 cites to ship
+> without re-certifying. That signal is gone: **a release that changes `infra/` can no
+> longer reuse the "byte-identical, no certify needed" justification** — check the
+> footprint deliberately instead.)
 
 
 Operating guide for working in this repo. **`DESIGN.md` is the source of truth** — read it fully

@@ -1026,6 +1026,40 @@ The widest set in the family so far — MailPoppy-class amber, name-scoped `Miss
 - Verify against the REAL `assessPermissionSet` (substring trap: `InvokeModel` etc.); all three
   attribution tags on every created resource; teardown hook + `npm run certify` before any listing.
 
+**The AgentsPoppy permissions boundary** (`agentspoppy/docs/specs/broker-role-v2.md` step 2).
+A name-scoped grant to create roles is, by itself, enough to mint an account administrator:
+create `CrewPoppyX`, write `*:*` on it, pass it to a Lambda. AgentsPoppy closes that with a
+managed policy, `AgentsPoppyBoundary`, that CAPS every role a poppy creates. We attach it:
+
+- the template takes `PermissionsBoundaryArn` (default `""`) with a `HasPermissionsBoundary`
+  condition, and all three roles (`RunnerRole`, `ApprovalRole`, `MobileApiRole`) carry
+  `PermissionsBoundary: Fn::If(…, Ref, AWS::NoValue)`. It is a PARAMETER, not a hard-coded
+  ARN, because IAM refuses `CreateRole` outright when the named boundary isn't in the account:
+  hard-coding it would break every user who hasn't re-applied AgentsPoppy's setup yet;
+- the backend passes the ARN the bootstrap carries (the host sends it ONLY once it has
+  confirmed the policy exists), else the value the deployed stack already has, else `""`.
+  Absent is not "no boundary" — that ordering is what stops a transient host read from
+  stripping a boundary off live roles. Always explicit, never `UsePreviousValue`, which fails
+  on the first update after a template gains a parameter;
+- the manifest gained `iam:PutRolePermissionsBoundary` + `iam:DeleteRolePermissionsBoundary`
+  on the existing `CrewPoppy*` role scope (CloudFormation calls the second when an update
+  turns the boundary back off). Rating unchanged — checked against the real assessor.
+
+**The pairing guard was narrowed, not silenced** (founder confirmed 2026-08-30 that CrewPoppy
+Mobile is out of App Store review). `check-pairing-safety.mjs` used to freeze the WHOLE
+template against a certified tag — right for a days-long review freeze, wrong permanently:
+it fails on every infrastructure change whether or not that change endangers a pairing, so the
+only way to ship anything becomes raising the constant, which is the rubber-stamp the file
+itself forbids. A guard you must silence to do ordinary work stops being read.
+
+It now pins exactly what a pairing depends on: `MobileUserPool`, `MobileUserPoolClient`,
+`MobileApiUrl`, `MobileApiFunction` and the `MobileUserPoolId` / `MobileClientId` /
+`MobileApiUrl` outputs. Everything else may change freely. **The baseline was NOT moved to
+let the boundary through** — the pairing slice hashes identically before and after it
+(`efb5ec01d341ce9a`), because the only delta is a `PermissionsBoundary` property on roles
+whose `RoleName`s never move: an in-place update, not a replacement. The narrowed guard was
+verified to still FAIL when a pairing resource actually changes.
+
 ## 9. Isolation & security
 
 - **Agents never hold AWS credentials** (§4) — the single most important control.

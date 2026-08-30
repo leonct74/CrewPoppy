@@ -96,9 +96,12 @@
           "DeleteRolePolicy",
           "GetRolePolicy",
           "PassRole",
-          "TagRole"
+          "TagRole",
+          "PutRolePermissionsBoundary",
+          "DeleteRolePermissionsBoundary"
         ],
-        "resourceScope": "arn:aws:iam::*:role/CrewPoppy*"
+        "resourceScope": "arn:aws:iam::*:role/CrewPoppy*",
+        "reason": "The stack's own execution roles, name-locked to CrewPoppy*. The two boundary actions CAP those roles rather than grant them anything: CloudFormation attaches AgentsPoppy's ceiling policy when the account has one, and removes it again if that is ever turned off. Both are needed — an existing role gains its boundary by Put, and loses it by Delete."
       },
       {
         "service": "bedrock",

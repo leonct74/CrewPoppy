@@ -2,11 +2,13 @@
 /**
  * Refuse to build a release that could invalidate a paired phone.
  *
- * WHY THIS EXISTS (founder, 2026-08-12, emphatically): CrewPoppy Mobile is in Apple's
- * review queue, paired to a live deployment with one pairing code. If that code stops
- * working, the reviewer cannot get into the app and the submission fails. The window is
- * days long and the damage is not undoable — Apple would have to be given a new code,
- * which may restart the queue.
+ * WHY THIS EXISTS (founder, 2026-08-12, emphatically): CrewPoppy Mobile was in Apple's
+ * review queue, paired to a live deployment with one pairing code. If that code stopped
+ * working, the reviewer could not get into the app and the submission failed. That window
+ * has closed (founder, 2026-08-30) — but the danger it was guarding against did not, and
+ * is now bigger: every REAL user's phone is paired the same way. A change that invalidates
+ * pairings no longer costs one submission; it silently locks every customer out of the app
+ * until they re-pair.
  *
  * A pairing payload is: region, poolId, clientId, apiUrl, username, password.
  * Only two things on earth can break it:
@@ -21,64 +23,99 @@
  *      those stack outputs. THIS is what a build can do by accident, and this is what
  *      the check below prevents.
  *
- * Lambda-code-only releases are safe: CloudFormation swaps the function code and
- * replaces no resource. Every release from 0.6.0 to 0.7.1 was exactly that, which is
- * why the template hash below has not moved.
+ * WHAT CHANGED (2026-08-30). This used to freeze the WHOLE template: infra/ had to be
+ * byte-identical to a certified tag, and the full template hash had to match one constant.
+ * That was right for a days-long freeze and wrong as a permanent rule — it fails on every
+ * infrastructure change whether or not that change endangers a pairing, so the only way to
+ * ship anything is to raise the constant, which is precisely the rubber-stamp this file
+ * tells you not to perform. A guard you must silence to do ordinary work stops being read.
  *
- * If this fails, do NOT "update the expected hash to make it pass". Read what changed
- * in infra/ and decide deliberately whether it replaces a pairing resource. Once Apple
- * has approved the app, the constraint relaxes and this guard can be retired or its
- * baseline moved on purpose.
+ * So it now pins exactly what a pairing depends on: the three resources above (plus the
+ * function the URL is bound to) and the three Outputs the app reads. Everything else in the
+ * template is free to change. If THIS hash moves, a pairing-critical resource really was
+ * touched — do not raise the constant; work out whether CloudFormation will replace the
+ * resource or update it in place, and only move the baseline once you know.
+ *
+ * NOTE the baseline below was NOT moved when this was rewritten. Adding AgentsPoppy's
+ * permissions boundary to the three IAM roles (broker-role-v2 step 2) is what first tripped
+ * the old whole-template hash, and it leaves this one untouched: the pairing slice hashes
+ * identically before and after it, because the only delta is a PermissionsBoundary property
+ * on roles whose RoleNames did not move. That is the distinction this file now draws — the
+ * old check could not tell "a pairing resource changed" from "the template changed at all".
  */
-import { execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 
-/** The last release whose leaves-no-trace certification covers the deployed footprint. */
-const CERTIFIED_TAG = "v0.4.0";
+/**
+ * Resources a paired phone depends on. The first four are what poolId / clientId / apiUrl
+ * are read from. The two Lambda permissions are here because removing one does not change
+ * the pairing payload at all and still 403s every request from every paired phone — from
+ * the phone's side that is indistinguishable from the pool being replaced, which is exactly
+ * what this file exists to prevent.
+ */
+const PAIRING_RESOURCES = [
+  "MobileUserPool",
+  "MobileUserPoolClient",
+  "MobileApiUrl",
+  "MobileApiFunction",
+  "MobileApiUrlPermission",
+  "MobileApiInvokePermission",
+];
 
-/** The synthesized template hash every release since P0 has produced. */
-const EXPECTED_TEMPLATE_KEY = "template-f642c985fc813ccc";
+/** Stack outputs the phone is handed at pairing time. */
+const PAIRING_OUTPUTS = ["MobileUserPoolId", "MobileClientId", "MobileApiUrl"];
+
+/**
+ * Hash of the pairing-critical slice of the template. Moving this means a resource the
+ * phone's credentials point at has changed shape — NOT that some unrelated part of the
+ * stack was edited.
+ */
+const EXPECTED_PAIRING_KEY = "d15267ba5ffec460";
 
 const bad = [];
+let actual = null;
 
-// 1. Nothing under infra/ may differ from the certified release.
-try {
-  const diff = execFileSync("git", ["diff", "--name-only", CERTIFIED_TAG, "HEAD", "--", "infra/"], {
-    encoding: "utf8",
-  }).trim();
-  if (diff) {
-    bad.push(
-      `infra/ differs from ${CERTIFIED_TAG}:\n    ${diff.split("\n").join("\n    ")}\n` +
-        `  A template change can REPLACE the Cognito pool or the Function URL, which changes\n` +
-        `  poolId/clientId/apiUrl and invalidates every pairing code that exists.`,
-    );
-  }
-} catch (e) {
-  bad.push(`could not compare infra/ against ${CERTIFIED_TAG}: ${e.message}`);
-}
-
-// 2. The generated template must hash to the known-good value.
 try {
   const bundle = readFileSync("backend/src/generated/backend-bundle.ts", "utf8");
-  const m = /export const templateKey\s*(?::[^=]+)?=\s*"([^"]+)"/.exec(bundle);
-  if (!m) bad.push("could not read templateKey from the generated bundle — run `npm run gen:backend` first.");
-  else if (m[1] !== EXPECTED_TEMPLATE_KEY) {
-    bad.push(
-      `template hash changed: ${m[1]} (expected ${EXPECTED_TEMPLATE_KEY}).\n` +
-        `  The deployed resource set is not what the certification and the live pairing rest on.`,
-    );
+  const m = /export const templateJson\s*(?::[^=]+)?=\s*("(?:[^"\\]|\\.)*")/s.exec(bundle);
+  if (!m) {
+    bad.push("could not read templateJson from the generated bundle — run `npm run gen:backend` first.");
+  } else {
+    const tpl = JSON.parse(JSON.parse(m[1]));
+    const missing = [
+      ...PAIRING_RESOURCES.filter((r) => !tpl.Resources?.[r]),
+      ...PAIRING_OUTPUTS.filter((o) => !tpl.Outputs?.[o]),
+    ];
+    if (missing.length) {
+      // A pairing resource vanishing is the worst case, not a reason to skip the check.
+      bad.push(`pairing resources/outputs missing from the template: ${missing.join(", ")}`);
+    } else {
+      const slice = {
+        resources: Object.fromEntries(PAIRING_RESOURCES.map((r) => [r, tpl.Resources[r]])),
+        outputs: Object.fromEntries(PAIRING_OUTPUTS.map((o) => [o, tpl.Outputs[o]])),
+      };
+      actual = createHash("sha256").update(JSON.stringify(slice)).digest("hex").slice(0, 16);
+      if (actual !== EXPECTED_PAIRING_KEY) {
+        bad.push(
+          `pairing-critical resources changed: ${actual} (expected ${EXPECTED_PAIRING_KEY}).\n` +
+            `  One of ${PAIRING_RESOURCES.join(", ")} or their outputs is not what every paired\n` +
+            `  phone's credentials point at. If CloudFormation REPLACES one of these, every\n` +
+            `  existing pairing dies and each user must re-pair by hand.`,
+        );
+      }
+    }
   }
 } catch (e) {
   bad.push(`could not read the generated bundle: ${e.message}`);
 }
 
 if (bad.length) {
-  console.error("\n❌ PAIRING SAFETY CHECK FAILED — this build could break the phone pairing.\n");
+  console.error("\n❌ PAIRING SAFETY CHECK FAILED — this build could break every paired phone.\n");
   for (const b of bad) console.error(`  • ${b}\n`);
-  console.error("  CrewPoppy Mobile is in App Store review against a live pairing code.");
-  console.error("  Do not raise the expected values to silence this. Read DESIGN §15h and decide.\n");
+  console.error("  Do not raise the expected value to silence this. Work out whether the change");
+  console.error("  REPLACES the resource or updates it in place, and read DESIGN §15h.\n");
   process.exit(1);
 }
 
-console.log(`✅ pairing safe: infra/ identical to ${CERTIFIED_TAG}, template ${EXPECTED_TEMPLATE_KEY}`);
-console.log("   (Lambda code may differ — swapping function code replaces no resource.)");
+console.log(`✅ pairing safe: pairing-critical resources unchanged (${actual}).`);
+console.log("   (The rest of the template and the Lambda code may differ — neither is read at pairing.)");

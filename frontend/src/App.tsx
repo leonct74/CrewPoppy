@@ -8,6 +8,7 @@ import { CrewCard } from "./CrewCard";
 import { EmailCard } from "./EmailCard";
 import { ModelsCard } from "./ModelsCard";
 import { RemovePanel } from "./RemovePanel";
+import { updateNotice } from "./update-notice";
 import type { DeploymentStatus, Meta, ModelChoice, Recipe } from "./types";
 
 // Served from frontend/public → dist root; the same file the manifest declares as our icon.
@@ -243,19 +244,19 @@ export function App() {
               deployment: the deploy button only shows when no stack exists, so a user
               who set up once would run the original Lambda forever. That is exactly
               how two runs ended up dispatched to the empty P0 stub. */}
+          {/* The copy is DERIVED, not fixed: an update can be new engine code or only a
+              change to the AWS setup around it (permissions, security limits), and the
+              two read nothing alike to a user. See update-notice.ts. */}
           {status?.updateAvailable && (
             <div className="card stack">
               <div className="spread">
-                <strong>An update is ready for your AWS account</strong>
+                <strong>{updateNotice(status).title}</strong>
                 <span className="badge warn">
                   <span className="dot" /> Update available
                 </span>
               </div>
               <p className="muted" style={{ margin: 0 }}>
-                CrewPoppy's engine — the part that runs your agents inside your account — is newer
-                than the one deployed. Agents can't use new abilities until you apply it, and
-                scheduled runs won't pick up fixes either. It takes about a minute and nothing
-                your crew has learned is lost.
+                {updateNotice(status).body}
               </p>
               <div>
                 <Button className="btn btn-primary" busyLabel="Updating…" onClick={deploy}>
