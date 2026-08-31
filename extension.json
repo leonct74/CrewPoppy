@@ -108,14 +108,16 @@
         "actions": [
           "GetFoundationModelAvailability"
         ],
-        "resourceScope": "arn:aws:bedrock:*::foundation-model/*"
+        "resourceScope": "arn:aws:bedrock:*::foundation-model/*",
+        "reason": "Checks whether a Bedrock model is switched on in your account before offering it to you, so you get a clear message at setup instead of a failure mid-run. It reads model availability only — never a prompt, a response, or anything your agents do. AWS publishes no resource type for this call."
       },
       {
         "service": "ses",
         "actions": [
           "GetEmailIdentity"
         ],
-        "resourceScope": "arn:aws:ses:*:*:identity/*"
+        "resourceScope": "arn:aws:ses:*:*:identity/*",
+        "reason": "Checks whether the sender address you chose is verified with SES before an agent tries to send from it, so a misconfigured address is caught at setup rather than failing silently later. Read-only: it returns an address's verification state and nothing else. It cannot send, and it cannot change any mail setting."
       },
       {
         "service": "events",
