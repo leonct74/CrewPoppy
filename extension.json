@@ -178,6 +178,11 @@
       "egress": "user-directed"
     }
   },
+  "compliance": {
+    "dataHandled": "Agent prompts, memory, outputs and spend records, stored only in your own AWS account; model calls run on Amazon Bedrock inside your account. Where you direct an agent to reach an external service, that destination is your choice, made visibly.",
+    "subprocessors": [],
+    "securityContact": "support@crewpoppy.com"
+  },
   "frontend": {
     "entry": "frontend/index.html"
   },
