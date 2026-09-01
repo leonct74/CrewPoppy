@@ -173,7 +173,10 @@
         "reason": "Managing that same pool and its single owner account — only on pools CrewPoppy itself created (tag-enforced), incl. teardown."
       }
     ],
-    "limits": null
+    "limits": null,
+    "network": {
+      "egress": "user-directed"
+    }
   },
   "frontend": {
     "entry": "frontend/index.html"
