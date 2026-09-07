@@ -126,6 +126,14 @@ and phases P0–P4: `DESIGN.md`.
 - The founder decides product questions; implementation questions get decided here and recorded in
   DESIGN.md.
 
+## The Google Cloud edition (`google/`)
+
+DESIGN §18. A second manifest (`google/extension.json`, id `com.crewpoppy.cloud.google`), its own
+backend and page, its own `npm run check` / `build` / `install-dev` — run them INSIDE `google/`
+(it is not a root workspace; it takes `file:` links to `../../agentspoppy/packages/*`). It never
+touches `infra/` or the AWS build, so the pairing freeze above does not apply to it. Its store is
+Firestore in the poppy's own project; its memories come through the host's memory route.
+
 ## Commands
 
 - `npm install` — workspaces: `infra` (typed CFN template) · `lambdas` (deployed handlers) ·

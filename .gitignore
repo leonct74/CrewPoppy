@@ -15,3 +15,8 @@ backend/src/generated/
 # Written by `npm run certify` against a real account.
 leaves-no-trace.cert.json
 backend/index.cjs
+
+# The Google Cloud edition (google/) — built artefacts, never committed.
+google/backend/index.cjs
+google/frontend/dist/
+google/node_modules/

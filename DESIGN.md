@@ -2270,3 +2270,67 @@ chosen renders as initials, never a broken image.
 **2026-07-29, later: the open inbox (§15g) LIVE-VERIFIED.** An outside sender's email
 started a run, and the reply to that outsider stopped at the approval gate as designed —
 the full support@ scenario, same day it was asked for.
+
+
+## 18. The Google Cloud edition — CrewPoppy in a Google Cloud project of your own (founder, 2026-09-05; built from 2026-09-08)
+
+**Why.** The founder's re-sequencing of 2026-09-05 (agentspoppy `docs/ROADMAP.md` §13): Google
+Cloud is the consumer door — a Gmail account, no IAM keys — and "bring users' agents into their
+cloud with memory at a very reasonable cost" is the daily-use hook. CrewPoppy is AWS-only; this
+section extends it to Google Cloud on the memory contract (agentspoppy `docs/specs/memory-contract.md`),
+as the first poppy that READS the memory MemoryPoppy keeps. §14's decisions stand where they are
+not about a cloud; where they are, this is their Google twin, chosen by the founder:
+
+| §14 on AWS | The Google edition |
+|---|---|
+| Inference: Bedrock-first, IAM auth, tokens on the user's bill | **Vertex AI** (Gemini; Claude on Vertex where offered), the poppy's own service account, tokens on the user's Google bill — the project is linked to the card the user chose on their Google connection |
+| Execution: Lambda-first, EventBridge schedules | The backend on the user's machine first (confined, as today's sidecar); **Cloud Run jobs + Cloud Scheduler** when runs must outlive the app |
+| DynamoDB single table + S3 workspace | **Firestore** (`(default)`, Native) in the poppy's own project: `briefs`, `agents`, `runs`, `spend`; **Cloud Storage** for workspaces |
+| Resource prefix `CrewPoppy*`, tags | **The project is the wall** (agentspoppy SECURITY_MECHANISM §2.7): no prefixes, no tags — everything born in `poppy-com-crewpoppy-…` is the poppy's, and deleting the project is the teardown |
+| Caps: $10/agent/month, 8 iterations, kill switch, live meter (§7) | Unchanged — the same hard mechanisms, on Vertex token counts |
+| Tool catalogue (§4), the trusted dispatcher | Unchanged — plus **memory_read through the host**: an agent's memory comes from the user's memory poppy, under the grant on the card, with a receipt per read |
+| Crew Pack (§3b) | Unchanged — the same export, from Firestore |
+
+**Identity.** App id **`com.crewpoppy.cloud.google`** — chosen so that `poppyAccent()` gives
+CrewPoppy's own teal, `#8fd0c6`, the same as `com.crewpoppy.desktop` (the host's palette is a hash
+of the id; a Google edition in a different colour would read as another product). Name
+"CrewPoppy (Google Cloud)" so the two editions can stand side by side in one host; the catalogue
+lists it with `clouds: ["gcp"]`. Same icon, same issue tracker, same Feedback tab.
+
+**Where it lives.** `google/` in this repository — not a root workspace: it takes `file:` links to
+the AgentsPoppy packages it bundles (`@agentspoppy/core`, `@agentspoppy/client`), the way
+MemoryPoppy does, and leaves the AWS build, `infra/` and the pairing freeze untouched. Its own
+`npm run check` (typecheck, tests, the design contract's self-check, the Feedback tab's checksum),
+`npm run build` (esbuild: `backend/index.cjs` for the host's node22, `frontend/dist` for the page),
+`npm run install-dev`. The frontend is dependency-free TypeScript on the poppy design kit, not the
+AWS edition's React: one screen today, and no build step the host has to trust.
+
+**The slices, in order — each one useful on its own.**
+
+- **G1 — the Briefer (built 2026-09-08, this section's status below).** The crew's first member.
+  Card-free project; Firestore for the crew's own records (`briefs`, `meta/install`); the manifest
+  declares `memory.reads: [person, event]` with its reason. "Brief me now" (and, later, each
+  morning): one search of the memory poppy **through the host** — `purpose: "Morning briefing"`,
+  meetings in the week around today — then the people those meetings link to; the Briefer writes
+  the brief in plain words (Today · Coming up · Recently, "with Anna Rossi", the place), saves it in
+  the poppy's project with the **receipt ids** the host wrote on the connection's Activity
+  ("Read 1 meeting for \"Morning briefing\" — 0.4 KB"), and the page shows what was read under
+  every brief. **No model** in G1: memory before models (the whitepaper's principle), and a model
+  means a card. Screens: Today · Your crew · Past briefs · Feedback (last). No helper prompt yet —
+  there is no creation surface; it returns with G3's agent editor.
+- **G2 — the model.** Vertex AI joins the crew: the manifest drops `billing: "none"` (the project
+  is linked to the user's chosen card — the Google card's picker exists) and adds
+  `aiplatform.endpoints.predict` in its own project; the Briefer's material goes to Gemini (or
+  Claude on Vertex) with the §7 caps enforced from the first token, and the memory-read receipt
+  says so: "…to Gemini on Vertex AI, about €0.002". The G1 brief stays as the fallback when the
+  model is off or capped.
+- **G3 — the crew.** Agents as on AWS (§3): persona, brief, tools, trigger, caps — stored in
+  Firestore; the runner and the trusted dispatcher ported (memory tools go through the host);
+  Cloud Run jobs + Cloud Scheduler for runs that outlive the app; the helper prompt on the editor;
+  the Crew Pack. The mobile app (§15h) pairs to whichever edition the user runs — later.
+
+**What G1 is not.** No model, no agents, no tools, no schedules, no mobile. It reads; it does not
+write memory (a Briefer that wrote its briefs back as `note` memories would be a fine G2/G3 idea —
+it needs `memory.writes` on the card and the user's say).
+
+**Status.** *(as built, appended below as it happens)*

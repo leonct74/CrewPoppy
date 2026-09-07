@@ -1,0 +1,55 @@
+{
+  "id": "com.crewpoppy.cloud.google",
+  "name": "CrewPoppy (Google Cloud)",
+  "version": "0.1.0",
+  "description": "Your AI crew, in your own Google Cloud. Starts with one member — the Briefer, who reads the memory you keep in MemoryPoppy and writes your morning brief. Every read is written on your Activity.",
+  "bugsUrl": "https://github.com/leonct74/CrewPoppy/issues",
+  "icon": "frontend/crewpoppy-icon.png",
+  "compliance": {
+    "dataHandled": "The briefs it writes and, later, your agents' definitions, memory and spend records — kept in a database inside a Google Cloud project of your own. It reads people and meetings from the memory poppy you installed, through AgentsPoppy, with a receipt for every read. Nothing is copied anywhere else, and in this release nothing is sent to a model.",
+    "subprocessors": [],
+    "securityContact": "support@crewpoppy.com"
+  },
+  "permissionSet": {
+    "id": "crewpoppy-google",
+    "name": "CrewPoppy (Google Cloud)",
+    "description": "Keeps its own records — the briefs it writes for you, and later your agents — in a database inside its own Google Cloud project, which needs no card. Reads people and meetings from your memory poppy, through AgentsPoppy, for the purpose named on every receipt.",
+    "requiredTags": [],
+    "grants": [
+      {
+        "cloud": "gcp",
+        "service": "datastore",
+        "actions": [
+          "datastore.databases.create",
+          "datastore.databases.get",
+          "datastore.databases.list",
+          "datastore.entities.create",
+          "datastore.entities.get",
+          "datastore.entities.list",
+          "datastore.entities.update",
+          "datastore.entities.delete"
+        ],
+        "resourceScope": "project",
+        "reason": "Keeps the briefs it writes for you — and later your agents' definitions, memory and spend records — in a database inside its own project, so nothing of your crew's lives outside your cloud."
+      }
+    ],
+    "limits": null,
+    "billing": "none",
+    "network": {
+      "egress": "none",
+      "machine": "google-only"
+    },
+    "memory": {
+      "reads": ["person", "event"],
+      "reason": "Briefs you on the meetings ahead and the people in them, from the memory you keep — the Briefer reads, it never writes."
+    }
+  },
+  "frontend": { "entry": "frontend/index.html" },
+  "backend": {
+    "entry": "backend/index.cjs",
+    "transport": "http",
+    "runtime": "node22",
+    "isolation": "strict"
+  },
+  "capabilities": ["connection:read", "backend:invoke", "host:openExternal", "host:notify"]
+}
