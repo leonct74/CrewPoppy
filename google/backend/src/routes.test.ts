@@ -95,7 +95,7 @@ describe("the Crew HQ routes", () => {
     const r = await handle("/brief", "POST", undefined, { store, memory, now: () => NOW, timeZone: () => "Europe/Rome", newId: () => "b1" });
     expect(r.status).toBe(200);
     const body = r.body as { brief: { text: string; receipts: string[]; memoryIds: string[]; read: unknown }; readLine: string };
-    expect(memory.calls[0]).toMatchObject({ path: "search", req: { purpose: PURPOSE, kinds: ["event"], since: "2026-09-01T06:30:00.000Z", until: "2026-09-15T06:30:00.000Z", limit: 40 } });
+    expect(memory.calls[0]).toMatchObject({ path: "search", req: { purpose: PURPOSE, kinds: ["event"], since: "2026-08-09T06:30:00.000Z", until: "2026-09-15T06:30:00.000Z", limit: 40 } });
     expect(memory.calls[1]).toMatchObject({ path: "get", req: { purpose: PURPOSE, ids: ["p1"] } });
     expect(body.brief.text).toContain("Board meeting with Anna Rossi");
     expect(body.brief.receipts).toEqual(["receipt-search-1", "receipt-get-1"]);

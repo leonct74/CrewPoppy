@@ -2333,4 +2333,18 @@ AWS edition's React: one screen today, and no build step the host has to trust.
 write memory (a Briefer that wrote its briefs back as `note` memories would be a fine G2/G3 idea —
 it needs `memory.writes` on the card and the user's say).
 
-**Status.** *(as built, appended below as it happens)*
+**Status — G1 built and proven live, 2026-09-08 00:08–00:15 (founder's dev host).** Approved on
+the card ("Reads people and meetings from your memory — worth knowing"; the datastore grant "its
+own"); the first mint created `poppy-com-crewpoppy-cl-033c81` with no billing account and the
+backend created `(default)` in `eur3`; "Brief me now" read the founder's memory through the host —
+the receipt **`memory-read | Read 1 meeting for "Morning briefing" — 876 B`** sits on the
+connection's Activity beside `credentials-issued` — and wrote "Good night. Nothing on your calendar
+today. Recently: Sun 30 Aug — Cozy Code @ Contact Maker Space (CONTACT)." into the `briefs`
+collection of the poppy's own project, with the receipt's id and the memory's id. Two things the
+first brief taught: the window is **the week ahead and the month behind** (a week around today
+read nothing from a calendar with one entry ten days old — a brief is the day with its recent
+context); and the host's approval screen said "asking to use your AWS" for a Google poppy — fixed
+in AgentsPoppy (`app/src/App.tsx`, the headline now names the poppy's cloud). MemoryPoppy's
+DESIGN §10 M4 — "CrewPoppy on Google Cloud declares `memory.reads: [person, event]` and briefs the
+founder from MemoryPoppy's memories; the memory-read receipts appear" — is met. Next: G2 (Vertex AI
+under the founder's card) on his word, since it puts a model on his bill.

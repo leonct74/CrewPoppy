@@ -3,8 +3,9 @@
 
 /**
  * The routes the Crew HQ page calls through the host bridge. `/brief` is the Briefer at work:
- * one search of the memory poppy through the HOST — narrowed to our grant, written on the
- * connection's Activity as a receipt — then the people those meetings link to, then the brief,
+ * one search of the memory poppy through the HOST — the week ahead and the month behind, narrowed
+ * to our grant, written on the connection's Activity as a receipt — then the people those meetings
+ * link to, then the brief,
  * saved in our own project. Nothing here holds memory; the receipt ids come back with the brief
  * so the page can point at them.
  */
@@ -14,7 +15,9 @@ import { type Brief, writeBrief } from "./briefer";
 import type { BriefRecord, CrewStore } from "./store";
 
 export const PURPOSE = "Morning briefing";
-const WINDOW_DAYS = 7;
+/** The week ahead, and the month behind: a brief is the day's plan with its recent context. */
+const AHEAD_DAYS = 7;
+const BEHIND_DAYS = 30;
 const MAX_EVENTS = 40;
 
 export interface Reply {
@@ -73,8 +76,8 @@ export async function handle(path: string, method: string, body: unknown, deps: 
     if (!deps.memory) return json(501, { ok: false, error: "no_memory_route", message: "This build has no door to your memory — its manifest must declare permissionSet.memory.reads." });
     const at = now();
     const t = Date.parse(at);
-    const since = new Date(t - WINDOW_DAYS * 86_400_000).toISOString();
-    const until = new Date(t + WINDOW_DAYS * 86_400_000).toISOString();
+    const since = new Date(t - BEHIND_DAYS * 86_400_000).toISOString();
+    const until = new Date(t + AHEAD_DAYS * 86_400_000).toISOString();
     let page: MemoryPage;
     try {
       page = await deps.memory.search({ purpose: PURPOSE, kinds: ["event"], since, until, limit: MAX_EVENTS });

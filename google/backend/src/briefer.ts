@@ -104,7 +104,7 @@ export function writeBrief(input: BriefInput): Brief {
   lines.sort((a, b) => order.indexOf(a.section) - order.indexOf(b.section));
   const paragraphs: string[] = [greeting + "."];
   if (lines.length === 0) {
-    paragraphs.push("Nothing on your calendar in the week around today, as far as your memory knows. A quiet stretch — or a calendar not yet connected in MemoryPoppy.");
+    paragraphs.push("Nothing on your calendar in the week ahead, and nothing in the month behind, as far as your memory knows. A quiet stretch — or a calendar not yet connected in MemoryPoppy.");
   } else {
     if (!lines.some((l) => l.section === "Today")) paragraphs.push("Nothing on your calendar today.");
     for (const section of order) {

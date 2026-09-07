@@ -156,7 +156,7 @@ function showBrief(b: BriefRecord | undefined): void {
   if (!b) {
     $("brief-when").textContent = "";
     $("brief").className = "brief muted";
-    $("brief").textContent = "No brief yet. Press “Brief me now” and the Briefer reads the week around today from your memory.";
+    $("brief").textContent = "No brief yet. Press “Brief me now” and the Briefer reads the week ahead and the month behind from your memory.";
     $("receipt").textContent = "";
     return;
   }

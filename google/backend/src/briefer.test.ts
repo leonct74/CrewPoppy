@@ -66,7 +66,7 @@ describe("the Briefer", () => {
   });
 
   it("says when there is nothing, and when today is empty", () => {
-    expect(writeBrief({ events: [], people: [], now: NOW, timeZone: TZ }).text).toMatch(/^Good morning\.\n\nNothing on your calendar in the week around today/);
+    expect(writeBrief({ events: [], people: [], now: NOW, timeZone: TZ }).text).toMatch(/^Good morning\.\n\nNothing on your calendar in the week ahead/);
     const only = writeBrief({ events: [event("e", "Later", "2026-09-11T09:00:00Z", "2026-09-11T10:00:00Z")], people: [], now: NOW, timeZone: TZ });
     expect(only.text).toContain("Nothing on your calendar today.");
     expect(only.text).toContain("Coming up:");
