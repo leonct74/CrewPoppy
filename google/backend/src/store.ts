@@ -12,6 +12,7 @@ import { GoogleError } from "./google";
 
 export const BRIEFS = "briefs";
 export const META = "meta";
+export const SPEND = "spend";
 export const SCHEMA_VERSION = 1;
 
 export interface BriefRecord {
@@ -26,6 +27,17 @@ export interface BriefRecord {
   receipts: string[];
   /** How many of what were read. */
   read: { events: number; people: number; bytes: number };
+  /** Who wrote the words: the model, or the Briefer's own template. */
+  writtenBy: "model" | "template";
+  /** When the model wrote it: which, and what it cost in tokens — and at most in dollars, at the ceiling. */
+  model?: { name: string; words: string; promptTokens: number; outputTokens: number; ceilingUsd: number };
+  /** Why the template wrote it although a model was there: a cap, or a refusal, in the user's words. */
+  note?: string;
+}
+
+export interface Settings {
+  /** Whether the Briefer writes with the model (default: yes, when the build has one). */
+  model?: boolean;
 }
 
 export type StoreState =
@@ -122,6 +134,27 @@ export class CrewStore {
   async saveBrief(b: BriefRecord): Promise<void> {
     if (!this.ready) throw new Error(this.unavailableMessage());
     await this.deps.wire.set(BRIEFS, b.id, b);
+  }
+
+  async getMeta<T extends object>(id: string): Promise<T | null> {
+    if (!this.ready) throw new Error(this.unavailableMessage());
+    return this.deps.wire.get<T>(META, id);
+  }
+
+  async setMeta(id: string, value: object): Promise<void> {
+    if (!this.ready) throw new Error(this.unavailableMessage());
+    await this.deps.wire.set(META, id, value);
+  }
+
+  /** The month's counters — the caps' and the meter's one source of truth. */
+  async spend<T extends object>(month: string): Promise<T | null> {
+    if (!this.ready) throw new Error(this.unavailableMessage());
+    return this.deps.wire.get<T>(SPEND, month);
+  }
+
+  async saveSpend(month: string, value: object): Promise<void> {
+    if (!this.ready) throw new Error(this.unavailableMessage());
+    await this.deps.wire.set(SPEND, month, value);
   }
 
   /** Newest first. */

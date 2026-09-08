@@ -63,6 +63,17 @@ interface BriefRecord {
   memoryIds: string[];
   receipts: string[];
   read: { events: number; people: number; bytes: number };
+  writtenBy?: "model" | "template";
+  model?: { name: string; words: string; promptTokens: number; outputTokens: number; ceilingUsd: number };
+  note?: string;
+}
+interface ModelState {
+  available: boolean;
+  enabled: boolean;
+  name: string;
+  words: string;
+  meter: string;
+  caps: { callsPerDay: number; callsPerMonth: number; tokensPerMonth: number };
 }
 interface State {
   cloud: CloudState;
@@ -70,6 +81,7 @@ interface State {
   memoryWired: boolean;
   briefs: BriefRecord[];
   purpose: string;
+  model?: ModelState;
 }
 
 const $ = <T extends HTMLElement = HTMLElement>(id: string): T => document.getElementById(id) as T;
@@ -133,6 +145,15 @@ function describeMemory(m: MemoryInfo | null, wired: boolean): string {
   const words = (m.reads ?? []).map((k) => (k === "event" ? "meetings" : k === "person" ? "people" : k)).join(" and ");
   return `May read ${words || "nothing"} from ${m.provider?.name ?? "your memory poppy"}, for “Morning briefing” only.`;
 }
+/** "Written by Gemini 2.5 Flash on Vertex AI · 1,240 tokens · at most $0.01 at the ceiling." */
+function writtenByLine(b: BriefRecord): string {
+  if (b.writtenBy === "model" && b.model) {
+    const tokens = b.model.promptTokens + b.model.outputTokens;
+    const usd = b.model.ceilingUsd === 0 ? "$0.00" : `$${Math.max(0.01, Math.round(b.model.ceilingUsd * 100) / 100).toFixed(2)}`;
+    return `Written by ${b.model.words} · ${tokens.toLocaleString("en-GB")} tokens · at most ${usd} at the ceiling.`;
+  }
+  return b.note ?? "Written by the Briefer itself, without a model.";
+}
 function readLine(b: BriefRecord): string {
   const parts: string[] = [];
   if (b.read.events) parts.push(`${b.read.events} ${b.read.events === 1 ? "meeting" : "meetings"}`);
@@ -158,12 +179,25 @@ function showBrief(b: BriefRecord | undefined): void {
     $("brief").className = "brief muted";
     $("brief").textContent = "No brief yet. Press “Brief me now” and the Briefer reads the week ahead and the month behind from your memory.";
     $("receipt").textContent = "";
+    setStatus("written-by", "");
     return;
   }
   $("brief-when").textContent = `Written ${when(b.at)}`;
   $("brief").className = "brief";
   $("brief").textContent = b.text;
   $("receipt").textContent = readLine(b);
+  setStatus("written-by", writtenByLine(b));
+}
+function renderModel(m: ModelState | undefined): void {
+  const sw = $<HTMLInputElement>("model-switch");
+  if (!m || !m.available) {
+    $("model-panel").hidden = true;
+    return;
+  }
+  $("model-panel").hidden = false;
+  sw.checked = m.enabled;
+  $("model-label").textContent = `The Briefer writes with ${m.words}, inside this project — billed to your Google Cloud, capped by CrewPoppy.`;
+  $("meter").textContent = m.meter;
 }
 async function refresh(): Promise<void> {
   try {
@@ -179,6 +213,7 @@ async function refresh(): Promise<void> {
     }
     showBrief(state.briefs[0]);
     renderHistory(state.briefs);
+    renderModel(state.model);
   } catch (err) {
     setStatus("where", `Couldn't reach the Briefer: ${plainError(err)}`, "warn");
   }
@@ -198,6 +233,24 @@ $<HTMLButtonElement>("btn-brief").addEventListener(
   }),
 );
 
+// ---- the model switch: reacts at once, and says what happened
+$<HTMLInputElement>("model-switch").addEventListener("change", async (e) => {
+  const sw = e.target as HTMLInputElement;
+  const wanted = sw.checked;
+  sw.disabled = true;
+  setStatus("model-status", wanted ? "Switching the model on…" : "Switching the model off…");
+  try {
+    const r = await host.invokeBackend<{ model: ModelState }>({ method: "POST", path: "/settings", body: { model: wanted } });
+    renderModel(r.model);
+    setStatus("model-status", wanted ? "On. The next brief is written by the model." : "Off. The Briefer writes the next brief itself, and nothing is billed.");
+  } catch (err) {
+    sw.checked = !wanted;
+    setStatus("model-status", `Couldn't change that: ${plainError(err)}`, "warn");
+  } finally {
+    sw.disabled = false;
+  }
+});
+
 // ---- history
 function renderHistory(briefs: BriefRecord[]): void {
   const el = $("history");
@@ -212,7 +265,7 @@ function renderHistory(briefs: BriefRecord[]): void {
       (b) => `<div class="item">
         <div class="brief-when">${esc(when(b.at))}</div>
         <div class="brief" style="font-size:13px">${esc(b.text)}</div>
-        <details><summary>What was read</summary><div class="receipt">${esc(readLine(b))}</div>
+        <details><summary>What was read, and who wrote it</summary><div class="receipt">${esc(readLine(b))}</div><div class="receipt">${esc(writtenByLine(b))}</div>
           <ul class="plain">${b.memoryIds.map((id) => `<li class="mono">${esc(id)}</li>`).join("")}</ul></details>
       </div>`,
     )

@@ -5,7 +5,7 @@
  * CrewPoppy's Google Cloud edition — the backend AgentsPoppy spawns for this connection, on its
  * own node22, confined. Its own records live in Firestore inside the poppy's own project; the
  * memories it reads come through the host's memory route, never from a store of its own. This
- * release has one crew member, the Briefer (DESIGN.md §18).
+ * release has one crew member, the Briefer, with a pen on Vertex AI (DESIGN.md §18, G1 + G2).
  */
 import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
@@ -15,13 +15,17 @@ import { RestFirestore } from "./firestore";
 import { createProjectTokenProvider } from "./google";
 import { type MemoryReader, type Reply, handle } from "./routes";
 import { CrewStore } from "./store";
+import { VertexModel } from "./vertex";
 
 const boot = readBootstrap();
 const log = (line: string): void => console.log(`[crewpoppy-google] ${line}`);
 const now = (): string => new Date().toISOString();
 
 const onGoogle = boot.account.cloud === "gcp" && !!boot.credentialsUrl;
-const store = new CrewStore({ wire: new RestFirestore(createProjectTokenProvider(boot), { log }), now, log });
+const projectToken = createProjectTokenProvider(boot);
+const store = new CrewStore({ wire: new RestFirestore(projectToken, { log }), now, log });
+// The pen: Gemini on Vertex AI inside the poppy's own project (G2). The same token, the same wall.
+const model = onGoogle ? new VertexModel(projectToken) : null;
 if (!onGoogle) log("no Google Cloud connection in the bootstrap — the store cannot open (a bare run)");
 const memory: MemoryReader | null = boot.memoryUrl ? (createMemoryClient(boot) as unknown as MemoryReader) : null;
 if (!memory) log("no memoryUrl in the bootstrap — the manifest must declare permissionSet.memory.reads");
@@ -43,7 +47,7 @@ const server = createServer((req, res) => {
     } catch {
       return send(res, { status: 400, body: { ok: false, error: "bad_json", message: "body is not JSON" } });
     }
-    handle(url.pathname, req.method ?? "GET", body, { store, memory, now, log }).then(
+    handle(url.pathname, req.method ?? "GET", body, { store, memory, model, now, log }).then(
       (r) => send(res, r),
       (e) => send(res, { status: 500, body: { ok: false, error: "internal", message: e instanceof Error ? e.message : String(e) } }),
     );

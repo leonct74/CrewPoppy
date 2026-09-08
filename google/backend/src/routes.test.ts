@@ -6,6 +6,7 @@ import type { Memory, MemoryPage } from "@agentspoppy/core";
 import type { FirestoreWire, IndexField, WireDoc, WireWrite } from "./firestore";
 import { type MemoryReader, PURPOSE, describeRead, handle } from "./routes";
 import { CrewStore } from "./store";
+import type { Model } from "./vertex";
 
 class FakeWire implements FirestoreWire {
   readonly docs = new Map<string, Map<string, object>>();
@@ -122,7 +123,56 @@ describe("the Crew HQ routes", () => {
   });
 
   it("describes a read in words", () => {
-    expect(describeRead({ id: "b", at: NOW, purpose: PURPOSE, text: "", memoryIds: [], receipts: [], read: { events: 2, people: 3, bytes: 1230 } })).toBe("Read 2 meetings and 3 people for “Morning briefing” — 1.2 KB.");
-    expect(describeRead({ id: "b", at: NOW, purpose: PURPOSE, text: "", memoryIds: [], receipts: [], read: { events: 0, people: 0, bytes: 0 } })).toMatch(/^Read nothing for/);
+    expect(describeRead({ id: "b", at: NOW, purpose: PURPOSE, text: "", memoryIds: [], receipts: [], read: { events: 2, people: 3, bytes: 1230 }, writtenBy: "template" })).toBe("Read 2 meetings and 3 people for “Morning briefing” — 1.2 KB.");
+    expect(describeRead({ id: "b", at: NOW, purpose: PURPOSE, text: "", memoryIds: [], receipts: [], read: { events: 0, people: 0, bytes: 0 }, writtenBy: "template" })).toMatch(/^Read nothing for/);
+  });
+
+  it("with a model on: the receipt names where the memories go, the model writes from the Briefer's material, the spend is counted", async () => {
+    const { store, wire } = await ready();
+    const memory = fakeMemory();
+    const asked: Array<{ system: string; user: string; max: number }> = [];
+    const model: Model = {
+      name: "gemini-2.5-flash",
+      words: "Gemini 2.5 Flash on Vertex AI",
+      async generate(system, user, max) {
+        asked.push({ system, user, max });
+        return { text: "Good morning. One thing today: the board meeting at nine with Anna Rossi.", promptTokens: 210, outputTokens: 18, model: "gemini-2.5-flash" };
+      },
+    };
+    const r = await handle("/brief", "POST", undefined, { store, memory, model, now: () => NOW, timeZone: () => "Europe/Rome", newId: () => "b2" });
+    expect(r.status).toBe(200);
+    const b = (r.body as { brief: { text: string; writtenBy: string; model: { promptTokens: number; ceilingUsd: number } } }).brief;
+    expect(b.writtenBy).toBe("model");
+    expect(b.text).toBe("Good morning. One thing today: the board meeting at nine with Anna Rossi.");
+    expect(b.model).toMatchObject({ name: "gemini-2.5-flash", promptTokens: 210, outputTokens: 18 });
+    expect(memory.calls[0]).toMatchObject({ path: "search", req: { model: "Gemini 2.5 Flash on Vertex AI", estimatedCost: "$0.02" } });
+    expect(asked[0]!.user).toContain("MATERIAL:\nGood morning.");
+    expect(asked[0]!.user).toContain("Board meeting with Anna Rossi");
+    expect(asked[0]!.max).toBe(400);
+    expect(wire.col("spend").get("2026-09")).toMatchObject({ calls: 1, promptTokens: 210, outputTokens: 18 });
+    const state = (await handle("/state", "GET", undefined, { store, memory, model, now: () => NOW })).body as { model: { available: boolean; enabled: boolean; meter: string } };
+    expect(state.model).toMatchObject({ available: true, enabled: true });
+    expect(state.model.meter).toMatch(/^This month: 1 brief by the model · 228 tokens, at most \$0\.01 at the ceiling/);
+  });
+
+  it("the Briefer writes itself when the model is off, capped, or away — and says why; nothing is counted", async () => {
+    const { store, wire } = await ready();
+    const memory = fakeMemory();
+    const failing: Model = { name: "gemini-2.5-flash", words: "Gemini 2.5 Flash on Vertex AI", generate: async () => { throw new Error("Vertex AI is busy — try again in a moment."); } };
+    let r = (await handle("/brief", "POST", undefined, { store, memory, model: failing, now: () => NOW, timeZone: () => "Europe/Rome", newId: () => "b3" })).body as { brief: { writtenBy: string; note?: string; text: string } };
+    expect(r.brief.writtenBy).toBe("template");
+    expect(r.brief.note).toBe("The Briefer wrote this itself — Vertex AI is busy — try again in a moment.");
+    expect(r.brief.text).toContain("Board meeting with Anna Rossi");
+    expect(wire.col("spend").size).toBe(0);
+    const capped = { callsPerDay: 0, callsPerMonth: 10, tokensPerMonth: 1000 };
+    r = (await handle("/brief", "POST", undefined, { store, memory, model: failing, caps: capped, now: () => NOW, timeZone: () => "Europe/Rome", newId: () => "b4" })).body as typeof r;
+    expect(r.brief.note).toBe("The Briefer wrote this itself: today's limit of 0 model calls is reached.");
+    expect((await handle("/settings", "POST", { model: false }, { store, memory, model: failing, now: () => NOW })).status).toBe(200);
+    r = (await handle("/brief", "POST", undefined, { store, memory, model: failing, now: () => NOW, timeZone: () => "Europe/Rome", newId: () => "b5" })).body as typeof r;
+    expect(r.brief.writtenBy).toBe("template");
+    expect(r.brief.note).toBeUndefined();
+    expect(memory.calls.at(-2)).toMatchObject({ path: "search" });
+    expect((memory.calls.at(-2)!.req as { model?: string }).model).toBeUndefined();
+    expect((await handle("/settings", "POST", { model: "yes" }, { store, memory, model: failing })).status).toBe(400);
   });
 });

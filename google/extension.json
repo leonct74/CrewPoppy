@@ -1,19 +1,19 @@
 {
   "id": "com.crewpoppy.cloud.google",
   "name": "CrewPoppy (Google Cloud)",
-  "version": "0.1.0",
-  "description": "Your AI crew, in your own Google Cloud. Starts with one member — the Briefer, who reads the memory you keep in MemoryPoppy and writes your morning brief. Every read is written on your Activity.",
+  "version": "0.2.0",
+  "description": "Your AI crew, in your own Google Cloud. Starts with one member — the Briefer, who reads the memory you keep in MemoryPoppy and writes your morning brief, with Gemini on Vertex AI inside a project of your own, under hard caps. Every read is written on your Activity.",
   "bugsUrl": "https://github.com/leonct74/CrewPoppy/issues",
   "icon": "frontend/crewpoppy-icon.png",
   "compliance": {
-    "dataHandled": "The briefs it writes and, later, your agents' definitions, memory and spend records — kept in a database inside a Google Cloud project of your own. It reads people and meetings from the memory poppy you installed, through AgentsPoppy, with a receipt for every read. Nothing is copied anywhere else, and in this release nothing is sent to a model.",
+    "dataHandled": "The briefs it writes and, later, your agents' definitions, memory and spend records — kept in a database inside a Google Cloud project of your own. It reads people and meetings from the memory poppy you installed, through AgentsPoppy, with a receipt for every read. The model that writes the brief runs on Vertex AI inside that same project; what it is sent is the brief's own material — those people and meetings — and nothing else. Nothing is copied anywhere else.",
     "subprocessors": [],
     "securityContact": "support@crewpoppy.com"
   },
   "permissionSet": {
     "id": "crewpoppy-google",
     "name": "CrewPoppy (Google Cloud)",
-    "description": "Keeps its own records — the briefs it writes for you, and later your agents — in a database inside its own Google Cloud project, which needs no card. Reads people and meetings from your memory poppy, through AgentsPoppy, for the purpose named on every receipt.",
+    "description": "Keeps its own records — the briefs it writes for you, and later your agents — in a database inside its own Google Cloud project. Asks Gemini on Vertex AI, inside that project, to write your brief, billed to the card you chose for your Google connection and stopped by CrewPoppy's own caps. Reads people and meetings from your memory poppy, through AgentsPoppy, for the purpose named on every receipt.",
     "requiredTags": [],
     "grants": [
       {
@@ -31,25 +31,43 @@
         ],
         "resourceScope": "project",
         "reason": "Keeps the briefs it writes for you — and later your agents' definitions, memory and spend records — in a database inside its own project, so nothing of your crew's lives outside your cloud."
+      },
+      {
+        "cloud": "gcp",
+        "service": "aiplatform",
+        "actions": [
+          "aiplatform.endpoints.predict"
+        ],
+        "resourceScope": "project",
+        "reason": "Asks Gemini on Vertex AI, inside its own project, to write your brief from the material the Briefer gathered — billed to your Google Cloud at a few cents a day at most, and stopped by CrewPoppy's own daily and monthly caps before it could be more."
       }
     ],
     "limits": null,
-    "billing": "none",
     "network": {
       "egress": "none",
       "machine": "google-only"
     },
     "memory": {
-      "reads": ["person", "event"],
+      "reads": [
+        "person",
+        "event"
+      ],
       "reason": "Briefs you on the meetings ahead and the people in them, from the memory you keep — the Briefer reads, it never writes."
     }
   },
-  "frontend": { "entry": "frontend/index.html" },
+  "frontend": {
+    "entry": "frontend/index.html"
+  },
   "backend": {
     "entry": "backend/index.cjs",
     "transport": "http",
     "runtime": "node22",
     "isolation": "strict"
   },
-  "capabilities": ["connection:read", "backend:invoke", "host:openExternal", "host:notify"]
+  "capabilities": [
+    "connection:read",
+    "backend:invoke",
+    "host:openExternal",
+    "host:notify"
+  ]
 }

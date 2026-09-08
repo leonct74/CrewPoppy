@@ -1,0 +1,78 @@
+// Copyright 2026 Marco Tomasello (AgentsPoppy)
+// SPDX-License-Identifier: PolyForm-Shield-1.0.0
+
+/**
+ * The caps and the meter (DESIGN.md §7, unchanged on Google): hard mechanisms, not advice. The
+ * counters are our own — calls and tokens the model reported — and the money line is computed at
+ * a SAFETY CEILING deliberately above any published Gemini rate, so a limit stops early, never
+ * late, and no price is ever guessed from memory (§7b). Google's bill is the final word.
+ */
+
+export interface SpendMonth {
+  /** "2026-09" */
+  month: string;
+  calls: number;
+  promptTokens: number;
+  outputTokens: number;
+  /** Calls per day, "2026-09-08" → n — the daily cap's counter. */
+  days: Record<string, number>;
+  lastCallAt?: string;
+}
+
+export interface Caps {
+  callsPerDay: number;
+  callsPerMonth: number;
+  tokensPerMonth: number;
+}
+
+/** Safe defaults, never unlimited (§14.6): a brief a few times a day, a modest month. */
+export const DEFAULT_CAPS: Caps = { callsPerDay: 24, callsPerMonth: 300, tokensPerMonth: 500_000 };
+
+/** US dollars per million tokens, in or out — the ceiling, not a price. */
+export const CEILING_USD_PER_MILLION_TOKENS = 10;
+
+export const monthOf = (iso: string): string => iso.slice(0, 7);
+export const dayOf = (iso: string): string => iso.slice(0, 10);
+
+export function emptyMonth(month: string): SpendMonth {
+  return { month, calls: 0, promptTokens: 0, outputTokens: 0, days: {} };
+}
+
+export function ceilingUsd(tokens: number): number {
+  return (tokens / 1_000_000) * CEILING_USD_PER_MILLION_TOKENS;
+}
+
+/** "$0.03" — two decimals, never below a cent when anything was spent. */
+export function usd(amount: number): string {
+  if (amount === 0) return "$0.00";
+  return `$${Math.max(0.01, Math.round(amount * 100) / 100).toFixed(2)}`;
+}
+
+/** Whether one more call fits under the caps; the reason when it does not. */
+export function mayCall(spend: SpendMonth, caps: Caps, nowIso: string): { ok: true } | { ok: false; reason: string } {
+  const today = spend.days[dayOf(nowIso)] ?? 0;
+  if (today >= caps.callsPerDay) return { ok: false, reason: `today's limit of ${caps.callsPerDay} model calls is reached` };
+  if (spend.calls >= caps.callsPerMonth) return { ok: false, reason: `this month's limit of ${caps.callsPerMonth} model calls is reached` };
+  if (spend.promptTokens + spend.outputTokens >= caps.tokensPerMonth) return { ok: false, reason: `this month's limit of ${caps.tokensPerMonth.toLocaleString("en-GB")} tokens is reached` };
+  return { ok: true };
+}
+
+export function recordCall(spend: SpendMonth, promptTokens: number, outputTokens: number, nowIso: string): SpendMonth {
+  const day = dayOf(nowIso);
+  return {
+    ...spend,
+    calls: spend.calls + 1,
+    promptTokens: spend.promptTokens + promptTokens,
+    outputTokens: spend.outputTokens + outputTokens,
+    days: { ...spend.days, [day]: (spend.days[day] ?? 0) + 1 },
+    lastCallAt: nowIso,
+  };
+}
+
+/** The one always-current money line (§7b). */
+export function describeMeter(spend: SpendMonth, caps: Caps): string {
+  const tokens = spend.promptTokens + spend.outputTokens;
+  const calls = `${spend.calls} ${spend.calls === 1 ? "brief" : "briefs"} by the model`;
+  const cost = tokens === 0 ? "nothing spent" : `${tokens.toLocaleString("en-GB")} tokens, at most ${usd(ceilingUsd(tokens))} at the ceiling`;
+  return `This month: ${calls} · ${cost} · limits ${caps.callsPerDay} a day, ${caps.callsPerMonth} a month, ${(caps.tokensPerMonth / 1000).toFixed(0)}k tokens.`;
+}

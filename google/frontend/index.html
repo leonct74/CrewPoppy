@@ -57,7 +57,7 @@
       <img src="./crewpoppy-icon.png" alt="" />
       <h1>CrewPoppy</h1>
     </header>
-    <p class="sub">Your AI crew, in your own Google Cloud. One member so far — the Briefer.</p>
+    <p class="sub">Your AI crew, in your own Google Cloud. One member so far — the Briefer, with a pen on Vertex AI.</p>
 
     <nav class="tabs" role="tablist">
       <button role="tab" aria-selected="true" data-tab="today">Today</button>
@@ -77,6 +77,7 @@
           <span id="memory-line" class="muted small"></span>
         </div>
         <div id="receipt" class="receipt"></div>
+        <div id="written-by" class="status"></div>
         <div id="brief-status" class="status"></div>
       </div>
     </section>
@@ -90,6 +91,11 @@
             <div><strong>The Briefer</strong> <span class="muted">· reads your memory, writes your brief</span></div>
             <div class="muted small">Reads people and meetings from the memory poppy you installed, through AgentsPoppy — never writes, never sends. In this release it writes the brief itself, without a model; when a model joins your crew it will run on Vertex AI inside this project, under your card and your caps.</div>
           </div>
+        </div>
+        <div id="model-panel" class="source" style="margin-top:10px">
+          <label class="row" style="gap:10px"><input type="checkbox" id="model-switch" /> <span id="model-label">The Briefer writes with a model on Vertex AI, inside this project.</span></label>
+          <div id="meter" class="muted small" style="margin-top:6px"></div>
+          <div id="model-status" class="status"></div>
         </div>
         <p class="muted small" style="margin:10px 0 0">The rest of the crew — agents with a persona, a brief, tools and hard spend caps, as on AWS — arrives with the Google port, one release at a time.</p>
       </div>
