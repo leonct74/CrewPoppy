@@ -389,4 +389,19 @@ describe("the Crew HQ routes", () => {
     expect(wire.col("agents").has("bo")).toBe(true);
     expect((await handle("/crew-pack", "POST", { format: "csv" }, { store, memory, model })).status).toBe(400);
   });
+
+  it("/opened tells what the cloud job did since the last open — cloud runs only, each shown once", async () => {
+    const { store, wire } = await ready();
+    const memory = fakeMemory();
+    const base = { agent: "nico", agentName: "Nico", request: "(Nico's brief)", tier: "light" as const, why: "w", choice: "auto" as const, read: { count: 0, bytes: 0, receipts: [], purpose: "" }, status: "succeeded" as const, trigger: "schedule" as const };
+    await store.saveRun({ ...base, id: "c1", at: "2026-09-08T05:00:00.000Z", via: "cloud", answer: "Done in the cloud." });
+    await store.saveRun({ ...base, id: "a1", at: "2026-09-08T05:30:00.000Z", via: "app", answer: "Done at home." });
+    const first = (await handle("/opened", "POST", undefined, { store, memory, now: () => NOW })).body as { away: Array<{ id: string }>; since: string };
+    expect(first.since).toBe("");
+    expect(first.away.map((r) => r.id)).toEqual(["c1"]);
+    expect(wire.col("meta").get("lastOpen")).toEqual({ at: NOW });
+    await store.saveRun({ ...base, id: "c2", at: "2026-09-08T06:45:00.000Z", via: "cloud", answer: "Later." });
+    const second = (await handle("/opened", "POST", undefined, { store, memory, now: () => "2026-09-08T07:00:00.000Z" })).body as { away: Array<{ id: string }> };
+    expect(second.away.map((r) => r.id)).toEqual(["c2"]);
+  });
 });

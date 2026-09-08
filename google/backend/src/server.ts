@@ -12,16 +12,39 @@ import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
 import { createMemoryClient } from "@agentspoppy/client";
 import { readBootstrap } from "./bootstrap";
+import { createDoorMemoryClient } from "./door-client";
 import { RestFirestore } from "./firestore";
-import { createProjectTokenProvider } from "./google";
+import { createIdentityTokenProvider, createMetadataTokenProvider, createProjectTokenProvider } from "./google";
+import { readCloudBootstrap, runJob } from "./job";
 import { type MemoryReader, type Reply, handle } from "./routes";
 import { startTicker } from "./scheduler";
 import { CrewStore } from "./store";
 import { VertexModel } from "./vertex";
 
-const boot = readBootstrap();
 const log = (line: string): void => console.log(`[crewpoppy-google] ${line}`);
 const now = (): string => new Date().toISOString();
+
+// ---- Job mode (G4a): started by Cloud Scheduler inside the poppy's own project, no host ----------
+const cloud = readCloudBootstrap();
+if (cloud) {
+  const token = createMetadataTokenProvider();
+  const timeZone = (): string => cloud.timeZone ?? "UTC";
+  const store = new CrewStore({ wire: new RestFirestore(token, { log }), now, timeZone, log });
+  const memory: MemoryReader | null = cloud.memoryDoor ? createDoorMemoryClient(cloud.memoryDoor, createIdentityTokenProvider()) : null;
+  log(`job mode for ${cloud.appId} (${cloud.connectionId}) — memory door ${cloud.memoryDoor ? "present" : "absent"}`);
+  runJob({ store, memory, model: new VertexModel(token), now, timeZone, log, via: "cloud" }).then(
+    (r) => process.exit(r.reason ? 1 : 0),
+    (e) => {
+      log(`job failed: ${e instanceof Error ? e.message : String(e)}`);
+      process.exit(1);
+    },
+  );
+} else {
+  serve();
+}
+
+function serve(): void {
+const boot = readBootstrap();
 
 const onGoogle = boot.account.cloud === "gcp" && !!boot.credentialsUrl;
 const projectToken = createProjectTokenProvider(boot);
@@ -71,3 +94,4 @@ server.listen(boot.port ?? 0, "127.0.0.1", () => {
     });
   }
 });
+}

@@ -73,6 +73,8 @@ export interface RunRecord {
   status?: RunStatus;
   /** How the run started: asked on the fly, pressed on the agent, or its schedule. */
   trigger?: "ask" | "run" | "schedule";
+  /** Where it ran: in the app on the user's machine, or in the cloud while the app was closed (G4). */
+  via?: "app" | "cloud";
   /** The schedule's slot this run was for — the run id is derived from it, so a slot runs once. */
   slot?: string;
   /** The words when the schedule's slot was run late — the app was closed at the time. */

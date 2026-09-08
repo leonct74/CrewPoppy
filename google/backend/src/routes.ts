@@ -109,6 +109,16 @@ export async function handle(path: string, method: string, body: unknown, deps: 
   }
   if (!deps.store.ready) return json(503, { ok: false, error: "not_ready", message: deps.store.unavailableMessage() });
 
+  // The page just opened: what the cloud job did while the app was closed (G4), since the last open.
+  if (method === "POST" && path === "/opened") {
+    const at = now();
+    const last = (await deps.store.getMeta<{ at?: string }>("lastOpen").catch(() => null))?.at ?? "";
+    const runs = await deps.store.runs(200);
+    const away = runs.filter((r) => r.via === "cloud" && r.at > last).map(publicRun);
+    await deps.store.setMeta("lastOpen", { at }).catch((e) => deps.log?.(`could not note the open: ${plain(e)}`));
+    return json(200, { ok: true, since: last, away });
+  }
+
   if (method === "POST" && path === "/settings") {
     const b = (body ?? {}) as { model?: unknown };
     if (typeof b.model !== "boolean") return json(400, { ok: false, error: "bad_request", message: "model must be true or false" });

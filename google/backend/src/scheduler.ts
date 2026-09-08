@@ -21,7 +21,14 @@ export interface TickReport {
   skipped: string[];
 }
 
-export async function tick(deps: RunDeps, busy: Set<string>): Promise<TickReport> {
+export interface TickOptions {
+  /** True in the cloud job: the app is closed, so an agent that needs the memory waits for it unless a door is there. */
+  away?: boolean;
+}
+
+export const NEEDS_APP = "needs CrewPoppy open — your memory is reachable only through AgentsPoppy";
+
+export async function tick(deps: RunDeps, busy: Set<string>, opts: TickOptions = {}): Promise<TickReport> {
   const report: TickReport = { ran: [], skipped: [] };
   if (!deps.store.ready) return report;
   const now = (deps.now ?? (() => new Date().toISOString()))();
@@ -36,6 +43,12 @@ export async function tick(deps: RunDeps, busy: Set<string>): Promise<TickReport
     const id = scheduledRunId(agent.id, due.slot);
     if (busy.has(agent.id)) continue;
     if (await deps.store.run(id)) continue;
+    if (opts.away && agent.memory && !deps.memory) {
+      // Said once, on the slot, not every five minutes: the app runs it when it opens (within the late window).
+      await deps.store.saveRun({ id, at: now, agent: agent.id, agentName: agent.name, via: deps.via ?? "cloud", request: `(${agent.name}'s brief)`, tier: agent.tier === "auto" ? "standard" : agent.tier, why: "its schedule", choice: "auto", answer: "", read: { count: 0, bytes: 0, receipts: [], purpose: "" }, status: "stopped", trigger: "schedule", slot: due.slot, note: `${agent.name} did not run here: ${NEEDS_APP}.` }).catch(() => {});
+      report.skipped.push(`${agent.name}: ${NEEDS_APP}`);
+      continue;
+    }
     const active = await deps.store.activeRun(agent.id);
     if (active) {
       // A run the app was closed in the middle of would block its agent forever; say so and move on.
@@ -53,7 +66,7 @@ export async function tick(deps: RunDeps, busy: Set<string>): Promise<TickReport
       report.ran.push(`${agent.name} (${due.slot})${r.ok ? "" : ` — ${r.message}`}`);
       if (!r.ok) {
         // A refused start (a cap, the model off) is recorded on the slot too, so it is not retried every minute.
-        await deps.store.saveRun({ id, at: now, agent: agent.id, agentName: agent.name, request: `(${agent.name}'s brief)`, tier: agent.tier === "auto" ? "standard" : agent.tier, why: "its schedule", choice: "auto", answer: "", read: { count: 0, bytes: 0, receipts: [], purpose: "" }, status: "stopped", trigger: "schedule", slot: due.slot, note: r.message }).catch(() => {});
+        await deps.store.saveRun({ id, at: now, agent: agent.id, agentName: agent.name, via: deps.via ?? "app", request: `(${agent.name}'s brief)`, tier: agent.tier === "auto" ? "standard" : agent.tier, why: "its schedule", choice: "auto", answer: "", read: { count: 0, bytes: 0, receipts: [], purpose: "" }, status: "stopped", trigger: "schedule", slot: due.slot, note: r.message }).catch(() => {});
       }
     } catch (e) {
       deps.log?.(`scheduled run of ${agent.id} failed: ${e instanceof Error ? e.message : String(e)}`);

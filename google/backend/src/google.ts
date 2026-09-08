@@ -74,6 +74,70 @@ export function createProjectTokenProvider(boot: TokenBootstrap, fetchFn: FetchL
   };
 }
 
+// ---- The poppy's identity WITHOUT a host: inside its own project (DESIGN §18 G4 / memory-poppy §14 M6) ----
+
+/** Where Google's metadata server answers, on a Cloud Run job or service. */
+export const METADATA_URL = "http://metadata.google.internal/computeMetadata/v1";
+
+/**
+ * The same token, minted by Google's metadata server instead of the host: on Cloud Run the
+ * process IS the poppy's service account, so there is nothing to vend — the host provisioned the
+ * job to run as that account, with exactly its role. Cached and coalesced like the host's.
+ */
+export function createMetadataTokenProvider(fetchFn: FetchLike = fetch, now: () => number = Date.now, base = METADATA_URL): ProjectTokenProvider {
+  let cached: ProjectToken | null = null;
+  let inflight: Promise<ProjectToken> | null = null;
+  const ask = async (path: string): Promise<string> => {
+    const res = await fetchFn(`${base}/${path}`, { headers: { "Metadata-Flavor": "Google" }, signal: AbortSignal.timeout(10_000) });
+    if (!res.ok) throw new Error(`Google's metadata server answered ${res.status} for ${path} — is this running on Cloud Run?`);
+    return res.text();
+  };
+  const mint = async (): Promise<ProjectToken> => {
+    const [tokenText, projectId, serviceAccount] = await Promise.all([ask("instance/service-accounts/default/token"), ask("project/project-id"), ask("instance/service-accounts/default/email")]);
+    const t = JSON.parse(tokenText) as { access_token?: string; expires_in?: number };
+    if (typeof t.access_token !== "string") throw new Error("Google's metadata server gave no access token");
+    return { accessToken: t.access_token, projectId: projectId.trim(), serviceAccount: serviceAccount.trim(), expiration: new Date(now() + (t.expires_in ?? 3600) * 1000).toISOString() };
+  };
+  return () => {
+    if (cached && now() < Date.parse(cached.expiration) - REFRESH_BUFFER_MS) return Promise.resolve(cached);
+    if (!inflight) {
+      inflight = mint()
+        .then((t) => {
+          cached = t;
+          return t;
+        })
+        .finally(() => {
+          inflight = null;
+        });
+    }
+    return inflight;
+  };
+}
+
+/** A Google ID token for one audience — how a poppy knocks on another poppy's door (M6). */
+export type IdentityTokenProvider = (audience: string) => Promise<string>;
+
+export function createIdentityTokenProvider(fetchFn: FetchLike = fetch, now: () => number = Date.now, base = METADATA_URL): IdentityTokenProvider {
+  const cached = new Map<string, { token: string; expiresAt: number }>();
+  return async (audience) => {
+    const hit = cached.get(audience);
+    if (hit && now() < hit.expiresAt - REFRESH_BUFFER_MS) return hit.token;
+    const res = await fetchFn(`${base}/instance/service-accounts/default/identity?audience=${encodeURIComponent(audience)}&format=full`, { headers: { "Metadata-Flavor": "Google" }, signal: AbortSignal.timeout(10_000) });
+    if (!res.ok) throw new Error(`Google's metadata server answered ${res.status} for an identity token — is this running on Cloud Run?`);
+    const token = (await res.text()).trim();
+    // The token's own exp claim, so the cache never hands out a stale one.
+    let expiresAt = now() + 50 * 60 * 1000;
+    try {
+      const payload = JSON.parse(Buffer.from(token.split(".")[1] ?? "", "base64url").toString("utf8")) as { exp?: number };
+      if (typeof payload.exp === "number") expiresAt = payload.exp * 1000;
+    } catch {
+      /* the default above */
+    }
+    cached.set(audience, { token, expiresAt });
+    return token;
+  };
+}
+
 /** Google refused, or failed: the HTTP status, Google's `status` word (NOT_FOUND, ALREADY_EXISTS…) and its message. */
 export class GoogleError extends Error {
   constructor(

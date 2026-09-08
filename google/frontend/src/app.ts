@@ -98,6 +98,7 @@ interface RunRecord {
   note?: string;
   status?: "running" | "succeeded" | "stopped" | "waiting";
   trigger?: "ask" | "run" | "schedule";
+  via?: "app" | "cloud";
   slot?: string;
   late?: string;
   steps?: Step[];
@@ -162,7 +163,7 @@ function runReadLine(r: RunRecord): string {
 }
 /** "ran by itself · 09:31, late" / "asked" / "waiting for your answer" — how a run came about, and where it stands. */
 function runStatusLine(r: RunRecord): string {
-  const how = r.trigger === "schedule" ? "ran by itself" : r.trigger === "run" ? `you ran ${nameOf(r.agent, r.agentName)}` : "asked";
+  const how = r.trigger === "schedule" ? (r.via === "cloud" ? "ran by itself in your cloud" : "ran by itself") : r.trigger === "run" ? `you ran ${nameOf(r.agent, r.agentName)}` : "asked";
   const state = r.status === "waiting" ? "waiting for your answer" : r.status === "stopped" ? "stopped" : r.status === "running" ? "running" : "";
   return [how, state, r.late].filter(Boolean).join(" · ");
 }
@@ -262,6 +263,7 @@ for (const tab of document.querySelectorAll<HTMLElement>("[role=tab]")) {
 // ---- today
 let settleTimer: number | undefined;
 let ownZone = "";
+let openedOnce = false;
 function showBrief(b: BriefRecord | undefined): void {
   if (!b) {
     $("brief-when").textContent = "";
@@ -302,6 +304,10 @@ async function refresh(): Promise<void> {
       return;
     }
     showBrief(state.briefs[0]);
+    if (!openedOnce) {
+      openedOnce = true;
+      void renderAway();
+    }
     renderWaiting(state.waiting ?? []);
     renderHistory(state.briefs, state.runs ?? []);
     renderModel(state.model);
@@ -355,6 +361,21 @@ $<HTMLButtonElement>("btn-ask").addEventListener(
 $("ask").addEventListener("keydown", (e: KeyboardEvent) => {
   if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) $("btn-ask").click();
 });
+
+// ---- while you were away (G4): the cloud job's runs since the last open
+async function renderAway(): Promise<void> {
+  try {
+    const r = await host.invokeBackend<{ away: RunRecord[] }>({ method: "POST", path: "/opened" });
+    const panel = $("away-panel");
+    panel.hidden = r.away.length === 0;
+    $("away").innerHTML = r.away
+      .map((x) => `<div class="item"><div class="brief-when">${esc(when(x.at))} · ${esc(nameOf(x.agent, x.agentName))} · ${esc(runStatusLine(x))}</div>
+        ${x.status === "waiting" ? `<div class="status">Asked: ${esc(x.question?.question ?? "")} — answer it below.</div>` : `<div class="brief" style="font-size:13px;margin:0">${esc(x.answer || x.note || "")}</div>`}</div>`)
+      .join("");
+  } catch {
+    /* a bare build, or the store not ready yet — the next open will say */
+  }
+}
 
 // ---- the runs waiting for you (G3c: ask_user)
 function renderWaiting(runs: RunRecord[]): void {

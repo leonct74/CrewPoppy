@@ -2514,6 +2514,16 @@ AWS edition's React: one screen today, and no build step the host has to trust.
   the receipt's cloud form, and M7: *a read while the host is away is narrowed the same, receipted
   the same, and shown at the next open*.
 
+  **G4a built, 2026-09-08 14:30 (tests 69/69; the live proof waits for G4b).** `job.ts` reads the
+  host's cloud bootstrap from the environment and runs one pass of the same ticker in away mode;
+  `google.ts` (shared with MemoryPoppy) gains the metadata-server token — the process is the
+  service account — and the ID-token provider for a door; `door-client.ts` knocks on a provider's
+  door with the host's own request shapes; every run is stamped `via: app | cloud`; a memory agent
+  due in the cloud without a door is recorded once on its slot as "needs CrewPoppy open" and left
+  to the app; `POST /opened` returns the cloud's runs since the last open and the page shows them
+  under "While you were away". Started without a metadata server the job says so plainly and
+  exits 1 — the entry path proven from the shell.
+
   *Build order:* G4a (CrewPoppy job mode, tests, the honest "needs the app open" note) → the door
   mode of MemoryPoppy's backend (ID-token check, receipts, the new route; tests) → the founder's
   window for G4b + G4c on the host, spec and mechanism document updated in the same commit → live

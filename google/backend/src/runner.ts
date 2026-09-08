@@ -32,6 +32,8 @@ export interface RunDeps {
   timeZone?: () => string;
   newId?: () => string;
   log?: (line: string) => void;
+  /** Where this process runs: the app (default) or the cloud job — stamped on every run it makes. */
+  via?: "app" | "cloud";
 }
 
 export type RunReply = { ok: true; run: RunRecord; planLine: string; agent?: AgentDef & { monthUsd: number } } | { ok: false; error: string; message: string };
@@ -218,6 +220,7 @@ export async function runAgent(deps: RunDeps, agent: AgentDef, request: string, 
     at,
     agent: agent.id,
     agentName: agent.name,
+    via: deps.via ?? "app",
     request: request || `(${agent.name}'s brief)`,
     tier: plan.tier,
     why: plan.why,
@@ -341,6 +344,7 @@ export async function askCrew(deps: RunDeps, request: string, choice: TierChoice
     at,
     agent: ASSISTANT.id,
     agentName: ASSISTANT.name,
+    via: deps.via ?? "app",
     request,
     tier: plan.tier,
     why: plan.why,
