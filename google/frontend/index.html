@@ -121,22 +121,6 @@
       <div class="panel">
         <h2>Your crew</h2>
         <div id="agents" class="agents"></div>
-        <div id="model-panel" class="source" style="margin-top:10px">
-          <label class="row" style="gap:10px"><input type="checkbox" id="model-switch" /> <span id="model-label">Your crew writes with a model on Vertex AI, inside this project.</span></label>
-          <div id="meter" class="muted small" style="margin-top:6px"></div>
-          <div id="model-status" class="status"></div>
-        </div>
-        <p class="muted small" style="margin:10px 0 0">Your agents run on your word, or on their schedule — and in your cloud while CrewPoppy is closed, once its cloud runner is on.</p>
-      </div>
-      <div class="panel">
-        <h2>Crew Pack</h2>
-        <p class="muted small" style="margin:0 0 8px">Everything your crew knows — the agents, their notes, their files — as one file you own. Bring it back here, on another machine, or after a teardown; nothing in it is a key or a receipt.</p>
-        <div class="row">
-          <button id="btn-export-pack" class="ghost" type="button">Download the Crew Pack</button>
-          <input id="pack-file" type="file" accept="application/json,.json" aria-label="A Crew Pack file" />
-          <button id="btn-import-pack" class="ghost" type="button">Bring a Crew Pack in</button>
-        </div>
-        <div id="pack-status" class="status"></div>
       </div>
       <div class="panel" id="templates-panel">
         <h2>Start from a template</h2>
@@ -176,6 +160,23 @@
           </div>
           <div id="agent-status" class="status"></div>
         </form>
+      </div>
+      <div class="panel">
+        <h2>Crew Pack</h2>
+        <p class="muted small" style="margin:0 0 8px">Everything your crew knows — the agents, their notes, their files — as one file you own. Bring it back here, on another machine, or after a teardown; nothing in it is a key or a receipt.</p>
+        <div class="row">
+          <button id="btn-export-pack" class="ghost" type="button">Download the Crew Pack</button>
+          <input id="pack-file" type="file" accept="application/json,.json" aria-label="A Crew Pack file" />
+          <button id="btn-import-pack" class="ghost" type="button">Bring a Crew Pack in</button>
+        </div>
+        <div id="pack-status" class="status"></div>
+      </div>
+      <div class="panel" id="model-panel" hidden>
+        <h2>Model and money</h2>
+        <label class="row" style="gap:10px"><input type="checkbox" id="model-switch" /> <span>Let the crew use the model</span></label>
+        <div id="model-label" class="muted small" style="margin:4px 0 0"></div>
+        <div id="meter" class="muted small" style="margin-top:8px"></div>
+        <div id="model-status" class="status"></div>
       </div>
     </section>
 

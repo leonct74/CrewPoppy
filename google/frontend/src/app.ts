@@ -256,7 +256,7 @@ function renderModel(m: ModelState | undefined): void {
   }
   $("model-panel").hidden = false;
   sw.checked = m.enabled;
-  $("model-label").textContent = `The crew writes with ${m.words} and its siblings, inside this project — billed to your Google Cloud, capped by CrewPoppy.`;
+  $("model-label").textContent = m.enabled ? `On: your agents write with ${m.words} and its siblings, inside this project — billed to your Google Cloud, with a hard stop set by CrewPoppy.` : "Off: no agent runs and nothing is billed until you switch it on again.";
   $("meter").textContent = m.meter;
   if (m.tiers) {
     for (const t of m.tiers) tierPrices.set(t.tier, t.price);
