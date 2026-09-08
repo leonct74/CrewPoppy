@@ -222,7 +222,7 @@ function describeMemory(m: MemoryInfo | null, wired: boolean): string {
   if (m.error) return `Couldn't ask about your memory: ${m.error}`;
   if (!m.available) return "No memory poppy is installed yet — install MemoryPoppy, and your agents have something to read.";
   const words = (m.reads ?? []).map((k) => (k === "event" ? "meetings" : k === "person" ? "people" : k)).join(" and ");
-  return `May read ${words || "nothing"} from ${m.provider?.name ?? "your memory poppy"}, for “Morning briefing” only.`;
+  return `May read ${words || "nothing"} from ${m.provider?.name ?? "your memory poppy"} — only when a run is about your life, with a receipt each time.`;
 }
 /** "$0.0003" under a cent, "$0.03" above — a tiny amount read honestly. */
 function usdFine(amount: number): string {
