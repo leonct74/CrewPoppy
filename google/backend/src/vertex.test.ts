@@ -34,6 +34,19 @@ describe("the model on Vertex AI", () => {
     expect(m.words).toBe(MODEL_WORDS);
   });
 
+  it("retries once, after a pause, when a freshly granted permission has not reached Vertex AI yet", async () => {
+    const denied = { status: 403, body: { error: { code: 403, status: "PERMISSION_DENIED", message: "Permission 'aiplatform.endpoints.predict' denied on resource '//aiplatform.googleapis.com/projects/p/locations/global/publishers/google/models/gemini-2.5-flash' (or it may not exist)." } } };
+    const ok = { status: 200, body: { candidates: [{ content: { parts: [{ text: "Good morning." }] } }], usageMetadata: { promptTokenCount: 10, candidatesTokenCount: 2 } } };
+    const slept: number[] = [];
+    const g = google([denied, ok]);
+    const m = new VertexModel(token, { fetch: g.fetch, sleep: async (ms) => { slept.push(ms); } });
+    expect((await m.generate("s", "u", 50)).text).toBe("Good morning.");
+    expect(g.calls).toHaveLength(2);
+    expect(slept).toContain(20_000);
+    const g2 = google([denied, denied]);
+    await expect(new VertexModel(token, { fetch: g2.fetch, sleep: async () => {} }).generate("s", "u", 50)).rejects.toThrow(/has not received CrewPoppy's permission yet/);
+  });
+
   it("names a pinned region's endpoint", () => {
     const m = new VertexModel(token, { location: "europe-west4", model: "gemini-2.5-pro" });
     expect((m as unknown as { url(p: string): string }).url("p1")).toBe("https://europe-west4-aiplatform.googleapis.com/v1/projects/p1/locations/europe-west4/publishers/google/models/gemini-2.5-pro:generateContent");

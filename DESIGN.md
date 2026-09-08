@@ -2346,5 +2346,23 @@ read nothing from a calendar with one entry ten days old — a brief is the day 
 context); and the host's approval screen said "asking to use your AWS" for a Google poppy — fixed
 in AgentsPoppy (`app/src/App.tsx`, the headline now names the poppy's cloud). MemoryPoppy's
 DESIGN §10 M4 — "CrewPoppy on Google Cloud declares `memory.reads: [person, event]` and briefs the
-founder from MemoryPoppy's memories; the memory-read receipts appear" — is met. Next: G2 (Vertex AI
-under the founder's card) on his word, since it puts a model on his bill.
+founder from MemoryPoppy's memories; the memory-read receipts appear" — is met.
+
+**Status — G2 built and proven live, 2026-09-08 08:20–08:26 (the founder's "proceed", after being
+told it puts a model on his card).** v0.2.0 re-approved on the card with both grants ("aiplatform ·
+datastore — everything is confined to its own resources"); the mint linked the project to the
+billing account chosen on the Google connection and switched Vertex AI on. The first "Brief me
+now" after the mint was refused — `Permission 'aiplatform.endpoints.predict' denied` — and the
+Briefer wrote the brief itself and said so; three minutes later Gemini 2.5 Flash wrote it: "Good
+morning. There's nothing on your calendar for today, so you have a completely clear schedule. Your
+last recorded event was Cozy Code at Contact Maker Space on Sunday, 30th August." — 150 tokens in,
+42 out, "at most $0.01 at the ceiling"; the spend row `spend/2026-09` counts it; the receipt on the
+connection reads **`Read 1 meeting for "Morning briefing" — 876 B, to Gemini 2.5 Flash on Vertex
+AI, about $0.02`**. Two lessons: a permission just granted takes Google up to a minute to reach
+Vertex AI, so a first 403 "denied on resource" is retried once after a 20-second pause (the same
+lesson as the store's first Firestore call); and the receipt is written by the host at read time,
+from the poppy's stated destination — when the model then refuses, the memories did not travel,
+and the brief's own note says so, but the receipt does not (a host feature to append an outcome to
+a receipt would close that; noted for the memory contract). The host gained a card row for the
+money on Google (agentspoppy `39d7b47`: "Its project is billed to your card", weighed; "Needs no
+card", worth knowing). Next: G3 — the crew.

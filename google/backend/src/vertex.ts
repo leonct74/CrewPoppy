@@ -60,6 +60,22 @@ export class VertexModel implements Model {
   }
 
   async generate(system: string, user: string, maxOutputTokens: number): Promise<ModelReply> {
+    // A permission just granted takes Google up to a minute to reach Vertex AI (the same lesson as
+    // the store's first Firestore call): one 403 "permission denied" is retried once, after a pause.
+    try {
+      return await this.generateOnce(system, user, maxOutputTokens);
+    } catch (e) {
+      if (!(e instanceof GoogleError && e.status === 403 && /denied on resource/i.test(e.message))) throw new Error(explainModelError(e));
+      await (this.opts.sleep ?? ((ms) => new Promise((r) => setTimeout(r, ms))))(20_000);
+      try {
+        return await this.generateOnce(system, user, maxOutputTokens);
+      } catch (again) {
+        throw new Error(explainModelError(again));
+      }
+    }
+  }
+
+  private async generateOnce(system: string, user: string, maxOutputTokens: number): Promise<ModelReply> {
     const t = await this.token();
     let res: GenerateResponse;
     try {
@@ -77,6 +93,7 @@ export class VertexModel implements Model {
         { fetch: this.opts.fetch, sleep: this.opts.sleep, timeoutMs: 60_000, tries: 2 },
       );
     } catch (e) {
+      if (e instanceof GoogleError) throw e;
       throw new Error(explainModelError(e));
     }
     const text = (res.candidates?.[0]?.content?.parts ?? [])
@@ -98,6 +115,7 @@ export function explainModelError(e: unknown): string {
   if (e instanceof GoogleError) {
     if (/has not been used|is disabled|SERVICE_DISABLED/i.test(e.message)) return "Vertex AI is not switched on in CrewPoppy's project yet — the next mint switches it on; try again in a minute.";
     if (/billing/i.test(e.message)) return "Vertex AI needs a billing account on CrewPoppy's project — pick the card on your Google Cloud connection, then try again.";
+    if (e.status === 403 && /denied on resource/i.test(e.message)) return "Vertex AI has not received CrewPoppy's permission yet — Google takes up to a minute after the first approval. Try again shortly.";
     if (e.status === 403) return `Vertex AI refused: ${e.message}`;
     if (e.status === 429) return "Vertex AI is busy — try again in a moment.";
     return `Vertex AI answered ${e.status}: ${e.message}`;
