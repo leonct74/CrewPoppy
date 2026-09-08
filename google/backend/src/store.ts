@@ -7,6 +7,7 @@
  * as the port advances. `open()` brings the database up on the first run and never throws — the
  * page shows the state, and the routes that need the store answer 503 until it is ready.
  */
+import type { AgentDef } from "./agents";
 import type { FirestoreWire } from "./firestore";
 import { GoogleError } from "./google";
 
@@ -14,6 +15,7 @@ export const BRIEFS = "briefs";
 export const META = "meta";
 export const SPEND = "spend";
 export const RUNS = "runs";
+export const AGENTS = "agents";
 export const SCHEMA_VERSION = 1;
 
 export interface BriefRecord {
@@ -176,6 +178,28 @@ export class CrewStore {
   async saveSpend(month: string, value: object): Promise<void> {
     if (!this.ready) throw new Error(this.unavailableMessage());
     await this.deps.wire.set(SPEND, month, value);
+  }
+
+  async agents(): Promise<AgentDef[]> {
+    if (!this.ready) throw new Error(this.unavailableMessage());
+    const all = await this.deps.wire.listChanged<AgentDef>(AGENTS, "createdAt", null);
+    return all.map((d) => ({ ...d.data, id: d.id }));
+  }
+
+  async agent(id: string): Promise<AgentDef | null> {
+    if (!this.ready) throw new Error(this.unavailableMessage());
+    const a = await this.deps.wire.get<AgentDef>(AGENTS, id);
+    return a ? { ...a, id } : null;
+  }
+
+  async saveAgent(a: AgentDef): Promise<void> {
+    if (!this.ready) throw new Error(this.unavailableMessage());
+    await this.deps.wire.set(AGENTS, a.id, a);
+  }
+
+  async deleteAgent(id: string): Promise<void> {
+    if (!this.ready) throw new Error(this.unavailableMessage());
+    await this.deps.wire.delete(AGENTS, id);
   }
 
   async saveRun(r: RunRecord): Promise<void> {

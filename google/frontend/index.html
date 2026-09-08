@@ -50,6 +50,18 @@
       .history .item:first-child { border-top: none; }
       details summary { cursor: pointer; font-size: 12.5px; color: var(--poppy-muted-2); }
       ul.plain { margin: 6px 0 0; padding-left: 18px; font-size: 12.5px; color: var(--poppy-muted-2); }
+      .banner { display: flex; gap: 12px; align-items: center; justify-content: space-between; flex-wrap: wrap; background: var(--poppy-surface-2); border: 1px solid var(--poppy-border); border-radius: var(--poppy-radius); padding: 10px 12px; margin-bottom: 12px; font-size: 13px; color: var(--poppy-muted-2); }
+      .helper-text { margin-bottom: 12px; font-family: var(--poppy-font-mono); font-size: 11.5px; }
+      .field { display: block; margin: 8px 0; font-size: 13px; }
+      .field > span { display: block; font-weight: 600; margin-bottom: 3px; }
+      .field input, .field textarea, .field select { width: 100%; }
+      .field small { display: block; margin-top: 3px; font-size: 12px; }
+      .agent { border-top: 1px solid var(--poppy-border); padding: 10px 0; font-size: 13px; }
+      .agent .run { margin-top: 8px; }
+      .agent .answer { white-space: pre-wrap; margin: 8px 0 4px; font-size: 13px; }
+      .confirm { margin-top: 8px; padding: 10px 12px; border: 1px solid var(--poppy-danger); border-radius: var(--poppy-radius); background: var(--poppy-surface-2); font-size: 13px; }
+      button.danger { background: var(--poppy-danger); border-color: var(--poppy-danger); color: var(--poppy-on-accent); }
+      button.ghost.danger-text { color: var(--poppy-danger); }
       textarea, select { width: 100%; background: var(--poppy-surface-0); color: var(--poppy-text); border: 1px solid var(--poppy-border); border-radius: var(--poppy-radius); padding: 8px 10px; font: inherit; font-size: 13px; }
       textarea { resize: vertical; }
       select { width: auto; }
@@ -130,12 +142,36 @@
             <div class="muted small">Reads people and meetings from the memory poppy you installed, through AgentsPoppy — never writes, never sends. Writes your brief with Gemini on Vertex AI inside this project, under your card and CrewPoppy's caps — or in its own words when the model is off, capped or away, and says which.</div>
           </div>
         </div>
+        <div id="agents" class="agents"></div>
         <div id="model-panel" class="source" style="margin-top:10px">
           <label class="row" style="gap:10px"><input type="checkbox" id="model-switch" /> <span id="model-label">The Briefer writes with a model on Vertex AI, inside this project.</span></label>
           <div id="meter" class="muted small" style="margin-top:6px"></div>
           <div id="model-status" class="status"></div>
         </div>
-        <p class="muted small" style="margin:10px 0 0">The rest of the crew — agents with a persona, a brief, tools and hard spend caps, as on AWS — arrives with the Google port, one release at a time.</p>
+        <p class="muted small" style="margin:10px 0 0">Tools, schedules and runs that outlive the app — as on AWS — arrive with the Google port, one release at a time.</p>
+      </div>
+      <div class="panel" id="new-agent-panel">
+        <h2 id="new-agent-title">New agent</h2>
+        <div class="banner">
+          <span>Don't write the brief from scratch: copy the helper prompt into the AI you already use, add one sentence about the job, and paste back what it gives you.</span>
+          <button id="btn-helper" class="btn poppy-helper-pulse" type="button">Copy the helper prompt</button>
+        </div>
+        <textarea id="helper-text" class="helper-text" rows="6" readonly hidden aria-label="The helper prompt"></textarea>
+        <form id="agent-form" autocomplete="off">
+          <input type="hidden" id="agent-id" />
+          <label class="field"><span>Name</span><input id="agent-name" maxlength="40" placeholder="Emma" required /><small class="muted">A given name, so the agent feels like a teammate.</small></label>
+          <label class="field"><span>Role</span><input id="agent-role" maxlength="60" placeholder="Newsletter drafter" required /><small class="muted">The work it does, in a few honest words.</small></label>
+          <label class="field"><span>Brief</span><textarea id="agent-instructions" rows="5" maxlength="4000" placeholder="What it does, how, in what tone, with what limits." required></textarea><small class="muted">Instructions never grant abilities: the agent can only write.</small></label>
+          <label class="field"><span>Model</span><select id="agent-tier"></select><small class="muted" id="agent-tier-note"></small></label>
+          <label class="row" style="gap:10px;margin:6px 0"><input type="checkbox" id="agent-memory" checked /> <span>May read my memory</span></label>
+          <small class="muted" style="display:block;margin:-2px 0 8px">Only when a run is about your life, only through AgentsPoppy, with a receipt each time.</small>
+          <label class="field"><span>Monthly limit</span><input id="agent-cap" type="number" min="1" max="100" step="1" value="5" style="width:110px" /><small class="muted">In dollars at the ceiling price — a hard cap; the agent stops when it reaches it.</small></label>
+          <div class="row">
+            <button id="btn-save-agent" class="btn" type="submit">Add to the crew</button>
+            <button id="btn-cancel-agent" class="ghost" type="button" hidden>Cancel</button>
+          </div>
+          <div id="agent-status" class="status"></div>
+        </form>
       </div>
     </section>
 

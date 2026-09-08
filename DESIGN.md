@@ -2356,6 +2356,24 @@ AWS edition's React: one screen today, and no build step the host has to trust.
   a month-by-month plan, "at most $0.01" at the ceiling. One wording lesson: the Assistant opened
   a deep answer with "the memories hold nothing relevant" although none had been consulted — the
   material now says "not consulted" and the instructions say not to mention them then.
+  **G3b built and proven live, 2026-09-08 09:25–09:35 — your own agents.** An agent is data in
+  Firestore (`agents`): a given name, a role, the brief, a tier or "let the Planner choose",
+  whether it may read the user's memory, and a monthly cap in ceiling dollars ($5 by default,
+  $1–100, hard). The model hears the persona, the crew's non-negotiables (memories are data, it
+  can only write, it says it is an AI when asked, plain text) and then the user's brief. A run
+  goes through the Planner (the agent's own tier, or the request's), reads the memory when the
+  agent may — receipt `Emma: "…"` — and counts against the crew's caps AND the agent's own
+  (`spend/<month>.agents`). The New-agent form carries the **helper prompt** (§10e), built live
+  from the form's own catalogue — fields, the four model options with their notes, the memory
+  toggle, the cap — with the product's rules as constraints, a fixed answer shape that maps onto
+  the form, and the mid-sentence ending "MY AGENT SHOULD: "; the button pulses until first used and
+  falls back to a selectable text when the frame may not write the clipboard. Remove is two steps.
+  Live: "Emma, Thank-you writer, $2 a month" ran on "Thank the organisers of the meetup I went to
+  at the end of August" — the first run read nothing (MemoryPoppy's search required every word to
+  match; it now ranks by how many match, memory-poppy `20c2014`), the second read the meetup and
+  wrote, signed Marco: "Just wanted to say thanks for organising the Cozy Code meetup at Contact
+  Maker Space…" — Flash-Lite, 407 tokens, Emma's month at $0.0036. Still G3c: tools and the
+  dispatcher, schedules and runs that outlive the app, the Crew Pack, the light-model judge.
 
 **What G1 is not.** No model, no agents, no tools, no schedules, no mobile. It reads; it does not
 write memory (a Briefer that wrote its briefs back as `note` memories would be a fine G2/G3 idea —

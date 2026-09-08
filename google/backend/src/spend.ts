@@ -18,6 +18,8 @@ export interface SpendMonth {
   days: Record<string, number>;
   /** The month's cost at the ceiling, in US dollars — each call priced at its tier's ceiling rate. */
   ceilingUsd?: number;
+  /** The same, per agent — the per-agent cap's counter (§7: "Research-Agent this month: $2.10 / $10 cap"). */
+  agents?: Record<string, number>;
   lastCallAt?: string;
 }
 
@@ -63,7 +65,7 @@ export function mayCall(spend: SpendMonth, caps: Caps, nowIso: string): { ok: tr
   return { ok: true };
 }
 
-export function recordCall(spend: SpendMonth, promptTokens: number, outputTokens: number, nowIso: string, callUsd = ceilingUsd(promptTokens + outputTokens)): SpendMonth {
+export function recordCall(spend: SpendMonth, promptTokens: number, outputTokens: number, nowIso: string, callUsd = ceilingUsd(promptTokens + outputTokens), agentId?: string): SpendMonth {
   const day = dayOf(nowIso);
   return {
     ...spend,
@@ -72,8 +74,14 @@ export function recordCall(spend: SpendMonth, promptTokens: number, outputTokens
     outputTokens: spend.outputTokens + outputTokens,
     days: { ...spend.days, [day]: (spend.days[day] ?? 0) + 1 },
     ceilingUsd: (spend.ceilingUsd ?? 0) + callUsd,
+    ...(agentId ? { agents: { ...(spend.agents ?? {}), [agentId]: (spend.agents?.[agentId] ?? 0) + callUsd } } : {}),
     lastCallAt: nowIso,
   };
+}
+
+/** What one agent has spent this month, at the ceiling. */
+export function agentSpent(spend: SpendMonth, agentId: string): number {
+  return spend.agents?.[agentId] ?? 0;
 }
 
 /** The one always-current money line (§7b). */

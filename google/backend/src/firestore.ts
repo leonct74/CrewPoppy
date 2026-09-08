@@ -42,6 +42,8 @@ export interface FirestoreWire {
   commit(writes: WireWrite[]): Promise<void>;
   /** Every document whose string `field` is greater than `after` (all of them when null), ascending. */
   listChanged<T = Json>(collection: string, field: string, after: string | null): Promise<WireDoc<T>[]>;
+  /** Remove one document; a document that is not there is fine. */
+  delete(collection: string, id: string): Promise<void>;
 }
 
 // ---- Firestore's typed values ⇄ plain JSON -------------------------------------------------
@@ -215,6 +217,15 @@ export class RestFirestore implements FirestoreWire {
 
   async set(collection: string, id: string, data: object): Promise<void> {
     await this.call(await this.docName(collection, id), { method: "PATCH", body: { fields: encodeFields(data as Record<string, unknown>) } });
+  }
+
+  async delete(collection: string, id: string): Promise<void> {
+    try {
+      await this.call(await this.docName(collection, id), { method: "DELETE" });
+    } catch (e) {
+      if (e instanceof GoogleError && e.status === 404) return;
+      throw e;
+    }
   }
 
   async commit(writes: WireWrite[]): Promise<void> {

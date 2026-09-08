@@ -7,6 +7,7 @@
  * edition's host.ts does) and to our own backend through the host. Every button reacts the
  * instant it is pressed; every error is one calm sentence.
  */
+import { FORM, buildHelperPrompt } from "./helper-prompt";
 import { defineFeedbackTab } from "./vendor/agentspoppy-feedback-tab";
 
 interface BackendInvoke {
@@ -197,6 +198,7 @@ for (const tab of document.querySelectorAll<HTMLElement>("[role=tab]")) {
   tab.addEventListener("click", () => {
     for (const t of document.querySelectorAll<HTMLElement>("[role=tab]")) t.setAttribute("aria-selected", String(t === tab));
     for (const s of TABS) $(`tab-${s}`).hidden = s !== tab.dataset.tab;
+    if (tab.dataset.tab === "crew") void renderAgents();
   });
 }
 
@@ -292,6 +294,199 @@ $<HTMLButtonElement>("btn-ask").addEventListener(
 $("ask").addEventListener("keydown", (e: KeyboardEvent) => {
   if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) $("btn-ask").click();
 });
+
+// ---- your own agents (G3b)
+interface AgentDef {
+  id: string;
+  name: string;
+  role: string;
+  instructions: string;
+  tier: "auto" | "light" | "standard" | "deep";
+  memory: boolean;
+  capUsd: number;
+  monthUsd?: number;
+}
+const money = (n: number): string => (n === 0 ? "$0.00" : `$${Math.max(0.01, Math.round(n * 100) / 100).toFixed(2)}`);
+const TIER_LABEL: Record<AgentDef["tier"], string> = Object.fromEntries(FORM.tiers.map((t) => [t.value, t.label])) as Record<AgentDef["tier"], string>;
+
+function fillTierSelect(): void {
+  const sel = $<HTMLSelectElement>("agent-tier");
+  sel.innerHTML = FORM.tiers.map((t) => `<option value="${t.value}">${esc(t.label)}</option>`).join("");
+  const note = (): void => {
+    $("agent-tier-note").textContent = FORM.tiers.find((t) => t.value === sel.value)?.note ?? "";
+  };
+  sel.addEventListener("change", note);
+  note();
+}
+fillTierSelect();
+
+function resetAgentForm(): void {
+  ($("agent-id") as HTMLInputElement).value = "";
+  ($("agent-name") as HTMLInputElement).value = "";
+  ($("agent-role") as HTMLInputElement).value = "";
+  ($("agent-instructions") as HTMLTextAreaElement).value = "";
+  ($("agent-tier") as HTMLSelectElement).value = "auto";
+  ($("agent-tier") as HTMLSelectElement).dispatchEvent(new Event("change"));
+  ($("agent-memory") as HTMLInputElement).checked = true;
+  ($("agent-cap") as HTMLInputElement).value = String(FORM.cap.default);
+  $("new-agent-title").textContent = "New agent";
+  $("btn-save-agent").textContent = "Add to the crew";
+  $("btn-cancel-agent").hidden = true;
+}
+function editAgent(a: AgentDef): void {
+  ($("agent-id") as HTMLInputElement).value = a.id;
+  ($("agent-name") as HTMLInputElement).value = a.name;
+  ($("agent-role") as HTMLInputElement).value = a.role;
+  ($("agent-instructions") as HTMLTextAreaElement).value = a.instructions;
+  ($("agent-tier") as HTMLSelectElement).value = a.tier;
+  ($("agent-tier") as HTMLSelectElement).dispatchEvent(new Event("change"));
+  ($("agent-memory") as HTMLInputElement).checked = a.memory;
+  ($("agent-cap") as HTMLInputElement).value = String(a.capUsd);
+  $("new-agent-title").textContent = `Edit ${a.name}`;
+  $("btn-save-agent").textContent = "Save";
+  $("btn-cancel-agent").hidden = false;
+  $("new-agent-panel").scrollIntoView({ behavior: "smooth", block: "start" });
+}
+$("btn-cancel-agent").addEventListener("click", resetAgentForm);
+
+$<HTMLFormElement>("agent-form").addEventListener("submit", (e) => {
+  e.preventDefault();
+  void withPending($("btn-save-agent"), "Saving…", async () => {
+    const id = ($("agent-id") as HTMLInputElement).value;
+    const body = {
+      ...(id ? { id } : {}),
+      name: ($("agent-name") as HTMLInputElement).value,
+      role: ($("agent-role") as HTMLInputElement).value,
+      instructions: ($("agent-instructions") as HTMLTextAreaElement).value,
+      tier: ($("agent-tier") as HTMLSelectElement).value,
+      memory: ($("agent-memory") as HTMLInputElement).checked,
+      capUsd: Number(($("agent-cap") as HTMLInputElement).value),
+    };
+    try {
+      const r = await host.invokeBackend<{ agent: AgentDef }>({ method: "POST", path: "/agents", body });
+      setStatus("agent-status", `${r.agent.name} is ${id ? "saved" : "in the crew"}.`);
+      resetAgentForm();
+      await renderAgents();
+    } catch (err) {
+      setStatus("agent-status", plainError(err), "warn");
+    }
+  })();
+});
+
+// The helper prompt: built live from the form's catalogue; copied, or shown when the frame may not copy.
+$<HTMLButtonElement>("btn-helper").addEventListener("click", async () => {
+  const btn = $<HTMLButtonElement>("btn-helper");
+  const text = buildHelperPrompt();
+  btn.classList.remove("poppy-helper-pulse");
+  try {
+    await navigator.clipboard.writeText(text);
+    btn.textContent = "Copied ✓";
+  } catch {
+    const box = $<HTMLTextAreaElement>("helper-text");
+    box.value = text;
+    box.hidden = false;
+    box.select();
+    btn.textContent = "Select and copy the text below";
+  }
+  window.setTimeout(() => {
+    btn.textContent = "Copy the helper prompt";
+  }, 2500);
+});
+
+async function renderAgents(): Promise<void> {
+  const el = $("agents");
+  let agents: AgentDef[] = [];
+  try {
+    agents = (await host.invokeBackend<{ agents: AgentDef[] }>({ method: "GET", path: "/agents" })).agents;
+  } catch (err) {
+    el.innerHTML = `<div class="status warn">${esc(`Couldn't read your agents: ${plainError(err)}`)}</div>`;
+    return;
+  }
+  el.innerHTML = agents
+    .map(
+      (a) => `<div class="agent" data-id="${esc(a.id)}">
+        <div class="row" style="justify-content:space-between">
+          <div><strong>${esc(a.name)}</strong> <span class="muted">· ${esc(a.role)}</span></div>
+          <span class="muted small">${esc(TIER_LABEL[a.tier] ?? a.tier)} · ${a.memory ? "reads your memory" : "no memory"} · this month ${esc(money(a.monthUsd ?? 0))} / ${esc(money(a.capUsd))}</span>
+        </div>
+        <div class="muted small">${esc(a.instructions.length > 220 ? `${a.instructions.slice(0, 220)}…` : a.instructions)}</div>
+        <div class="run">
+          <textarea class="agent-request" rows="2" placeholder="Anything for this run? Leave empty and ${esc(a.name)} does the job as briefed." aria-label="Request for ${esc(a.name)}"></textarea>
+          <div class="row" style="margin-top:6px">
+            <button class="btn" data-run="${esc(a.id)}">Run ${esc(a.name)}</button>
+            <button class="ghost" data-edit="${esc(a.id)}">Edit</button>
+            <button class="ghost danger-text" data-remove="${esc(a.id)}">Remove</button>
+          </div>
+          <div class="confirm" data-confirm="${esc(a.id)}" hidden>
+            <p style="margin:0 0 8px">Remove ${esc(a.name)} from the crew? Its brief goes; its past runs stay in History. This can't be undone.</p>
+            <div class="row"><button class="ghost" data-keep="${esc(a.id)}">Keep</button><button class="btn danger" data-remove-yes="${esc(a.id)}">Remove ${esc(a.name)}</button></div>
+          </div>
+          <div class="answer" data-answer="${esc(a.id)}"></div>
+          <div class="receipt" data-plan="${esc(a.id)}"></div>
+          <div class="status" data-status="${esc(a.id)}"></div>
+        </div>
+      </div>`,
+    )
+    .join("");
+  const q = (sel: string): HTMLElement => el.querySelector<HTMLElement>(sel)!;
+  for (const btn of el.querySelectorAll<HTMLButtonElement>("button[data-run]")) {
+    const id = btn.dataset.run ?? "";
+    btn.addEventListener(
+      "click",
+      withPending(btn, "Running…", async () => {
+        const request = (q(`.agent[data-id="${id}"] .agent-request`) as HTMLTextAreaElement).value.trim();
+        q(`[data-status="${id}"]`).textContent = "The Planner is reading and judging…";
+        try {
+          const r = await host.invokeBackend<{ ok: boolean; run?: RunRecord; planLine?: string; message?: string; agent?: AgentDef }>({ method: "POST", path: `/agents/${encodeURIComponent(id)}/run`, body: { request } });
+          if (!r.ok || !r.run) {
+            q(`[data-status="${id}"]`).textContent = r.message ?? "It did not run.";
+            return;
+          }
+          q(`[data-answer="${id}"]`).textContent = r.run.answer;
+          q(`[data-plan="${id}"]`).textContent = `${planLine(r.run)} ${runReadLine(r.run)}`;
+          q(`[data-status="${id}"]`).textContent = r.run.note ?? "";
+          await refresh();
+          await renderAgents();
+          q(`[data-answer="${id}"]`).textContent = r.run.answer;
+          q(`[data-plan="${id}"]`).textContent = `${planLine(r.run)} ${runReadLine(r.run)}`;
+        } catch (err) {
+          q(`[data-status="${id}"]`).textContent = plainError(err);
+        }
+      }),
+    );
+  }
+  for (const btn of el.querySelectorAll<HTMLButtonElement>("button[data-edit]")) {
+    btn.addEventListener("click", () => {
+      const a = agents.find((x) => x.id === btn.dataset.edit);
+      if (a) editAgent(a);
+    });
+  }
+  for (const btn of el.querySelectorAll<HTMLButtonElement>("button[data-remove]")) {
+    btn.addEventListener("click", () => {
+      q(`[data-confirm="${btn.dataset.remove}"]`).hidden = false;
+      q(`button[data-keep="${btn.dataset.remove}"]`).focus();
+    });
+  }
+  for (const btn of el.querySelectorAll<HTMLButtonElement>("button[data-keep]")) {
+    btn.addEventListener("click", () => {
+      q(`[data-confirm="${btn.dataset.keep}"]`).hidden = true;
+    });
+  }
+  for (const btn of el.querySelectorAll<HTMLButtonElement>("button[data-remove-yes]")) {
+    const id = btn.dataset.removeYes ?? "";
+    btn.addEventListener(
+      "click",
+      withPending(btn, "Removing…", async () => {
+        try {
+          await host.invokeBackend({ method: "POST", path: `/agents/${encodeURIComponent(id)}/delete` });
+          await renderAgents();
+        } catch (err) {
+          q(`[data-status="${id}"]`).textContent = plainError(err);
+        }
+      }),
+    );
+  }
+}
 
 // ---- the model switch: reacts at once, and says what happened
 $<HTMLInputElement>("model-switch").addEventListener("change", async (e) => {

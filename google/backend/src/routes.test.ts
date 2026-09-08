@@ -34,6 +34,9 @@ class FakeWire implements FirestoreWire {
   async listChanged<T>(c: string): Promise<WireDoc<T>[]> {
     return [...this.col(c).entries()].map(([id, data]) => ({ id, data: data as T }));
   }
+  async delete(c: string, id: string): Promise<void> {
+    this.col(c).delete(id);
+  }
 }
 
 const NOW = "2026-09-08T06:30:00.000Z";
@@ -239,5 +242,57 @@ describe("the Crew HQ routes", () => {
     expect(off.run.tier).toBe("none");
     expect(off.run.why).toMatch(/switched off/);
     expect((await handle("/ask", "POST", { request: "   " }, { store, memory, model })).status).toBe(400);
+  });
+
+  it("agents: the user defines one, runs it through the Planner as itself, under its own cap; and deletes it", async () => {
+    const { store, wire } = await ready();
+    const memory = fakeMemory();
+    const asked: Array<{ system: string; user: string; model?: string }> = [];
+    const model: Model = {
+      name: "gemini-2.5-flash",
+      words: "Gemini 2.5 Flash on Vertex AI",
+      async generate(system, user, _max, m) {
+        asked.push({ system, user, model: m });
+        return { text: "Dear all, thank you for Cozy Code.", promptTokens: 500, outputTokens: 60, model: m ?? "gemini-2.5-flash" };
+      },
+    };
+    const bad = await handle("/agents", "POST", { name: "", role: "x", instructions: "" }, { store, memory, model });
+    expect(bad.status).toBe(400);
+    expect((bad.body as { problems: string[] }).problems).toHaveLength(2);
+    const created = (await handle("/agents", "POST", { name: "Emma", role: "Thank-you writer", instructions: "Write warm thank-you notes to the people I meet.", tier: "auto", memory: true, capUsd: 2 }, { store, memory, model, now: () => NOW })).body as { agent: { id: string; tier: string } };
+    expect(created.agent).toMatchObject({ id: "emma", tier: "auto", capUsd: 2 });
+    expect(wire.col("agents").get("emma")).toMatchObject({ name: "Emma" });
+    const list = (await handle("/agents", "GET", undefined, { store, memory, model, now: () => NOW })).body as { agents: Array<{ id: string; monthUsd: number }>; builtIn: unknown[] };
+    expect(list.agents).toEqual([expect.objectContaining({ id: "emma", monthUsd: 0 })]);
+    expect(list.builtIn).toHaveLength(2);
+    const run = (await handle("/agents/emma/run", "POST", { request: "Thank the people I met at the board meeting this week." }, { store, memory, model, now: () => NOW, timeZone: () => "Europe/Rome", newId: () => "run-1" })).body as { ok: boolean; run: { agent: string; tier: string; read: { count: number; purpose: string }; model: { name: string } }; agent: { monthUsd: number } };
+    expect(run.ok).toBe(true);
+    expect(run.run).toMatchObject({ agent: "emma", tier: "standard", read: { count: 1, purpose: 'Emma: "Thank the people I met at the board meeting this week."' } });
+    expect(asked[0]!.system).toMatch(/^You are Emma, Thank-you writer/);
+    expect(asked[0]!.user).toContain("[event] Board meeting");
+    expect(memory.calls.at(-1)).toMatchObject({ path: "search", req: { purpose: 'Emma: "Thank the people I met at the board meeting this week."', model: "Gemini 2.5 Flash on Vertex AI" } });
+    expect(run.agent.monthUsd).toBeCloseTo((560 / 1_000_000) * 10, 8);
+    expect((wire.col("spend").get("2026-09") as { agents: Record<string, number> }).agents.emma).toBeCloseTo((560 / 1_000_000) * 10, 8);
+    // Its own cap: a $2 agent that already spent $2 does not run.
+    wire.col("spend").set("2026-09", { ...(wire.col("spend").get("2026-09") as object), agents: { emma: 2 } });
+    const capped = (await handle("/agents/emma/run", "POST", {}, { store, memory, model, now: () => NOW })).body as { ok: boolean; message: string };
+    expect(capped.ok).toBe(false);
+    expect(capped.message).toMatch(/Emma did not run: its monthly limit of \$2\.00/);
+    expect((await handle("/agents/emma/delete", "POST", {}, { store, memory, model })).status).toBe(200);
+    expect(wire.col("agents").has("emma")).toBe(false);
+    expect((await handle("/agents/emma/run", "POST", {}, { store, memory, model })).status).toBe(404);
+  });
+
+  it("agents: a built-in name cannot be taken, an unknown tier is refused, an agent's own tier overrides the Planner", async () => {
+    const { store } = await ready();
+    const memory = fakeMemory();
+    const asked: string[] = [];
+    const model: Model = { name: "gemini-2.5-flash", words: "w", async generate(_s, _u, _m, m) { asked.push(m ?? ""); return { text: "ok", promptTokens: 10, outputTokens: 5, model: m ?? "" }; } };
+    expect((await handle("/agents", "POST", { name: "Assistant", role: "r", instructions: "i" }, { store, memory, model })).status).toBe(409);
+    expect((await handle("/agents", "POST", { name: "Bo", role: "r", instructions: "i", tier: "huge" }, { store, memory, model })).status).toBe(400);
+    await handle("/agents", "POST", { name: "Bo", role: "Poet", instructions: "Write a haiku about the day.", tier: "deep", memory: false }, { store, memory, model, now: () => NOW });
+    const r = (await handle("/agents/bo/run", "POST", {}, { store, memory, model, now: () => NOW })).body as { run: { tier: string; why: string; request: string; read: { purpose: string } } };
+    expect(r.run).toMatchObject({ tier: "deep", why: "Bo's own setting", request: "(Bo's brief)", read: { purpose: "" } });
+    expect(asked).toEqual(["gemini-2.5-pro"]);
   });
 });

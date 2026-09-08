@@ -11,9 +11,10 @@
  */
 import type { Memory, MemoryAvailability, MemoryPage } from "@agentspoppy/core";
 import { formatMemoryBytes, memoryBytes } from "@agentspoppy/core";
+import { AGENT_LIMITS, type AgentDef, agentFrom, idFor, instructionsFor, validateAgent } from "./agents";
 import { type Brief, writeBrief } from "./briefer";
 import { ASSISTANT, BRIEFER_ID, type Plan, TIERS, type TierChoice, classify } from "./planner";
-import { type Caps, DEFAULT_CAPS, type SpendMonth, ceilingUsd, describeMeter, emptyMonth, mayCall, monthOf, recordCall, usd } from "./spend";
+import { type Caps, DEFAULT_CAPS, type SpendMonth, agentSpent, ceilingUsd, describeMeter, emptyMonth, mayCall, monthOf, recordCall, usd } from "./spend";
 import type { BriefRecord, CrewStore, RunRecord, Settings } from "./store";
 import type { Model } from "./vertex";
 
@@ -332,7 +333,109 @@ export async function handle(path: string, method: string, body: unknown, deps: 
     }
     return json(200, { ok: true, run, planLine: describePlan(run) });
   }
+  // ---- Your own agents (G3b) --------------------------------------------------------------------
+  if (method === "GET" && path === "/agents") {
+    const [agents, spend] = await Promise.all([deps.store.agents(), deps.store.spend<SpendMonth>(monthOf(now())).catch(() => null)]);
+    return json(200, { ok: true, agents: agents.map((a) => ({ ...a, monthUsd: spend ? agentSpent(spend, a.id) : 0 })), builtIn: CREW });
+  }
+  if (method === "POST" && path === "/agents") {
+    const input = (body ?? {}) as Record<string, unknown>;
+    const problems = validateAgent(input);
+    if (problems.length > 0) return json(400, { ok: false, error: "bad_request", message: problems.join("; "), problems });
+    const existing = typeof input.id === "string" ? await deps.store.agent(input.id) : null;
+    const taken = new Set([...(await deps.store.agents()).map((a) => a.id), ...CREW.map((c) => c.id)]);
+    // The crew's own names stay the crew's: no "Assistant" or "Briefer" of the user's beside them.
+    if (!existing && CREW.some((c) => c.id === idFor(String(input.name ?? ""), new Set()))) {
+      return json(409, { ok: false, error: "taken", message: `"${String(input.name).trim()}" is one of the crew's own names — pick another` });
+    }
+    const agent = agentFrom(input, existing, now(), taken);
+    await deps.store.saveAgent(agent);
+    return json(200, { ok: true, agent });
+  }
+  const agentMatch = /^\/agents\/([a-z0-9-]+)\/(run|delete)$/.exec(path);
+  if (method === "POST" && agentMatch) {
+    const [, id, action] = agentMatch as unknown as [string, string, "run" | "delete"];
+    const agent = await deps.store.agent(id);
+    if (!agent) return json(404, { ok: false, error: "not_found", message: "That agent is not in your crew." });
+    if (action === "delete") {
+      await deps.store.deleteAgent(id);
+      return json(200, { ok: true });
+    }
+    const b = (body ?? {}) as { request?: unknown };
+    const request = typeof b.request === "string" ? b.request.trim() : "";
+    if (request.length > AGENT_LIMITS.request) return json(400, { ok: false, error: "bad_request", message: `That is more than ${AGENT_LIMITS.request.toLocaleString("en-GB")} characters.` });
+    return json(200, await runAgent(deps, agent, request));
+  }
+
   return json(404, { ok: false, error: "not_found", message: `no route for ${method} ${path}` });
+}
+
+/**
+ * One run of an agent the user defined: the Planner picks the tier (the agent's own, or by the
+ * request), reads the memory when the agent may, then the model speaks as the agent — under the
+ * crew's caps and the agent's own monthly cap. Kept in `runs` like an ask.
+ */
+async function runAgent(deps: RouteDeps, agent: AgentDef, request: string): Promise<Record<string, unknown>> {
+  const now = deps.now ?? (() => new Date().toISOString());
+  const timeZone = deps.timeZone ?? (() => Intl.DateTimeFormat().resolvedOptions().timeZone ?? "UTC");
+  const at = now();
+  const task = request || agent.instructions;
+  const settings = (await deps.store.getMeta<Settings>("settings").catch(() => null)) ?? {};
+  const modelOn = !!deps.model && settings.model !== false;
+  let plan: Plan = agent.tier === "auto" ? classify(task) : { tier: agent.tier, why: `${agent.name}'s own setting`, wantsMemory: true, memoryQuery: "" };
+  if (plan.tier === "none") plan = { ...plan, tier: "light", why: "a light task, by the request" }; // an agent always answers in its own words
+  if (!modelOn) return { ok: false, error: "model_off", message: deps.model ? "The model is switched off — turn it on under Your crew to run an agent." : "This build has no model." };
+  const tierSpec = TIERS[plan.tier];
+  const purpose = `${agent.name}: "${task.length > 120 ? `${task.slice(0, 119)}…` : task}"`;
+  let memories: Memory[] = [];
+  const receipts: string[] = [];
+  let note: string | undefined;
+  if (agent.memory && deps.memory) {
+    try {
+      const page = await deps.memory.search({ purpose, query: (agent.tier === "auto" ? plan.memoryQuery : "") || undefined, limit: ASK_MEMORY_LIMIT, budget: ASK_MEMORY_BUDGET, model: tierSpec.words, estimatedCost: usd(ceilingUsd(ASK_MEMORY_BUDGET / 4 + 400 + tierSpec.maxOutputTokens, tierSpec.ceilingUsdPerMillion)) });
+      memories = page.memories;
+      if (page.receipt) receipts.push(page.receipt);
+    } catch (e) {
+      note = `Your memory could not be read: ${plain(e)}`;
+    }
+  }
+  const caps = deps.caps ?? DEFAULT_CAPS;
+  const month = monthOf(at);
+  const spend = (await deps.store.spend<SpendMonth>(month).catch(() => null)) ?? emptyMonth(month);
+  const allowed = mayCall(spend, caps, at);
+  if (!allowed.ok) return { ok: false, error: "capped", message: `${agent.name} did not run: ${allowed.reason}.` };
+  if (agentSpent(spend, agent.id) >= agent.capUsd) return { ok: false, error: "capped", message: `${agent.name} did not run: its monthly limit of ${usd(agent.capUsd)} (at the ceiling) is reached — raise it on the agent, or wait for next month.` };
+  let answer: string;
+  let modelUsed: RunRecord["model"] | undefined;
+  try {
+    const user = `${request ? `REQUEST:\n${request}\n\n` : "Do your job as briefed.\n\n"}${memoriesAsMaterial(memories, timeZone(), agent.memory && !!deps.memory)}\n\nAnswer in at most ${tierSpec.maxWords} words.`;
+    const reply = await deps.model!.generate(instructionsFor(agent), user, tierSpec.maxOutputTokens, tierSpec.model);
+    answer = reply.text;
+    const callUsd = ceilingUsd(reply.promptTokens + reply.outputTokens, tierSpec.ceilingUsdPerMillion);
+    modelUsed = { name: reply.model, words: tierSpec.words, promptTokens: reply.promptTokens, outputTokens: reply.outputTokens, ceilingUsd: callUsd };
+    await deps.store.saveSpend(month, recordCall(spend, reply.promptTokens, reply.outputTokens, at, callUsd, agent.id));
+  } catch (e) {
+    return { ok: false, error: "model_failed", message: `${agent.name} could not answer — ${plain(e)}` };
+  }
+  const run: RunRecord = {
+    id: (deps.newId ?? defaultId)(),
+    at,
+    agent: agent.id,
+    request: request || `(${agent.name}'s brief)`,
+    tier: plan.tier,
+    why: plan.why,
+    choice: "auto",
+    answer,
+    read: { count: memories.length, bytes: memories.reduce((n, m) => n + memoryBytes(m), 0), receipts, purpose: agent.memory && deps.memory ? purpose : "" },
+    ...(modelUsed ? { model: modelUsed } : {}),
+    ...(note ? { note } : {}),
+  };
+  try {
+    await deps.store.saveRun(run);
+  } catch (e) {
+    deps.log?.(`could not save the run: ${plain(e)}`);
+  }
+  return { ok: true, run, planLine: describePlan(run), agent: { ...agent, monthUsd: agentSpent(recordCall(spend, 0, 0, at, modelUsed?.ceilingUsd ?? 0, agent.id), agent.id) } };
 }
 
 /** "Planner: a light task — a rewrite · Gemini 2.5 Flash-Lite on Vertex AI · 3 memories read · 420 tokens · at most $0.01." */
