@@ -190,7 +190,10 @@ export class CrewStore {
       try {
         return await fn();
       } catch (e) {
-        const iamNotYet = e instanceof GoogleError && e.status === 403 && !/has not been used|is disabled|SERVICE_DISABLED/i.test(e.message);
+        // A fresh project's APIs were switched on by the host a moment ago, and Google answers "has not been
+        // used … or it is disabled" for a while after (the certify rehearsal of 2026-09-08, 16:05): that is
+        // "not settled yet" too, for the window; a truly disabled API still fails, in Google's words, at its end.
+        const iamNotYet = e instanceof GoogleError && e.status === 403;
         if (!iamNotYet || Date.now() >= deadline) throw e;
         this.cloud = { state: "setting-up", step: "waiting for Google to hand the project its permissions" };
         await this.sleep(5000);
