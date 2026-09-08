@@ -2524,6 +2524,21 @@ AWS edition's React: one screen today, and no build step the host has to trust.
   under "While you were away". Started without a metadata server the job says so plainly and
   exits 1 — the entry path proven from the shell.
 
+  **G4b + G4c host side built, 2026-09-08 14:37–15:10 — the ninth approved window
+  (agentspoppy `122b70e`, wiring `435fbed`+).** `gcp/cloud.ts` provisions the runner and the door
+  exactly as designed (the fake pins every call: no project-level binding, role or token touched);
+  `gcp/cloud-service.ts` consults the rating before anything is made, vends for the project and
+  the account, reads the installed bytes, writes the guest into the provider and remembers the
+  door on the consumer, closes every door before a teardown; `assessCloudDeclaration` folds the
+  two new classes into the card (a runner without `egress: "none"` is high and refused);
+  `router.syncDoorReceipts` puts the door's receipts on the Activity at the next open; the manifest
+  validator reads `cloud`; the broker's routes: `cloud-runner {on}`, `cloud-guest {provider, on}`,
+  `POST /memory/door-receipts`. MemoryPoppy's door mode was built the same day (its DESIGN §14).
+  Both manifests now declare: CrewPoppy `cloud.job` (v0.4.0), MemoryPoppy `cloud.door` (v0.2.0).
+  *Still to do:* the switch on the host's card (the app), and the live proof — which creates a
+  network, a bucket, a job, a scheduler and a door service in the founder's two poppy projects,
+  so it waits for his word.
+
   *Build order:* G4a (CrewPoppy job mode, tests, the honest "needs the app open" note) → the door
   mode of MemoryPoppy's backend (ID-token check, receipts, the new route; tests) → the founder's
   window for G4b + G4c on the host, spec and mechanism document updated in the same commit → live
