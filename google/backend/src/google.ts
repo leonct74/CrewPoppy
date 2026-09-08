@@ -88,7 +88,12 @@ export function createMetadataTokenProvider(fetchFn: FetchLike = fetch, now: () 
   let cached: ProjectToken | null = null;
   let inflight: Promise<ProjectToken> | null = null;
   const ask = async (path: string): Promise<string> => {
-    const res = await fetchFn(`${base}/${path}`, { headers: { "Metadata-Flavor": "Google" }, signal: AbortSignal.timeout(10_000) });
+    let res: Response;
+    try {
+      res = await fetchFn(`${base}/${path}`, { headers: { "Metadata-Flavor": "Google" }, signal: AbortSignal.timeout(10_000) });
+    } catch {
+      throw new Error("Google's metadata server is not reachable — is this running on Cloud Run?");
+    }
     if (!res.ok) throw new Error(`Google's metadata server answered ${res.status} for ${path} — is this running on Cloud Run?`);
     return res.text();
   };
