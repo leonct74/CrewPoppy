@@ -2375,6 +2375,64 @@ AWS edition's React: one screen today, and no build step the host has to trust.
   Maker Space…" — Flash-Lite, 407 tokens, Emma's month at $0.0036. Still G3c: tools and the
   dispatcher, schedules and runs that outlive the app, the Crew Pack, the light-model judge.
 
+  **G3c built and proven live, 2026-09-08 12:40–13:05 — tools, pauses, the judge, schedules,
+  the Crew Pack.** *The trusted dispatcher, ported* (`google/backend/src/tools.ts`,
+  `dispatcher.ts`, `loop.ts`): a FIXED catalogue — `memory_search` (through the host, for the
+  RUN's purpose with the runner's receipt hints; the model chooses only the words), the agent's
+  own `note_read`/`note_write` and `file_list`/`file_read`/`file_write`/`file_append` (Firestore
+  `notes` and `files`, every id prefixed with the agent the RUNNER named — never a name the model
+  chose), and `ask_user`. The memory search follows the "May read my memory" tick; the rest are
+  ticked on the editor, grouped as the owner is asked (§4c), with the honest caveat on each. The
+  loop speaks Gemini's own shape — function declarations in the request, the model's parts
+  replayed verbatim (thought signatures and all), results back as function responses, i.e. DATA;
+  the guardrails asked BEFORE every call (8 turns, four minutes, the crew's caps, the agent's own
+  cap); an answer cut short said so. *ask_user pauses the run:* the conversation is kept on the
+  run (JSON, dropped once resumed), the pending function response is a placeholder that the
+  user's answer REPLACES — so the model reads the answer as the result of its own question, never
+  as an instruction from nowhere; later calls of the same turn are answered "not done". A waiting
+  run sits under Today with its question and draft; the agent is busy until it is answered or
+  stopped. *The judge* (`judge.ts`): only for a request no rule placed, Flash-Lite answers one
+  word at the light rate; the run says "the small model judged it…" and carries the judge's
+  tokens. *Schedules* (`schedule.ts`, `scheduler.ts`): data on the agent — every hour, every day
+  at HH:MM, every <weekday> at HH:MM, minutes in fives, the owner's zone — and ONE ticker in this
+  backend every minute while CrewPoppy is open (§5b's shape, no Cloud resource): the run id is the
+  slot's (`nico~20260908T1300`), so a slot runs once; a slot the app slept through is run within
+  12 hours and the run says it was late; a slot from before the agent was saved is not owed; a
+  run still waiting for the user blocks its agent, and a run the app was closed in the middle of
+  is freed after eight minutes; a refused start (a cap, the model off) is recorded on the slot so
+  it is not retried every minute. *The Crew Pack* (`pack.ts`): agents, notes and files as one JSON
+  file — no token, no key, no receipt — downloaded through the host's one-shot `ext-dl` door and
+  brought back through the same validation as the form (an agent with a tool outside the
+  catalogue, a note or file under an unsafe name, one of the crew's own ids: left out, and said).
+  The caps' call defaults rose to 60 a day / 600 a month because a run is several calls now; the
+  money cap is unchanged.
+
+  **Proof, live:** Nico ("Note writer", light tier by the rules, no memory) was created on the
+  form, asked to write a note for a neighbour: he called `ask_user` — "What is Tom's surname?" —
+  the run waited under Today; answered "Bakker. He lives at number 12." it resumed, kept the note
+  `last = Tom Bakker` with `note_write`, and wrote the three-line note signed Marco (3 turns,
+  2,550 tokens, at most $0.01). His schedule "every day at 13:00" ran by itself at 13:00:03 under
+  slot id `nico~20260908T1300`, on time, and paused with its question. The Assistant answered
+  "Who organised the meetup I went to at the end of August?" from one memory read (a receipt on
+  the connection, Flash, 683 tokens). The Crew Pack came down through the broker with
+  `content-disposition: attachment` and went back in: "2 agents (0 new, 2 updated), 1 note".
+  Lessons: (1) 🪤 Flash-Lite with thinking off answered `MALFORMED_FUNCTION_CALL` — no words, no
+  call — on the first tool run; `converse` now retries once with `thinkingBudget: 1024` and says
+  it plainly the second time. (2) The Planner's life-words lacked months, "meetup", "went",
+  "we" — the meetup question went to the model without the memory; widened. (3) `[hidden]` needs
+  `!important` beside the kit's flex rows. (4) A failed model call's prompt tokens are billed by
+  Google but not counted by the meter (the error loses the usage) — a known small gap.
+
+  **Runs that outlive the app — deferred, a founder decision.** Cloud Run jobs + Cloud Scheduler
+  were this slice's plan (the table above). Built now, they would break two promises: the memory
+  contract routes every read through the HOST on the user's machine, so a job in the cloud could
+  neither read the memory nor leave a receipt; and Cloud Run needs a billing account and a
+  container built in the user's project (Cloud Build, Artifact Registry — new grants, new
+  footprint). The honest edition today runs schedules while CrewPoppy is open and says so on the
+  page. The founder chooses between: a headless host mode (the broker on a small machine the user
+  owns, keeping the contract whole), a cloud-side memory door with its own receipts (a contract
+  change), or leaving runs to the open app.
+
 **What G1 is not.** No model, no agents, no tools, no schedules, no mobile. It reads; it does not
 write memory (a Briefer that wrote its briefs back as `note` memories would be a fine G2/G3 idea —
 it needs `memory.writes` on the card and the user's say).

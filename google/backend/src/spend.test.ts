@@ -13,7 +13,7 @@ describe("the caps and the meter", () => {
     expect(usd(0.0012)).toBe("$0.01");
     expect(usd(0)).toBe("$0.00");
     const m = recordCall(recordCall(emptyMonth("2026-09"), 1000, 100, NOW), 500, 50, NOW);
-    expect(describeMeter(m, DEFAULT_CAPS)).toBe("This month: 2 model calls · 1,650 tokens, at most $0.02 at the ceiling · limits $10.00 a month at the ceiling, 24 calls a day.");
+    expect(describeMeter(m, DEFAULT_CAPS)).toBe("This month: 2 model calls · 1,650 tokens, at most $0.02 at the ceiling · limits $10.00 a month at the ceiling, 60 calls a day.");
     expect(describeMeter(emptyMonth("2026-09"), DEFAULT_CAPS)).toMatch(/0 model calls · nothing spent/);
   });
 

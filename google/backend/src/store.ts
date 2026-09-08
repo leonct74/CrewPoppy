@@ -3,19 +3,23 @@
 
 /**
  * The crew's own records, in Firestore inside the poppy's own project (DESIGN.md §18 — Firestore
- * for DynamoDB). This release keeps one collection, `briefs`; agents, runs and spend rows join it
- * as the port advances. `open()` brings the database up on the first run and never throws — the
- * page shows the state, and the routes that need the store answer 503 until it is ready.
+ * for DynamoDB): `briefs`, `agents`, `runs`, `spend`, and since G3c the agents' own `notes` and
+ * `files`. `open()` brings the database up on the first run and never throws — the page shows
+ * the state, and the routes that need the store answer 503 until it is ready.
  */
 import type { AgentDef } from "./agents";
 import type { FirestoreWire } from "./firestore";
 import { GoogleError } from "./google";
+import type { Step } from "./loop";
+import { fileIdFor, noteIdFor } from "./tools";
 
 export const BRIEFS = "briefs";
 export const META = "meta";
 export const SPEND = "spend";
 export const RUNS = "runs";
 export const AGENTS = "agents";
+export const NOTES = "notes";
+export const FILES = "files";
 export const SCHEMA_VERSION = 1;
 
 export interface BriefRecord {
@@ -43,12 +47,16 @@ export interface Settings {
   model?: boolean;
 }
 
+export type RunStatus = "running" | "succeeded" | "stopped" | "waiting";
+
 /** One request answered by the crew — the Planner's choice, the reads, the answer, the cost. */
 export interface RunRecord {
   id: string;
   at: string;
   /** The crew member that answered: "assistant" for tasks on the fly. */
   agent: string;
+  /** Its name at the time, so the page can say "Nico" without looking it up. */
+  agentName?: string;
   request: string;
   /** The Planner's tier and its one-line reason. */
   tier: "none" | "light" | "standard" | "deep";
@@ -61,6 +69,40 @@ export interface RunRecord {
   model?: { name: string; words: string; promptTokens: number; outputTokens: number; ceilingUsd: number };
   /** When the answer did not come the planned way: a cap, a refusal — in the user's words. */
   note?: string;
+  /** Absent on a run from before the loop (G3c): those succeeded. */
+  status?: RunStatus;
+  /** How the run started: asked on the fly, pressed on the agent, or its schedule. */
+  trigger?: "ask" | "run" | "schedule";
+  /** The schedule's slot this run was for — the run id is derived from it, so a slot runs once. */
+  slot?: string;
+  /** The words when the schedule's slot was run late — the app was closed at the time. */
+  late?: string;
+  /** What the agent did, step by step — every tool call, every result, nothing hidden. */
+  steps?: Step[];
+  iterations?: number;
+  toolsUsed?: string[];
+  /** While the run waits for the user: the question, and the conversation to resume (JSON). */
+  question?: { question: string; draft?: string };
+  conversation?: string;
+  answeredAt?: string;
+  /** When the small model was asked which tier: its word and its cost. */
+  judge?: { tier: "light" | "standard" | "deep"; promptTokens: number; outputTokens: number; ceilingUsd: number };
+}
+
+/** A note an agent keeps between runs — filed under the agent the runner named, never a name the model chose. */
+export interface NoteRecord {
+  agent: string;
+  key: string;
+  value: string;
+  updatedAt: string;
+}
+
+/** A text file in an agent's own folder — the same scoping. */
+export interface FileRecord {
+  agent: string;
+  path: string;
+  content: string;
+  updatedAt: string;
 }
 
 export type StoreState =
@@ -154,70 +196,116 @@ export class CrewStore {
     }
   }
 
-  async saveBrief(b: BriefRecord): Promise<void> {
+  private need(): FirestoreWire {
     if (!this.ready) throw new Error(this.unavailableMessage());
-    await this.deps.wire.set(BRIEFS, b.id, b);
+    return this.deps.wire;
+  }
+
+  async saveBrief(b: BriefRecord): Promise<void> {
+    await this.need().set(BRIEFS, b.id, b);
   }
 
   async getMeta<T extends object>(id: string): Promise<T | null> {
-    if (!this.ready) throw new Error(this.unavailableMessage());
-    return this.deps.wire.get<T>(META, id);
+    return this.need().get<T>(META, id);
   }
 
   async setMeta(id: string, value: object): Promise<void> {
-    if (!this.ready) throw new Error(this.unavailableMessage());
-    await this.deps.wire.set(META, id, value);
+    await this.need().set(META, id, value);
   }
 
   /** The month's counters — the caps' and the meter's one source of truth. */
   async spend<T extends object>(month: string): Promise<T | null> {
-    if (!this.ready) throw new Error(this.unavailableMessage());
-    return this.deps.wire.get<T>(SPEND, month);
+    return this.need().get<T>(SPEND, month);
   }
 
   async saveSpend(month: string, value: object): Promise<void> {
-    if (!this.ready) throw new Error(this.unavailableMessage());
-    await this.deps.wire.set(SPEND, month, value);
+    await this.need().set(SPEND, month, value);
   }
 
   async agents(): Promise<AgentDef[]> {
-    if (!this.ready) throw new Error(this.unavailableMessage());
-    const all = await this.deps.wire.listChanged<AgentDef>(AGENTS, "createdAt", null);
+    const all = await this.need().listChanged<AgentDef>(AGENTS, "createdAt", null);
     return all.map((d) => ({ ...d.data, id: d.id }));
   }
 
   async agent(id: string): Promise<AgentDef | null> {
-    if (!this.ready) throw new Error(this.unavailableMessage());
-    const a = await this.deps.wire.get<AgentDef>(AGENTS, id);
+    const a = await this.need().get<AgentDef>(AGENTS, id);
     return a ? { ...a, id } : null;
   }
 
   async saveAgent(a: AgentDef): Promise<void> {
-    if (!this.ready) throw new Error(this.unavailableMessage());
-    await this.deps.wire.set(AGENTS, a.id, a);
+    await this.need().set(AGENTS, a.id, a);
   }
 
   async deleteAgent(id: string): Promise<void> {
-    if (!this.ready) throw new Error(this.unavailableMessage());
-    await this.deps.wire.delete(AGENTS, id);
+    await this.need().delete(AGENTS, id);
+  }
+
+  /** An agent's notes and files go with it. */
+  async deleteAgentData(id: string): Promise<void> {
+    const wire = this.need();
+    for (const n of await this.notes(id)) await wire.delete(NOTES, noteIdFor(id, n.key));
+    for (const f of await this.files(id)) await wire.delete(FILES, fileIdFor(id, f.path));
+  }
+
+  async note(agentId: string, key: string): Promise<NoteRecord | null> {
+    return this.need().get<NoteRecord>(NOTES, noteIdFor(agentId, key));
+  }
+
+  async saveNote(n: NoteRecord): Promise<void> {
+    await this.need().set(NOTES, noteIdFor(n.agent, n.key), n);
+  }
+
+  async notes(agentId?: string): Promise<NoteRecord[]> {
+    const all = await this.need().listChanged<NoteRecord>(NOTES, "updatedAt", null);
+    return all.map((d) => d.data).filter((n) => !agentId || n.agent === agentId);
+  }
+
+  async file(agentId: string, path: string): Promise<FileRecord | null> {
+    return this.need().get<FileRecord>(FILES, fileIdFor(agentId, path));
+  }
+
+  async saveFile(f: FileRecord): Promise<void> {
+    await this.need().set(FILES, fileIdFor(f.agent, f.path), f);
+  }
+
+  async files(agentId?: string): Promise<FileRecord[]> {
+    const all = await this.need().listChanged<FileRecord>(FILES, "updatedAt", null);
+    return all
+      .map((d) => d.data)
+      .filter((f) => !agentId || f.agent === agentId)
+      .sort((x, y) => x.path.localeCompare(y.path));
   }
 
   async saveRun(r: RunRecord): Promise<void> {
-    if (!this.ready) throw new Error(this.unavailableMessage());
-    await this.deps.wire.set(RUNS, r.id, r);
+    await this.need().set(RUNS, r.id, r);
+  }
+
+  async run(id: string): Promise<RunRecord | null> {
+    const r = await this.need().get<RunRecord>(RUNS, id);
+    return r ? { ...r, id } : null;
   }
 
   /** Newest first. */
   async runs(limit = 30): Promise<RunRecord[]> {
-    if (!this.ready) throw new Error(this.unavailableMessage());
-    const all = await this.deps.wire.listChanged<RunRecord>(RUNS, "at", null);
+    const all = await this.need().listChanged<RunRecord>(RUNS, "at", null);
     return all.map((d) => ({ ...d.data, id: d.id })).sort((x, y) => (x.at < y.at ? 1 : x.at > y.at ? -1 : 0)).slice(0, limit);
+  }
+
+  /** The runs waiting for the user's answer, oldest first. */
+  async waiting(): Promise<RunRecord[]> {
+    const all = await this.runs(500);
+    return all.filter((r) => r.status === "waiting").reverse();
+  }
+
+  /** An agent's run that is still going, or waiting — the reason a schedule never stacks up. */
+  async activeRun(agentId: string): Promise<RunRecord | null> {
+    const all = await this.runs(500);
+    return all.find((r) => r.agent === agentId && (r.status === "running" || r.status === "waiting")) ?? null;
   }
 
   /** Newest first. */
   async briefs(limit = 20): Promise<BriefRecord[]> {
-    if (!this.ready) throw new Error(this.unavailableMessage());
-    const all = await this.deps.wire.listChanged<BriefRecord>(BRIEFS, "at", null);
+    const all = await this.need().listChanged<BriefRecord>(BRIEFS, "at", null);
     return all.map((d) => ({ ...d.data, id: d.id })).sort((x, y) => (x.at < y.at ? 1 : x.at > y.at ? -1 : 0)).slice(0, limit);
   }
 }

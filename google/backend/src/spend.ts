@@ -31,8 +31,8 @@ export interface Caps {
   usdPerMonth: number;
 }
 
-/** Safe defaults, never unlimited (§14.6): a brief a few times a day, a modest month, ten dollars. */
-export const DEFAULT_CAPS: Caps = { callsPerDay: 24, callsPerMonth: 300, tokensPerMonth: 500_000, usdPerMonth: 10 };
+/** Safe defaults, never unlimited (§14.6): a run is several calls since the tools came (G3c), a modest month, ten dollars. */
+export const DEFAULT_CAPS: Caps = { callsPerDay: 60, callsPerMonth: 600, tokensPerMonth: 500_000, usdPerMonth: 10 };
 
 /** US dollars per million tokens, in or out — the ceiling, not a price. */
 export const CEILING_USD_PER_MILLION_TOKENS = 10;

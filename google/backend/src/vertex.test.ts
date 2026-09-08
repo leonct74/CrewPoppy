@@ -47,6 +47,38 @@ describe("the model on Vertex AI", () => {
     await expect(new VertexModel(token, { fetch: g2.fetch, sleep: async () => {} }).generate("s", "u", 50)).rejects.toThrow(/has not received CrewPoppy's permission yet/);
   });
 
+  it("converses with tools: the declarations go in the request, a function call comes back with the model's parts to replay, and thinking tokens count as output", async () => {
+    const g = google([
+      { status: 200, body: { candidates: [{ content: { parts: [{ text: "Let me look. " }, { functionCall: { name: "memory_search", args: { query: "Anna" } }, thoughtSignature: "sig-1" }] }, finishReason: "STOP" }], usageMetadata: { promptTokenCount: 90, candidatesTokenCount: 12, thoughtsTokenCount: 30 } } },
+      { status: 200, body: { candidates: [{ content: { parts: [{ text: "Half an ans" }] }, finishReason: "MAX_TOKENS" }], usageMetadata: { promptTokenCount: 140, candidatesTokenCount: 50 } } },
+    ]);
+    const m = new VertexModel(token, { fetch: g.fetch, sleep: async () => {} });
+    const tools = [{ name: "memory_search", description: "Search.", parameters: { type: "OBJECT", properties: { query: { type: "STRING", description: "words" } }, required: ["query"] } }];
+    const r = await m.converse({ system: "Be Emma.", contents: [{ role: "user", parts: [{ text: "Who is Anna?" }] }], tools, maxOutputTokens: 300, model: "gemini-2.5-flash-lite" });
+    expect(r).toEqual({ text: "Let me look.", calls: [{ name: "memory_search", args: { query: "Anna" } }], parts: [{ text: "Let me look. " }, { functionCall: { name: "memory_search", args: { query: "Anna" } }, thoughtSignature: "sig-1" }], promptTokens: 90, outputTokens: 42, model: "gemini-2.5-flash-lite", truncated: false });
+    expect(g.calls[0]!.url).toContain("/models/gemini-2.5-flash-lite:generateContent");
+    expect(g.calls[0]!.body).toMatchObject({ tools: [{ functionDeclarations: tools }], toolConfig: { functionCallingConfig: { mode: "AUTO" } }, generationConfig: { maxOutputTokens: 300 } });
+    const cut = await m.converse({ system: "s", contents: [{ role: "user", parts: [{ text: "u" }] }], tools: [], maxOutputTokens: 5 });
+    expect(cut).toMatchObject({ text: "Half an ans", calls: [], truncated: true, outputTokens: 50 });
+    expect(g.calls[1]!.body).not.toHaveProperty("tools");
+  });
+
+  it("retries a garbled tool call once with thinking on, and says so plainly the second time", async () => {
+    const garbled = { status: 200, body: { candidates: [{ content: { parts: [] }, finishReason: "MALFORMED_FUNCTION_CALL" }], usageMetadata: { promptTokenCount: 50, candidatesTokenCount: 0 } } };
+    const fine = { status: 200, body: { candidates: [{ content: { parts: [{ functionCall: { name: "ask_user", args: { question: "Who?" } } }] }, finishReason: "STOP" }], usageMetadata: { promptTokenCount: 60, candidatesTokenCount: 8, thoughtsTokenCount: 40 } } };
+    const g = google([garbled, fine]);
+    const m = new VertexModel(token, { fetch: g.fetch, sleep: async () => {} });
+    const tools = [{ name: "ask_user", description: "Ask.", parameters: { type: "OBJECT", properties: { question: { type: "STRING", description: "q" } }, required: ["question"] } }];
+    const r = await m.converse({ system: "s", contents: [{ role: "user", parts: [{ text: "u" }] }], tools, maxOutputTokens: 300, model: "gemini-2.5-flash-lite" });
+    expect(r.calls).toEqual([{ name: "ask_user", args: { question: "Who?" } }]);
+    expect(r.outputTokens).toBe(48);
+    expect(g.calls).toHaveLength(2);
+    expect((g.calls[0]!.body as { generationConfig: Record<string, unknown> }).generationConfig).not.toHaveProperty("thinkingConfig");
+    expect((g.calls[1]!.body as { generationConfig: { thinkingConfig: unknown } }).generationConfig.thinkingConfig).toEqual({ thinkingBudget: 1024 });
+    const g2 = google([garbled, garbled]);
+    await expect(new VertexModel(token, { fetch: g2.fetch }).converse({ system: "s", contents: [], tools, maxOutputTokens: 10, model: "gemini-2.5-flash-lite" })).rejects.toThrow(/Gemini 2.5 Flash-Lite on Vertex AI garbled a tool call twice/);
+  });
+
   it("names a pinned region's endpoint", () => {
     const m = new VertexModel(token, { location: "europe-west4", model: "gemini-2.5-pro" });
     expect((m as unknown as { url(p: string): string }).url("p1")).toBe("https://europe-west4-aiplatform.googleapis.com/v1/projects/p1/locations/europe-west4/publishers/google/models/gemini-2.5-pro:generateContent");

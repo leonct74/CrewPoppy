@@ -20,6 +20,12 @@ describe("the Planner", () => {
     expect(classify("word ".repeat(130).trim())).toMatchObject({ tier: "deep", why: "a long request" });
   });
 
+  it("knows a question about the user's own life by its people, places and times — a meetup in August as much as a meeting on Monday", () => {
+    expect(classify("Who organised the meetup I went to at the end of August, and where was it held?")).toMatchObject({ wantsMemory: true, tier: "standard", why: "a question about your own life — your memory first, then the standard model" });
+    expect(classify("What did we decide at the workshop last month?")).toMatchObject({ wantsMemory: true });
+    expect(classify("How long does the flight from Amsterdam to Rome take?")).toMatchObject({ wantsMemory: false });
+  });
+
   it("obeys the user's choice, and still knows whether the memory should be read", () => {
     expect(classify("What did Anna and I discuss at the board meeting?", "best")).toMatchObject({ tier: "deep", why: "you asked for the best model", wantsMemory: true });
     expect(classify("Write a haiku about rain", "quick")).toMatchObject({ tier: "light", wantsMemory: false });

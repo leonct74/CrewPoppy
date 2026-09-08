@@ -2,7 +2,8 @@
 // SPDX-License-Identifier: PolyForm-Shield-1.0.0
 
 import { describe, it, expect } from "vitest";
-import { AGENT_LIMITS, agentFrom, idFor, instructionsFor, validateAgent } from "./agents";
+import { AGENT_LIMITS, agentFrom, idFor, instructionsFor, toolsFor, validateAgent } from "./agents";
+import { DEFAULT_TOOLS } from "./tools";
 
 const NOW = "2026-09-08T08:00:00.000Z";
 
@@ -22,9 +23,24 @@ describe("an agent the user defines", () => {
 
   it("is built with safe defaults — the Planner chooses, memory on, five dollars — and keeps its birth date on edit", () => {
     const a = agentFrom({ name: " Emma ", role: "Newsletter drafter", instructions: "Draft the weekly note." }, null, NOW, new Set());
-    expect(a).toEqual({ id: "emma", name: "Emma", role: "Newsletter drafter", instructions: "Draft the weekly note.", tier: "auto", memory: true, capUsd: 5, createdAt: NOW, updatedAt: NOW });
+    expect(a).toEqual({ id: "emma", name: "Emma", role: "Newsletter drafter", instructions: "Draft the weekly note.", tier: "auto", memory: true, capUsd: 5, tools: [...DEFAULT_TOOLS], createdAt: NOW, updatedAt: NOW });
     const b = agentFrom({ name: "Emma", role: "Editor", instructions: "Edit.", tier: "deep", capUsd: "12" }, a, "2026-09-09T08:00:00.000Z", new Set(["emma"]));
     expect(b).toMatchObject({ id: "emma", role: "Editor", tier: "deep", capUsd: 12, createdAt: NOW, updatedAt: "2026-09-09T08:00:00.000Z", memory: true });
+  });
+
+  it("holds tools from the catalogue only — the memory search follows the memory tick — and a schedule in plain words", () => {
+    expect(validateAgent({ name: "Emma", role: "r", instructions: "i", tools: ["note_read", "send_email"] })).toEqual(['no tool is called "send_email" — the catalogue is fixed']);
+    expect(validateAgent({ name: "Emma", role: "r", instructions: "i", schedule: { every: "day", at: "09:07" } })).toEqual(["the minutes must be a multiple of five — the crew looks every five minutes, and 09:07 would promise more than it can keep"]);
+    const a = agentFrom({ name: "Emma", role: "r", instructions: "i", tools: ["memory_search", "file_append", "note_read"], memory: false, schedule: { every: "week", at: "9:00", weekday: 1 } }, null, NOW, new Set(), "Europe/Rome");
+    expect(a.tools).toEqual(["note_read", "file_append"]);
+    expect(a.schedule).toEqual({ every: "week", at: "09:00", weekday: 1, timeZone: "Europe/Rome" });
+    expect(toolsFor(a)).toEqual(["note_read", "file_append"]);
+    expect(toolsFor({ ...a, memory: true })).toEqual(["memory_search", "note_read", "file_append"]);
+    const b = agentFrom({ name: "Emma", role: "r", instructions: "i", schedule: null }, a, NOW, new Set(["emma"]));
+    expect(b.schedule).toBeUndefined();
+    expect(b.tools).toEqual(["note_read", "file_append"]);
+    expect(instructionsFor(a)).toContain("Your notes and files are your own");
+    expect(instructionsFor({ ...a, tools: [] })).not.toContain("You have tools");
   });
 
   it("tells the model who it is, the crew's non-negotiables, then the user's brief", () => {

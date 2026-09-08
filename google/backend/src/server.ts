@@ -4,8 +4,9 @@
 /**
  * CrewPoppy's Google Cloud edition — the backend AgentsPoppy spawns for this connection, on its
  * own node22, confined. Its own records live in Firestore inside the poppy's own project; the
- * memories it reads come through the host's memory route, never from a store of its own. This
- * release has one crew member, the Briefer, with a pen on Vertex AI (DESIGN.md §18, G1 + G2).
+ * memories it reads come through the host's memory route, never from a store of its own. The
+ * crew: the Planner in front, the Assistant, the Briefer, and the agents the user defines — with
+ * tools, schedules on one ticker, and the Crew Pack (DESIGN.md §18, G1–G3c).
  */
 import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
@@ -14,6 +15,7 @@ import { readBootstrap } from "./bootstrap";
 import { RestFirestore } from "./firestore";
 import { createProjectTokenProvider } from "./google";
 import { type MemoryReader, type Reply, handle } from "./routes";
+import { startTicker } from "./scheduler";
 import { CrewStore } from "./store";
 import { VertexModel } from "./vertex";
 
@@ -31,6 +33,11 @@ const memory: MemoryReader | null = boot.memoryUrl ? (createMemoryClient(boot) a
 if (!memory) log("no memoryUrl in the bootstrap — the manifest must declare permissionSet.memory.reads");
 
 function send(res: import("node:http").ServerResponse, reply: Reply): void {
+  if (reply.contentType) {
+    res.writeHead(reply.status, { "content-type": reply.contentType, ...(reply.filename ? { "content-disposition": `attachment; filename="${reply.filename}"` } : {}) });
+    res.end(reply.body as string);
+    return;
+  }
   res.writeHead(reply.status, { "content-type": "application/json; charset=utf-8" });
   res.end(JSON.stringify(reply.body));
 }
@@ -57,5 +64,10 @@ const server = createServer((req, res) => {
 server.listen(boot.port ?? 0, "127.0.0.1", () => {
   const addr = server.address() as AddressInfo;
   log(`backend listening on 127.0.0.1:${addr.port}`);
-  if (onGoogle) void store.open();
+  if (onGoogle) {
+    void store.open().then((state) => {
+      // ONE ticker for the crew's schedules, while the app is open (DESIGN.md §5b, §18 G3c).
+      if (state.state === "ready") startTicker({ store, memory, model, now, log });
+    });
+  }
 });

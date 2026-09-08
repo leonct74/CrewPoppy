@@ -7,6 +7,7 @@ import type { FirestoreWire, IndexField, WireDoc, WireWrite } from "./firestore"
 import { type MemoryReader, PURPOSE, describeRead, handle } from "./routes";
 import { CrewStore } from "./store";
 import type { Model } from "./vertex";
+import { responsesOf, scriptedModel } from "./testing";
 
 class FakeWire implements FirestoreWire {
   readonly docs = new Map<string, Map<string, object>>();
@@ -40,6 +41,7 @@ class FakeWire implements FirestoreWire {
 }
 
 const NOW = "2026-09-08T06:30:00.000Z";
+type RunRecordLike = { id: string; status?: string; answer: string; question?: { question: string; draft?: string }; conversation?: string; steps?: Array<{ kind: string; text: string }>; toolsUsed?: string[]; iterations?: number; answeredAt?: string; tier: string; why: string; judge?: unknown; model?: { name: string; promptTokens: number; outputTokens: number; ceilingUsd: number } };
 const prov = { app: "com.agentspoppy.memory", source: "calendar" as const, capturedAt: NOW };
 const anna: Memory = { id: "p1", kind: "person", title: "Anna Rossi", provenance: prov, confidence: 0.8, createdAt: NOW, updatedAt: NOW, visibility: "shared", status: "active" };
 const board: Memory = {
@@ -74,6 +76,34 @@ function fakeMemory(): MemoryReader & { calls: Array<{ path: string; req: unknow
     async get(req) {
       calls.push({ path: "get", req });
       return { memories: [anna], truncated: false, receipt: "receipt-get-1" };
+    },
+  };
+}
+
+type Asked = { system: string; user: string; model?: string; max: number; tools: string[] };
+/** A model that answers in words — the Briefer's pen and the crew's conversation alike — every call recorded. */
+function fakeModel(reply: (asked: Asked) => { text: string; promptTokens: number; outputTokens: number } | Error): Model & { asked: Asked[] } {
+  const asked: Asked[] = [];
+  const answer = (a: Asked) => {
+    const r = reply(a);
+    if (r instanceof Error) throw r;
+    return r;
+  };
+  return {
+    asked,
+    name: "gemini-2.5-flash",
+    words: "Gemini 2.5 Flash on Vertex AI",
+    async generate(system, user, max, m) {
+      const a: Asked = { system, user, model: m, max, tools: [] };
+      asked.push(a);
+      return { ...answer(a), model: m ?? "gemini-2.5-flash" };
+    },
+    async converse(req) {
+      const last = req.contents[req.contents.length - 1] as { parts: Array<{ text?: string }> };
+      const a: Asked = { system: req.system, user: last.parts.map((p) => p.text ?? "").join(""), model: req.model, max: req.maxOutputTokens, tools: req.tools.map((t) => t.name) };
+      asked.push(a);
+      const r = answer(a);
+      return { text: r.text, calls: [], parts: [{ text: r.text }], promptTokens: r.promptTokens, outputTokens: r.outputTokens, model: req.model ?? "gemini-2.5-flash", truncated: false };
     },
   };
 }
@@ -133,15 +163,8 @@ describe("the Crew HQ routes", () => {
   it("with a model on: the receipt names where the memories go, the model writes from the Briefer's material, the spend is counted", async () => {
     const { store, wire } = await ready();
     const memory = fakeMemory();
-    const asked: Array<{ system: string; user: string; max: number }> = [];
-    const model: Model = {
-      name: "gemini-2.5-flash",
-      words: "Gemini 2.5 Flash on Vertex AI",
-      async generate(system, user, max) {
-        asked.push({ system, user, max });
-        return { text: "Good morning. One thing today: the board meeting at nine with Anna Rossi.", promptTokens: 210, outputTokens: 18, model: "gemini-2.5-flash" };
-      },
-    };
+    const model = fakeModel(() => ({ text: "Good morning. One thing today: the board meeting at nine with Anna Rossi.", promptTokens: 210, outputTokens: 18 }));
+    const asked = model.asked;
     const r = await handle("/brief", "POST", undefined, { store, memory, model, now: () => NOW, timeZone: () => "Europe/Rome", newId: () => "b2" });
     expect(r.status).toBe(200);
     const b = (r.body as { brief: { text: string; writtenBy: string; model: { promptTokens: number; ceilingUsd: number } } }).brief;
@@ -161,7 +184,7 @@ describe("the Crew HQ routes", () => {
   it("the Briefer writes itself when the model is off, capped, or away — and says why; nothing is counted", async () => {
     const { store, wire } = await ready();
     const memory = fakeMemory();
-    const failing: Model = { name: "gemini-2.5-flash", words: "Gemini 2.5 Flash on Vertex AI", generate: async () => { throw new Error("Vertex AI is busy — try again in a moment."); } };
+    const failing = fakeModel(() => new Error("Vertex AI is busy — try again in a moment."));
     let r = (await handle("/brief", "POST", undefined, { store, memory, model: failing, now: () => NOW, timeZone: () => "Europe/Rome", newId: () => "b3" })).body as { brief: { writtenBy: string; note?: string; text: string } };
     expect(r.brief.writtenBy).toBe("template");
     expect(r.brief.note).toBe("The Briefer wrote this itself — Vertex AI is busy — try again in a moment.");
@@ -182,7 +205,7 @@ describe("the Crew HQ routes", () => {
   it("ask: a calendar question is answered from the memory alone — a receipt in the user's words, no model, no tokens", async () => {
     const { store, wire } = await ready();
     const memory = fakeMemory();
-    const model: Model = { name: "gemini-2.5-flash", words: "Gemini 2.5 Flash on Vertex AI", generate: async () => { throw new Error("must not be asked"); } };
+    const model = fakeModel(() => new Error("must not be asked"));
     const r = await handle("/ask", "POST", { request: "What's on my calendar today?" }, { store, memory, model, now: () => NOW, timeZone: () => "Europe/Rome", newId: () => "r1" });
     expect(r.status).toBe(200);
     const body = r.body as { run: { tier: string; answer: string; read: { purpose: string; receipts: string[] }; model?: unknown }; planLine: string };
@@ -201,15 +224,8 @@ describe("the Crew HQ routes", () => {
   it("ask: a light task goes to the smallest model with no memory read; a task about the user's life reads first and tells the receipt where it goes", async () => {
     const { store, wire } = await ready();
     const memory = fakeMemory();
-    const asked: Array<{ model?: string; user: string; max: number }> = [];
-    const model: Model = {
-      name: "gemini-2.5-flash",
-      words: "Gemini 2.5 Flash on Vertex AI",
-      async generate(_system, user, max, m) {
-        asked.push({ model: m, user, max });
-        return { text: "Here you are.", promptTokens: 300, outputTokens: 40, model: m ?? "gemini-2.5-flash" };
-      },
-    };
+    const model = fakeModel(() => ({ text: "Here you are.", promptTokens: 300, outputTokens: 40 }));
+    const asked = model.asked;
     const light = (await handle("/ask", "POST", { request: "Rewrite this more politely: send me the report." }, { store, memory, model, now: () => NOW, timeZone: () => "Europe/Rome", newId: () => "r2" })).body as { run: { tier: string; read: { purpose: string }; model: { name: string; ceilingUsd: number } }; planLine: string };
     expect(light.run.tier).toBe("light");
     expect(light.run.read.purpose).toBe("");
@@ -232,7 +248,7 @@ describe("the Crew HQ routes", () => {
   it("ask: under a spent cap, or with the model off, the memory still answers and the note says why", async () => {
     const { store } = await ready();
     const memory = fakeMemory();
-    const model: Model = { name: "gemini-2.5-flash", words: "Gemini 2.5 Flash on Vertex AI", generate: async () => ({ text: "x", promptTokens: 1, outputTokens: 1, model: "gemini-2.5-flash" }) };
+    const model = fakeModel(() => ({ text: "x", promptTokens: 1, outputTokens: 1 }));
     const capped = (await handle("/ask", "POST", { request: "Draft a note to the people I met at the board meeting." }, { store, memory, model, caps: { callsPerDay: 0, callsPerMonth: 1, tokensPerMonth: 1, usdPerMonth: 1 }, now: () => NOW, timeZone: () => "Europe/Rome" })).body as { run: { note?: string; answer: string; model?: unknown } };
     expect(capped.run.note).toBe("The model was not asked: today's limit of 0 model calls is reached. This is what your memory holds.");
     expect(capped.run.answer).toContain("Board meeting");
@@ -247,15 +263,8 @@ describe("the Crew HQ routes", () => {
   it("agents: the user defines one, runs it through the Planner as itself, under its own cap; and deletes it", async () => {
     const { store, wire } = await ready();
     const memory = fakeMemory();
-    const asked: Array<{ system: string; user: string; model?: string }> = [];
-    const model: Model = {
-      name: "gemini-2.5-flash",
-      words: "Gemini 2.5 Flash on Vertex AI",
-      async generate(system, user, _max, m) {
-        asked.push({ system, user, model: m });
-        return { text: "Dear all, thank you for Cozy Code.", promptTokens: 500, outputTokens: 60, model: m ?? "gemini-2.5-flash" };
-      },
-    };
+    const model = fakeModel(() => ({ text: "Dear all, thank you for Cozy Code.", promptTokens: 500, outputTokens: 60 }));
+    const asked = model.asked;
     const bad = await handle("/agents", "POST", { name: "", role: "x", instructions: "" }, { store, memory, model });
     expect(bad.status).toBe(400);
     expect((bad.body as { problems: string[] }).problems).toHaveLength(2);
@@ -286,13 +295,98 @@ describe("the Crew HQ routes", () => {
   it("agents: a built-in name cannot be taken, an unknown tier is refused, an agent's own tier overrides the Planner", async () => {
     const { store } = await ready();
     const memory = fakeMemory();
-    const asked: string[] = [];
-    const model: Model = { name: "gemini-2.5-flash", words: "w", async generate(_s, _u, _m, m) { asked.push(m ?? ""); return { text: "ok", promptTokens: 10, outputTokens: 5, model: m ?? "" }; } };
+    const model = fakeModel(() => ({ text: "ok", promptTokens: 10, outputTokens: 5 }));
+    const asked = model.asked;
     expect((await handle("/agents", "POST", { name: "Assistant", role: "r", instructions: "i" }, { store, memory, model })).status).toBe(409);
     expect((await handle("/agents", "POST", { name: "Bo", role: "r", instructions: "i", tier: "huge" }, { store, memory, model })).status).toBe(400);
     await handle("/agents", "POST", { name: "Bo", role: "Poet", instructions: "Write a haiku about the day.", tier: "deep", memory: false }, { store, memory, model, now: () => NOW });
     const r = (await handle("/agents/bo/run", "POST", {}, { store, memory, model, now: () => NOW })).body as { run: { tier: string; why: string; request: string; read: { purpose: string } } };
     expect(r.run).toMatchObject({ tier: "deep", why: "Bo's own setting", request: "(Bo's brief)", read: { purpose: "" } });
-    expect(asked).toEqual(["gemini-2.5-pro"]);
+    expect(asked.map((a) => a.model)).toEqual(["gemini-2.5-pro"]);
+  });
+  it("a run that asks you pauses under Today and resumes with your answer where the agent asked; the agent is busy until then", async () => {
+    const { store, wire } = await ready();
+    const memory = fakeMemory();
+    const model = scriptedModel([{ text: "One question first.", calls: [{ name: "ask_user", args: { question: "Sign it Marco?", draft: "Dear all, thank you." } }] }, { text: "Dear all, thank you. Marco" }]);
+    await handle("/agents", "POST", { name: "Emma", role: "Thank-you writer", instructions: "Write thank-you notes; ask before signing.", tier: "light", memory: false }, { store, memory, model, now: () => NOW });
+    const paused = (await handle("/agents/emma/run", "POST", { request: "Thank the board." }, { store, memory, model, now: () => NOW, newId: () => "run-w" })).body as { ok: boolean; run: RunRecordLike };
+    expect(paused.ok).toBe(true);
+    expect(paused.run).toMatchObject({ id: "run-w", status: "waiting", question: { question: "Sign it Marco?", draft: "Dear all, thank you." }, answer: "One question first.", toolsUsed: ["ask_user"] });
+    expect(paused.run.conversation).toBeUndefined();
+    expect(typeof (wire.col("runs").get("run-w") as { conversation?: string }).conversation).toBe("string");
+    const state = (await handle("/state", "GET", undefined, { store, memory, model, now: () => NOW })).body as { waiting: RunRecordLike[] };
+    expect(state.waiting.map((r) => r.id)).toEqual(["run-w"]);
+    expect((await handle("/agents/emma/run", "POST", {}, { store, memory, model, now: () => NOW })).status).toBe(409);
+    expect((await handle("/runs/run-w/answer", "POST", { answer: "" }, { store, memory, model })).status).toBe(400);
+    const resumed = (await handle("/runs/run-w/answer", "POST", { answer: "Yes, sign it Marco." }, { store, memory, model, now: () => "2026-09-08T06:35:00.000Z" })).body as { ok: boolean; run: RunRecordLike };
+    expect(resumed.ok).toBe(true);
+    expect(resumed.run).toMatchObject({ id: "run-w", status: "succeeded", answer: "Dear all, thank you. Marco", answeredAt: "2026-09-08T06:35:00.000Z", iterations: 2 });
+    expect(resumed.run.question).toBeUndefined();
+    expect((wire.col("runs").get("run-w") as { conversation?: string }).conversation).toBeUndefined();
+    expect(resumed.run.steps!.map((s) => s.kind)).toEqual(["model", "tool", "asked", "result", "model"]);
+    expect(resumed.run.steps![3]!.text).toBe("You answered: Yes, sign it Marco.");
+    expect(responsesOf(model.requests[1]!)).toEqual([{ name: "ask_user", response: { result: "The user answered: Yes, sign it Marco." } }]);
+    expect(model.requests[1]!.model).toBe("gemini-2.5-flash-lite");
+    expect(wire.col("spend").get("2026-09")).toMatchObject({ calls: 2 });
+    expect((await handle("/runs/run-w/answer", "POST", { answer: "again" }, { store, memory, model })).status).toBe(409);
+    expect((await handle("/runs/nope/stop", "POST", {}, { store, memory, model })).status).toBe(404);
+  });
+
+  it("an agent's tools are its own: a note kept in one run is read in the next, the transcript shows every step, and Remove takes the notes along", async () => {
+    const { store, wire } = await ready();
+    const memory = fakeMemory();
+    const model = scriptedModel([{ calls: [{ name: "note_write", args: { key: "tone", value: "warm and short" } }] }, { text: "Noted for next time." }, { calls: [{ name: "note_read", args: { key: "tone" } }] }, { text: "Warm and short it is." }]);
+    await handle("/agents", "POST", { name: "Emma", role: "Writer", instructions: "Keep the tone the user likes.", tier: "light", memory: false }, { store, memory, model, now: () => NOW });
+    const one = (await handle("/agents/emma/run", "POST", { request: "Remember: warm and short." }, { store, memory, model, now: () => NOW, newId: () => "run-1" })).body as { run: RunRecordLike };
+    expect(one.run).toMatchObject({ status: "succeeded", answer: "Noted for next time.", toolsUsed: ["note_write"], iterations: 2 });
+    expect(wire.col("notes").get("emma~tone")).toMatchObject({ agent: "emma", key: "tone", value: "warm and short" });
+    const two = (await handle("/agents/emma/run", "POST", { request: "Write the note." }, { store, memory, model, now: () => NOW, newId: () => "run-2" })).body as { run: RunRecordLike; planLine: string };
+    expect(two.run.steps!.map((s) => `${s.kind}: ${s.text}`)).toEqual(["tool: note_read key=tone", "result: warm and short", "model: Warm and short it is."]);
+    expect(two.planLine).toBe("Planner: Emma's own setting · Gemini 2.5 Flash-Lite on Vertex AI · 240 tokens · at most $0.01.");
+    expect(model.requests[0]!.tools.map((t) => t.name)).toEqual(["note_read", "note_write", "file_list", "file_read", "file_write", "file_append", "ask_user"]);
+    await handle("/agents/emma/delete", "POST", {}, { store, memory, model });
+    expect(wire.col("notes").size).toBe(0);
+  });
+
+  it("the judge: when no rule places a request, the small model's one word picks the tier at the light rate, and the answer says so", async () => {
+    const { store, wire } = await ready();
+    const memory = fakeMemory();
+    const model = scriptedModel([{ text: "Welcome, everyone.", promptTokens: 400, outputTokens: 100 }], "DEEP");
+    const request = "Could you put together a friendly welcome message for the new members joining the neighbourhood gardening group this autumn, mentioning the tool library, the weekend sessions and the shared compost heap, in a warm tone?";
+    const r = (await handle("/ask", "POST", { request }, { store, memory, model, now: () => NOW, timeZone: () => "Europe/Rome", newId: () => "r-j" })).body as { run: RunRecordLike; planLine: string };
+    expect(r.run).toMatchObject({ tier: "deep", why: "the small model judged it a task that needs reasoning", judge: { tier: "deep", promptTokens: 20, outputTokens: 2 }, answer: "Welcome, everyone." });
+    expect(model.generated[0]!.model).toBe("gemini-2.5-flash-lite");
+    expect(model.requests[0]!.model).toBe("gemini-2.5-pro");
+    expect(r.run.model).toMatchObject({ name: "gemini-2.5-pro", promptTokens: 420, outputTokens: 102 });
+    expect(r.run.model!.ceilingUsd).toBeCloseTo((22 / 1_000_000) * 5 + (500 / 1_000_000) * 40, 10);
+    expect(r.planLine).toBe("Planner: the small model judged it a task that needs reasoning · Gemini 2.5 Pro on Vertex AI · 522 tokens · at most $0.02.");
+    expect(wire.col("spend").get("2026-09")).toMatchObject({ calls: 2 });
+    // A rule that fires leaves the judge out of it.
+    const light = scriptedModel([{ text: "Sure." }], "DEEP");
+    await handle("/ask", "POST", { request: "Rewrite this more politely: send me the report." }, { store, memory, model: light, now: () => NOW });
+    expect(light.generated).toHaveLength(0);
+  });
+
+  it("the Crew Pack leaves as one file — through a one-shot download — and comes back as agents, notes and files", async () => {
+    const { store, wire } = await ready();
+    const memory = fakeMemory();
+    const model = scriptedModel([]);
+    await handle("/agents", "POST", { name: "Emma", role: "Writer", instructions: "Write.", memory: false }, { store, memory, model, now: () => NOW });
+    await store.saveNote({ agent: "emma", key: "tone", value: "warm", updatedAt: NOW });
+    const pack = (await handle("/crew-pack", "GET", undefined, { store, memory, model, now: () => NOW })).body as { format: string; agents: Array<{ id: string }>; notes: unknown[] };
+    expect(pack.format).toBe("crewpoppy-crew-pack");
+    expect(pack.agents.map((a) => a.id)).toEqual(["emma"]);
+    expect(pack.notes).toHaveLength(1);
+    const token = (await handle("/export-token", "POST", undefined, { store, memory, model })).body as { path: string; filename: string };
+    expect(token.filename).toBe("crewpoppy-crew-pack.json");
+    const dl = await handle(token.path, "GET", undefined, { store, memory, model, now: () => NOW });
+    expect(dl.contentType).toBe("application/json; charset=utf-8");
+    expect(dl.filename).toBe("crewpoppy-crew-pack.json");
+    expect((JSON.parse(dl.body as string) as { agents: unknown[] }).agents).toHaveLength(1);
+    expect((await handle(token.path, "GET", undefined, { store, memory, model })).status).toBe(404);
+    const imported = (await handle("/crew-pack", "POST", { pack: { format: "crewpoppy-crew-pack", version: 1, agents: [{ id: "bo", name: "Bo", role: "Poet", instructions: "Haiku." }], notes: [{ agent: "bo", key: "k", value: "v" }], files: [{ agent: "bo", path: "../x", content: "c" }] } }, { store, memory, model, now: () => NOW, timeZone: () => "Europe/Rome" })).body as { line: string; report: { skipped: string[] } };
+    expect(imported.line).toBe("1 agent (1 new, 0 updated), 1 note, 0 files brought in; 1 left out.");
+    expect(wire.col("agents").has("bo")).toBe(true);
+    expect((await handle("/crew-pack", "POST", { format: "csv" }, { store, memory, model })).status).toBe(400);
   });
 });

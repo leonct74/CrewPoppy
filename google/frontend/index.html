@@ -21,6 +21,7 @@
         --poppy-text-muted: var(--poppy-muted-2);
       }
       * { box-sizing: border-box; }
+      [hidden] { display: none !important; } /* the kit's flex rows would otherwise win over the attribute */
       body { margin: 0; padding: 20px; background: var(--poppy-surface-0); color: var(--poppy-text); font-family: var(--poppy-font); line-height: 1.5; }
       header { display: flex; align-items: center; gap: 10px; margin-bottom: 4px; }
       header img { width: 28px; height: 28px; border-radius: 7px; }
@@ -66,6 +67,20 @@
       textarea { resize: vertical; }
       select { width: auto; }
       textarea:focus, select:focus-visible { outline: 2px solid var(--poppy-accent); outline-offset: 1px; }
+      .waiting { border: 1px solid var(--poppy-accent); border-radius: var(--poppy-radius); padding: 10px 12px; margin-bottom: 10px; font-size: 13px; }
+      .waiting .question { margin: 6px 0; font-weight: 600; }
+      .draft { white-space: pre-wrap; font-family: var(--poppy-font); font-size: 13px; background: var(--poppy-surface-2); border: 1px solid var(--poppy-border); border-radius: var(--poppy-radius); padding: 8px 10px; margin: 0 0 8px; }
+      .waiting .answer { white-space: pre-wrap; margin: 8px 0 4px; }
+      ol.steps { margin: 6px 0 0; padding-left: 20px; font-size: 12.5px; color: var(--poppy-muted-2); }
+      ol.steps li { margin: 2px 0; white-space: pre-wrap; }
+      .mono { font-family: var(--poppy-font-mono); font-size: 11.5px; }
+      .tool-group { margin: 8px 0 4px; }
+      label.tool { display: flex; gap: 8px; align-items: flex-start; margin: 4px 0 4px 6px; font-size: 13px; cursor: pointer; }
+      label.tool input, .field input[type="checkbox"] { width: auto; flex: none; margin-top: 3px; }
+      .schedule-row select, .schedule-row input { width: auto; }
+      .tool-label { font-weight: 600; }
+      .schedule-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+      input[type="time"], input[type="file"] { background: var(--poppy-surface-0); color: var(--poppy-text); border: 1px solid var(--poppy-border); border-radius: var(--poppy-radius); padding: 6px 8px; font: inherit; font-size: 13px; }
     </style>
   </head>
   <body>
@@ -73,7 +88,7 @@
       <img src="./crewpoppy-icon.png" alt="" />
       <h1>CrewPoppy</h1>
     </header>
-    <p class="sub">Your AI crew, in your own Google Cloud. One member so far — the Briefer, with a pen on Vertex AI.</p>
+    <p class="sub">Your AI crew, in your own Google Cloud. The Planner in front; the Assistant, the Briefer, and the agents you define — with their tools, their schedules and a Crew Pack to take them anywhere.</p>
 
     <nav class="tabs" role="tablist">
       <button role="tab" aria-selected="true" data-tab="today">Today</button>
@@ -100,8 +115,14 @@
           <div id="answer" class="brief" style="margin-top:12px"></div>
           <div id="plan-line" class="receipt"></div>
           <div id="answer-read" class="receipt"></div>
+          <div id="answer-steps"></div>
         </div>
         <div id="ask-status" class="status"></div>
+      </div>
+      <div class="panel" id="waiting-panel" hidden>
+        <h2>Waiting for you</h2>
+        <p class="muted small" style="margin:0 0 8px">An agent paused to ask you before going on. Nothing happens until you answer — or stop the run.</p>
+        <div id="waiting"></div>
       </div>
       <div class="panel">
         <h2>Your brief</h2>
@@ -148,7 +169,17 @@
           <div id="meter" class="muted small" style="margin-top:6px"></div>
           <div id="model-status" class="status"></div>
         </div>
-        <p class="muted small" style="margin:10px 0 0">Tools, schedules and runs that outlive the app — as on AWS — arrive with the Google port, one release at a time.</p>
+        <p class="muted small" style="margin:10px 0 0">Your agents run while CrewPoppy is open — on your word, or on their schedule. Runs that outlive the app are a later release.</p>
+      </div>
+      <div class="panel">
+        <h2>Crew Pack</h2>
+        <p class="muted small" style="margin:0 0 8px">Everything your crew knows — the agents, their notes, their files — as one file you own. Bring it back here, on another machine, or after a teardown; nothing in it is a key or a receipt.</p>
+        <div class="row">
+          <button id="btn-export-pack" class="ghost" type="button">Download the Crew Pack</button>
+          <input id="pack-file" type="file" accept="application/json,.json" aria-label="A Crew Pack file" />
+          <button id="btn-import-pack" class="ghost" type="button">Bring a Crew Pack in</button>
+        </div>
+        <div id="pack-status" class="status"></div>
       </div>
       <div class="panel" id="new-agent-panel">
         <h2 id="new-agent-title">New agent</h2>
@@ -164,7 +195,16 @@
           <label class="field"><span>Brief</span><textarea id="agent-instructions" rows="5" maxlength="4000" placeholder="What it does, how, in what tone, with what limits." required></textarea><small class="muted">Instructions never grant abilities: the agent can only write.</small></label>
           <label class="field"><span>Model</span><select id="agent-tier"></select><small class="muted" id="agent-tier-note"></small></label>
           <label class="row" style="gap:10px;margin:6px 0"><input type="checkbox" id="agent-memory" checked /> <span>May read my memory</span></label>
-          <small class="muted" style="display:block;margin:-2px 0 8px">Only when a run is about your life, only through AgentsPoppy, with a receipt each time.</small>
+          <small class="muted" id="agent-memory-note" style="display:block;margin:-2px 0 8px">Only when a run is about your life, only through AgentsPoppy, with a receipt each time.</small>
+          <div class="field"><span>Tools</span><small class="muted">A fixed catalogue; every tool is scoped to this agent alone. Nothing here reaches e-mail or the web.</small><div id="agent-tools"></div></div>
+          <div class="field"><span>Runs by itself</span>
+            <div class="schedule-row">
+              <select id="agent-every" aria-label="How often"><option value="off">Off — only when I press Run</option><option value="hour">Every hour</option><option value="day">Every day</option><option value="week">Every week</option></select>
+              <span id="agent-weekday-wrap" hidden>on <select id="agent-weekday" aria-label="Which day"></select></span>
+              <span id="agent-at-wrap" hidden>at <input id="agent-at" type="time" step="300" value="09:00" aria-label="At what time" /></span>
+            </div>
+            <small class="muted" id="agent-schedule-note"></small>
+          </div>
           <label class="field"><span>Monthly limit</span><input id="agent-cap" type="number" min="1" max="100" step="1" value="5" style="width:110px" /><small class="muted">In dollars at the ceiling price — a hard cap; the agent stops when it reaches it.</small></label>
           <div class="row">
             <button id="btn-save-agent" class="btn" type="submit">Add to the crew</button>

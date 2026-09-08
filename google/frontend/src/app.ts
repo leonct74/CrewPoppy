@@ -2,10 +2,11 @@
 // SPDX-License-Identifier: PolyForm-Shield-1.0.0
 
 /**
- * The Crew HQ on Google Cloud, first release (DESIGN.md §18): Today (the brief), Your crew, Past
- * briefs, Feedback. Talks to the host over the capability-gated bridge (inlined, as the AWS
- * edition's host.ts does) and to our own backend through the host. Every button reacts the
- * instant it is pressed; every error is one calm sentence.
+ * The Crew HQ on Google Cloud (DESIGN.md §18): Today (ask your crew, the runs waiting for you, the
+ * brief), Your crew (the built-in members, your own agents with their tools and schedules, the
+ * Crew Pack), History, Feedback. Talks to the host over the capability-gated bridge (inlined, as
+ * the AWS edition's host.ts does) and to our own backend through the host. Every button reacts
+ * the instant it is pressed; every error is one calm sentence.
  */
 import { FORM, buildHelperPrompt } from "./helper-prompt";
 import { defineFeedbackTab } from "./vendor/agentspoppy-feedback-tab";
@@ -32,13 +33,14 @@ function call<T>(method: string, ...params: unknown[]): Promise<T> {
     const id = `req-${Date.now().toString(36)}-${++seq}`;
     pending.set(id, { resolve: resolve as (v: unknown) => void, reject });
     window.parent.postMessage({ id, method, params }, "*");
-    window.setTimeout(() => pending.delete(id) && reject(new Error(`AgentsPoppy did not answer "${method}" in time`)), 120_000);
+    window.setTimeout(() => pending.delete(id) && reject(new Error(`AgentsPoppy did not answer "${method}" in time`)), 300_000);
   });
 }
 const host = {
   invokeBackend: <T>(req: BackendInvoke) => call<T>("invokeBackend", req),
   openExternal: (url: string) => call<void>("openExternal", url),
   notify: (n: { title: string; body: string }) => call<void>("notify", n),
+  getConnection: () => call<{ app: { id: string } }>("getConnection"),
 };
 defineFeedbackTab(host);
 
@@ -76,10 +78,16 @@ interface ModelState {
   meter: string;
   caps: { callsPerDay: number; callsPerMonth: number; tokensPerMonth: number };
 }
+interface Step {
+  at: string;
+  kind: "model" | "tool" | "result" | "asked" | "stopped";
+  text: string;
+}
 interface RunRecord {
   id: string;
   at: string;
   agent: string;
+  agentName?: string;
   request: string;
   tier: "none" | "light" | "standard" | "deep";
   why: string;
@@ -88,6 +96,36 @@ interface RunRecord {
   read: { count: number; bytes: number; receipts: string[]; purpose: string };
   model?: { name: string; words: string; promptTokens: number; outputTokens: number; ceilingUsd: number };
   note?: string;
+  status?: "running" | "succeeded" | "stopped" | "waiting";
+  trigger?: "ask" | "run" | "schedule";
+  slot?: string;
+  late?: string;
+  steps?: Step[];
+  question?: { question: string; draft?: string };
+  answeredAt?: string;
+  iterations?: number;
+  toolsUsed?: string[];
+  judge?: { tier: string; promptTokens: number; outputTokens: number; ceilingUsd: number };
+}
+interface Schedule {
+  every: "hour" | "day" | "week";
+  at: string;
+  weekday?: number;
+  timeZone: string;
+}
+interface AgentDef {
+  id: string;
+  name: string;
+  role: string;
+  instructions: string;
+  tier: "auto" | "light" | "standard" | "deep";
+  memory: boolean;
+  capUsd: number;
+  tools: string[];
+  schedule?: Schedule;
+  monthUsd?: number;
+  scheduleLine?: string;
+  nextRunAt?: string;
 }
 interface State {
   cloud: CloudState;
@@ -95,23 +133,43 @@ interface State {
   memoryWired: boolean;
   briefs: BriefRecord[];
   runs?: RunRecord[];
+  waiting?: RunRecord[];
   purpose: string;
   model?: ModelState;
+  timeZone?: string;
 }
 const TIER_WORDS: Record<RunRecord["tier"], string> = { none: "no model", light: "Gemini 2.5 Flash-Lite on Vertex AI", standard: "Gemini 2.5 Flash on Vertex AI", deep: "Gemini 2.5 Pro on Vertex AI" };
+const WEEKDAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+const money = (n: number): string => (n === 0 ? "$0.00" : `$${Math.max(0.01, Math.round(n * 100) / 100).toFixed(2)}`);
+/** The crew's names for the page: the built-in members, and your own agents as last listed. */
+const agentNames = new Map<string, string>([
+  ["assistant", "The Assistant"],
+  ["briefer", "The Briefer"],
+]);
+const nameOf = (id: string, name?: string): string => name ?? agentNames.get(id) ?? id;
+
 function planLine(r: RunRecord): string {
   const parts = [`Planner: ${r.why}`, TIER_WORDS[r.tier]];
   if (r.read.purpose) parts.push(`${r.read.count} ${r.read.count === 1 ? "memory" : "memories"} read`);
-  if (r.model) {
-    const usd = `$${Math.max(0.01, Math.round(r.model.ceilingUsd * 100) / 100).toFixed(2)}`;
-    parts.push(`${(r.model.promptTokens + r.model.outputTokens).toLocaleString("en-GB")} tokens`, `at most ${usd}`);
-  } else if (r.tier === "none") parts.push("no tokens");
+  if (r.model) parts.push(`${(r.model.promptTokens + r.model.outputTokens).toLocaleString("en-GB")} tokens`, `at most ${money(r.model.ceilingUsd)}`);
+  else if (r.tier === "none") parts.push("no tokens");
   return `${parts.join(" · ")}.`;
 }
 function runReadLine(r: RunRecord): string {
   if (!r.read.purpose) return "Nothing read from your memory — the request was not about your life.";
   const kb = r.read.bytes >= 1024 ? `${(r.read.bytes / 1024).toFixed(1)} KB` : `${r.read.bytes} B`;
   return `Read ${r.read.count} ${r.read.count === 1 ? "memory" : "memories"} for ${r.read.purpose} — ${kb}. Written on your Activity${r.read.receipts.length ? ` (${r.read.receipts.length} ${r.read.receipts.length === 1 ? "receipt" : "receipts"})` : ""}.`;
+}
+/** "ran by itself · 09:31, late" / "asked" / "waiting for your answer" — how a run came about, and where it stands. */
+function runStatusLine(r: RunRecord): string {
+  const how = r.trigger === "schedule" ? "ran by itself" : r.trigger === "run" ? `you ran ${nameOf(r.agent, r.agentName)}` : "asked";
+  const state = r.status === "waiting" ? "waiting for your answer" : r.status === "stopped" ? "stopped" : r.status === "running" ? "running" : "";
+  return [how, state, r.late].filter(Boolean).join(" · ");
+}
+function stepsHtml(r: RunRecord): string {
+  if (!r.steps || r.steps.length === 0) return "";
+  const kindWords: Record<Step["kind"], string> = { model: "wrote", tool: "used", result: "got", asked: "asked you", stopped: "stopped" };
+  return `<details><summary>What it did — ${r.steps.length} ${r.steps.length === 1 ? "step" : "steps"}${r.iterations ? `, ${r.iterations} ${r.iterations === 1 ? "turn" : "turns"}` : ""}</summary><ol class="steps">${r.steps.map((s) => `<li><span class="mono">${esc(kindWords[s.kind])}</span> ${esc(s.text)}</li>`).join("")}</ol></details>`;
 }
 
 const $ = <T extends HTMLElement = HTMLElement>(id: string): T => document.getElementById(id) as T;
@@ -179,8 +237,7 @@ function describeMemory(m: MemoryInfo | null, wired: boolean): string {
 function writtenByLine(b: BriefRecord): string {
   if (b.writtenBy === "model" && b.model) {
     const tokens = b.model.promptTokens + b.model.outputTokens;
-    const usd = b.model.ceilingUsd === 0 ? "$0.00" : `$${Math.max(0.01, Math.round(b.model.ceilingUsd * 100) / 100).toFixed(2)}`;
-    return `Written by ${b.model.words} · ${tokens.toLocaleString("en-GB")} tokens · at most ${usd} at the ceiling.`;
+    return `Written by ${b.model.words} · ${tokens.toLocaleString("en-GB")} tokens · at most ${money(b.model.ceilingUsd)} at the ceiling.`;
   }
   return b.note ?? "Written by the Briefer itself, without a model.";
 }
@@ -204,6 +261,7 @@ for (const tab of document.querySelectorAll<HTMLElement>("[role=tab]")) {
 
 // ---- today
 let settleTimer: number | undefined;
+let ownZone = "";
 function showBrief(b: BriefRecord | undefined): void {
   if (!b) {
     $("brief-when").textContent = "";
@@ -227,12 +285,13 @@ function renderModel(m: ModelState | undefined): void {
   }
   $("model-panel").hidden = false;
   sw.checked = m.enabled;
-  $("model-label").textContent = `The Briefer writes with ${m.words}, inside this project — billed to your Google Cloud, capped by CrewPoppy.`;
+  $("model-label").textContent = `The crew writes with ${m.words} and its siblings, inside this project — billed to your Google Cloud, capped by CrewPoppy.`;
   $("meter").textContent = m.meter;
 }
 async function refresh(): Promise<void> {
   try {
     const state = await host.invokeBackend<State>({ method: "GET", path: "/state" });
+    ownZone = state.timeZone ?? "";
     setStatus("where", describeCloud(state.cloud), state.cloud?.state === "failed" ? "warn" : "");
     $("memory-line").textContent = describeMemory(state.memory, state.memoryWired);
     if (state.cloud && (state.cloud.state === "setting-up" || state.cloud.state === "starting")) {
@@ -243,6 +302,7 @@ async function refresh(): Promise<void> {
       return;
     }
     showBrief(state.briefs[0]);
+    renderWaiting(state.waiting ?? []);
     renderHistory(state.briefs, state.runs ?? []);
     renderModel(state.model);
   } catch (err) {
@@ -270,6 +330,7 @@ function showAnswer(r: RunRecord): void {
   $("answer").textContent = r.answer;
   $("plan-line").textContent = planLine(r);
   $("answer-read").textContent = runReadLine(r);
+  $("answer-steps").innerHTML = stepsHtml(r);
   setStatus("ask-status", r.note ?? "");
 }
 $<HTMLButtonElement>("btn-ask").addEventListener(
@@ -295,19 +356,89 @@ $("ask").addEventListener("keydown", (e: KeyboardEvent) => {
   if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) $("btn-ask").click();
 });
 
-// ---- your own agents (G3b)
-interface AgentDef {
-  id: string;
-  name: string;
-  role: string;
-  instructions: string;
-  tier: "auto" | "light" | "standard" | "deep";
-  memory: boolean;
-  capUsd: number;
-  monthUsd?: number;
+// ---- the runs waiting for you (G3c: ask_user)
+function renderWaiting(runs: RunRecord[]): void {
+  const panel = $("waiting-panel");
+  const el = $("waiting");
+  panel.hidden = runs.length === 0;
+  el.innerHTML = runs
+    .map(
+      (r) => `<div class="waiting" data-wait="${esc(r.id)}">
+        <div class="brief-when">${esc(when(r.at))} · ${esc(nameOf(r.agent, r.agentName))} · ${esc(r.request.length > 120 ? `${r.request.slice(0, 120)}…` : r.request)}</div>
+        <p class="question">${esc(r.question?.question ?? "")}</p>
+        ${r.question?.draft ? `<pre class="draft">${esc(r.question.draft)}</pre>` : ""}
+        <textarea class="wait-answer" rows="2" placeholder="Your answer — a word is enough" aria-label="Your answer to ${esc(nameOf(r.agent, r.agentName))}"></textarea>
+        <div class="row" style="margin-top:6px">
+          <button class="btn" data-answer="${esc(r.id)}">Answer</button>
+          <button class="ghost" data-stop-run="${esc(r.id)}">Stop this run</button>
+        </div>
+        <div class="answer" data-wait-answer="${esc(r.id)}"></div>
+        <div class="receipt" data-wait-plan="${esc(r.id)}"></div>
+        <div class="status" data-wait-status="${esc(r.id)}"></div>
+      </div>`,
+    )
+    .join("");
+  const q = (sel: string): HTMLElement => el.querySelector<HTMLElement>(sel)!;
+  for (const btn of el.querySelectorAll<HTMLButtonElement>("button[data-answer]")) {
+    const id = btn.dataset.answer ?? "";
+    btn.addEventListener(
+      "click",
+      withPending(btn, "Continuing…", async () => {
+        const answer = (q(`.waiting[data-wait="${id}"] .wait-answer`) as HTMLTextAreaElement).value.trim();
+        if (!answer) {
+          q(`[data-wait-status="${id}"]`).textContent = "Write an answer — a word is enough.";
+          return;
+        }
+        q(`[data-wait-status="${id}"]`).textContent = "The agent is continuing…";
+        try {
+          const r = await host.invokeBackend<{ ok: boolean; run?: RunRecord; message?: string }>({ method: "POST", path: `/runs/${encodeURIComponent(id)}/answer`, body: { answer } });
+          if (!r.ok || !r.run) {
+            q(`[data-wait-status="${id}"]`).textContent = r.message ?? "It could not continue.";
+            return;
+          }
+          if (r.run.status === "waiting") {
+            await refresh();
+            return;
+          }
+          q(`[data-wait-answer="${id}"]`).textContent = r.run.answer;
+          q(`[data-wait-plan="${id}"]`).textContent = `${planLine(r.run)} ${runReadLine(r.run)}`;
+          q(`[data-wait-status="${id}"]`).textContent = r.run.note ?? "Done — it is in History too.";
+          q(`.waiting[data-wait="${id}"] .row`).hidden = true;
+          (q(`.waiting[data-wait="${id}"] .wait-answer`) as HTMLTextAreaElement).disabled = true;
+          void renderHistoryFromState();
+        } catch (err) {
+          q(`[data-wait-status="${id}"]`).textContent = plainError(err);
+        }
+      }),
+    );
+  }
+  for (const btn of el.querySelectorAll<HTMLButtonElement>("button[data-stop-run]")) {
+    const id = btn.dataset.stopRun ?? "";
+    btn.addEventListener(
+      "click",
+      withPending(btn, "Stopping…", async () => {
+        try {
+          await host.invokeBackend({ method: "POST", path: `/runs/${encodeURIComponent(id)}/stop` });
+          await refresh();
+        } catch (err) {
+          q(`[data-wait-status="${id}"]`).textContent = plainError(err);
+        }
+      }),
+    );
+  }
 }
-const money = (n: number): string => (n === 0 ? "$0.00" : `$${Math.max(0.01, Math.round(n * 100) / 100).toFixed(2)}`);
+async function renderHistoryFromState(): Promise<void> {
+  try {
+    const h = await host.invokeBackend<{ briefs: BriefRecord[]; runs: RunRecord[] }>({ method: "GET", path: "/history" });
+    renderHistory(h.briefs, h.runs);
+  } catch {
+    /* the next refresh will */
+  }
+}
+
+// ---- your own agents (G3b, with tools and schedules since G3c)
 const TIER_LABEL: Record<AgentDef["tier"], string> = Object.fromEntries(FORM.tiers.map((t) => [t.value, t.label])) as Record<AgentDef["tier"], string>;
+const TOOL_LABEL = new Map(FORM.tools.flatMap((g) => g.tools.map((t) => [t.value, t.label] as const)));
 
 function fillTierSelect(): void {
   const sel = $<HTMLSelectElement>("agent-tier");
@@ -319,7 +450,39 @@ function fillTierSelect(): void {
   note();
 }
 fillTierSelect();
-
+/** The tools, rendered from the same catalogue the helper prompt is built from. */
+function fillTools(): void {
+  $("agent-tools").innerHTML = FORM.tools
+    .map(
+      (g) => `<div class="tool-group"><div><strong>${esc(g.label)}</strong> <span class="muted small">— ${esc(g.what)}</span></div>
+        ${g.tools.map((t) => `<label class="tool"><input type="checkbox" data-tool="${esc(t.value)}" ${t.default ? "checked" : ""} /> <span><span class="tool-label">${esc(t.label)}</span> <span class="muted small">${esc(t.what)}${t.risk ? ` ${esc(t.risk)}` : ""}</span></span></label>`).join("")}
+      </div>`,
+    )
+    .join("");
+  $("agent-memory-note").textContent = FORM.memory.note.charAt(0).toUpperCase() + FORM.memory.note.slice(1) + ".";
+}
+fillTools();
+function fillScheduleSelects(): void {
+  $<HTMLSelectElement>("agent-weekday").innerHTML = WEEKDAYS.map((d, i) => `<option value="${i}">${esc(d)}</option>`).join("");
+  const every = $<HTMLSelectElement>("agent-every");
+  const show = (): void => {
+    $("agent-at-wrap").hidden = every.value !== "day" && every.value !== "week";
+    $("agent-weekday-wrap").hidden = every.value !== "week";
+    $("agent-schedule-note").textContent = every.value === "off" ? "Runs only when you press Run." : `${FORM.schedule.note.charAt(0).toUpperCase()}${FORM.schedule.note.slice(1)}.${ownZone ? ` Your clock: ${ownZone}.` : ""}`;
+  };
+  every.addEventListener("change", show);
+  show();
+}
+fillScheduleSelects();
+function setTools(tools: string[]): void {
+  for (const box of document.querySelectorAll<HTMLInputElement>("#agent-tools input[data-tool]")) box.checked = tools.includes(box.dataset.tool ?? "");
+}
+function setSchedule(s: Schedule | undefined): void {
+  ($("agent-every") as HTMLSelectElement).value = s?.every ?? "off";
+  ($("agent-at") as HTMLInputElement).value = s && s.every !== "hour" ? s.at : "09:00";
+  ($("agent-weekday") as HTMLSelectElement).value = String(s?.weekday ?? 1);
+  ($("agent-every") as HTMLSelectElement).dispatchEvent(new Event("change"));
+}
 function resetAgentForm(): void {
   ($("agent-id") as HTMLInputElement).value = "";
   ($("agent-name") as HTMLInputElement).value = "";
@@ -329,6 +492,8 @@ function resetAgentForm(): void {
   ($("agent-tier") as HTMLSelectElement).dispatchEvent(new Event("change"));
   ($("agent-memory") as HTMLInputElement).checked = true;
   ($("agent-cap") as HTMLInputElement).value = String(FORM.cap.default);
+  setTools(FORM.tools.flatMap((g) => g.tools.filter((t) => t.default).map((t) => t.value)));
+  setSchedule(undefined);
   $("new-agent-title").textContent = "New agent";
   $("btn-save-agent").textContent = "Add to the crew";
   $("btn-cancel-agent").hidden = true;
@@ -342,6 +507,8 @@ function editAgent(a: AgentDef): void {
   ($("agent-tier") as HTMLSelectElement).dispatchEvent(new Event("change"));
   ($("agent-memory") as HTMLInputElement).checked = a.memory;
   ($("agent-cap") as HTMLInputElement).value = String(a.capUsd);
+  setTools(a.tools ?? []);
+  setSchedule(a.schedule);
   $("new-agent-title").textContent = `Edit ${a.name}`;
   $("btn-save-agent").textContent = "Save";
   $("btn-cancel-agent").hidden = false;
@@ -353,6 +520,8 @@ $<HTMLFormElement>("agent-form").addEventListener("submit", (e) => {
   e.preventDefault();
   void withPending($("btn-save-agent"), "Saving…", async () => {
     const id = ($("agent-id") as HTMLInputElement).value;
+    const every = ($("agent-every") as HTMLSelectElement).value;
+    const schedule = every === "off" ? null : { every, at: ($("agent-at") as HTMLInputElement).value, weekday: Number(($("agent-weekday") as HTMLSelectElement).value), timeZone: ownZone || undefined };
     const body = {
       ...(id ? { id } : {}),
       name: ($("agent-name") as HTMLInputElement).value,
@@ -361,10 +530,12 @@ $<HTMLFormElement>("agent-form").addEventListener("submit", (e) => {
       tier: ($("agent-tier") as HTMLSelectElement).value,
       memory: ($("agent-memory") as HTMLInputElement).checked,
       capUsd: Number(($("agent-cap") as HTMLInputElement).value),
+      tools: [...document.querySelectorAll<HTMLInputElement>("#agent-tools input[data-tool]")].filter((b) => b.checked).map((b) => b.dataset.tool),
+      schedule,
     };
     try {
       const r = await host.invokeBackend<{ agent: AgentDef }>({ method: "POST", path: "/agents", body });
-      setStatus("agent-status", `${r.agent.name} is ${id ? "saved" : "in the crew"}.`);
+      setStatus("agent-status", `${r.agent.name} is ${id ? "saved" : "in the crew"}${r.agent.scheduleLine ? ` — runs ${r.agent.scheduleLine}` : ""}.`);
       resetAgentForm();
       await renderAgents();
     } catch (err) {
@@ -393,6 +564,16 @@ $<HTMLButtonElement>("btn-helper").addEventListener("click", async () => {
   }, 2500);
 });
 
+/** "its own notes and files · asks you · searches your memory" */
+function toolWords(a: AgentDef): string {
+  const words: string[] = [];
+  if (a.memory) words.push("may search your memory");
+  const own = FORM.tools.find((g) => g.key === "own")?.tools.map((t) => t.value) ?? [];
+  if ((a.tools ?? []).some((t) => own.includes(t as never))) words.push("its own notes and files");
+  if ((a.tools ?? []).includes("ask_user")) words.push("asks you first");
+  return words.length ? words.join(" · ") : "no tools — it only writes";
+}
+
 async function renderAgents(): Promise<void> {
   const el = $("agents");
   let agents: AgentDef[] = [];
@@ -402,13 +583,15 @@ async function renderAgents(): Promise<void> {
     el.innerHTML = `<div class="status warn">${esc(`Couldn't read your agents: ${plainError(err)}`)}</div>`;
     return;
   }
+  for (const a of agents) agentNames.set(a.id, a.name);
   el.innerHTML = agents
     .map(
       (a) => `<div class="agent" data-id="${esc(a.id)}">
         <div class="row" style="justify-content:space-between">
           <div><strong>${esc(a.name)}</strong> <span class="muted">· ${esc(a.role)}</span></div>
-          <span class="muted small">${esc(TIER_LABEL[a.tier] ?? a.tier)} · ${a.memory ? "reads your memory" : "no memory"} · this month ${esc(money(a.monthUsd ?? 0))} / ${esc(money(a.capUsd))}</span>
+          <span class="muted small">${esc(TIER_LABEL[a.tier] ?? a.tier)} · this month ${esc(money(a.monthUsd ?? 0))} / ${esc(money(a.capUsd))}</span>
         </div>
+        <div class="muted small">${esc(toolWords(a))}${a.scheduleLine ? ` · runs ${esc(a.scheduleLine)}${a.nextRunAt ? `, next ${esc(when(a.nextRunAt))}` : ""}` : ""}</div>
         <div class="muted small">${esc(a.instructions.length > 220 ? `${a.instructions.slice(0, 220)}…` : a.instructions)}</div>
         <div class="run">
           <textarea class="agent-request" rows="2" placeholder="Anything for this run? Leave empty and ${esc(a.name)} does the job as briefed." aria-label="Request for ${esc(a.name)}"></textarea>
@@ -418,17 +601,24 @@ async function renderAgents(): Promise<void> {
             <button class="ghost danger-text" data-remove="${esc(a.id)}">Remove</button>
           </div>
           <div class="confirm" data-confirm="${esc(a.id)}" hidden>
-            <p style="margin:0 0 8px">Remove ${esc(a.name)} from the crew? Its brief goes; its past runs stay in History. This can't be undone.</p>
+            <p style="margin:0 0 8px">Remove ${esc(a.name)} from the crew? Its brief, its notes and its files go; its past runs stay in History. This can't be undone.</p>
             <div class="row"><button class="ghost" data-keep="${esc(a.id)}">Keep</button><button class="btn danger" data-remove-yes="${esc(a.id)}">Remove ${esc(a.name)}</button></div>
           </div>
           <div class="answer" data-answer="${esc(a.id)}"></div>
           <div class="receipt" data-plan="${esc(a.id)}"></div>
+          <div data-steps="${esc(a.id)}"></div>
           <div class="status" data-status="${esc(a.id)}"></div>
         </div>
       </div>`,
     )
     .join("");
   const q = (sel: string): HTMLElement => el.querySelector<HTMLElement>(sel)!;
+  const showRun = (id: string, r: RunRecord): void => {
+    q(`[data-answer="${id}"]`).textContent = r.answer;
+    q(`[data-plan="${id}"]`).textContent = `${planLine(r)} ${runReadLine(r)}`;
+    q(`[data-steps="${id}"]`).innerHTML = stepsHtml(r);
+    q(`[data-status="${id}"]`).textContent = r.status === "waiting" ? `${nameOf(r.agent, r.agentName)} asked you something — answer it under Today.` : (r.note ?? "");
+  };
   for (const btn of el.querySelectorAll<HTMLButtonElement>("button[data-run]")) {
     const id = btn.dataset.run ?? "";
     btn.addEventListener(
@@ -437,18 +627,16 @@ async function renderAgents(): Promise<void> {
         const request = (q(`.agent[data-id="${id}"] .agent-request`) as HTMLTextAreaElement).value.trim();
         q(`[data-status="${id}"]`).textContent = "The Planner is reading and judging…";
         try {
-          const r = await host.invokeBackend<{ ok: boolean; run?: RunRecord; planLine?: string; message?: string; agent?: AgentDef }>({ method: "POST", path: `/agents/${encodeURIComponent(id)}/run`, body: { request } });
+          const r = await host.invokeBackend<{ ok: boolean; run?: RunRecord; message?: string; agent?: AgentDef }>({ method: "POST", path: `/agents/${encodeURIComponent(id)}/run`, body: { request } });
           if (!r.ok || !r.run) {
             q(`[data-status="${id}"]`).textContent = r.message ?? "It did not run.";
             return;
           }
-          q(`[data-answer="${id}"]`).textContent = r.run.answer;
-          q(`[data-plan="${id}"]`).textContent = `${planLine(r.run)} ${runReadLine(r.run)}`;
-          q(`[data-status="${id}"]`).textContent = r.run.note ?? "";
+          const run = r.run;
+          showRun(id, run);
           await refresh();
           await renderAgents();
-          q(`[data-answer="${id}"]`).textContent = r.run.answer;
-          q(`[data-plan="${id}"]`).textContent = `${planLine(r.run)} ${runReadLine(r.run)}`;
+          showRun(id, run);
         } catch (err) {
           q(`[data-status="${id}"]`).textContent = plainError(err);
         }
@@ -488,6 +676,41 @@ async function renderAgents(): Promise<void> {
   }
 }
 
+// ---- the Crew Pack (G3c): the crew's knowledge as one file, out and back
+$<HTMLButtonElement>("btn-export-pack").addEventListener(
+  "click",
+  withPending($("btn-export-pack"), "Preparing…", async () => {
+    try {
+      const conn = await host.getConnection();
+      const { path, filename } = await host.invokeBackend<{ path: string; filename: string }>({ method: "POST", path: "/export-token" });
+      // The host's browser fetches the one-shot download through the broker — our own origin here.
+      await host.openExternal(`${location.origin}/ext-dl/${encodeURIComponent(conn.app.id)}${path}`);
+      setStatus("pack-status", `Your browser is saving ${filename}.`);
+    } catch (err) {
+      setStatus("pack-status", `Couldn't prepare the download: ${plainError(err)}`, "warn");
+    }
+  }),
+);
+$<HTMLButtonElement>("btn-import-pack").addEventListener(
+  "click",
+  withPending($("btn-import-pack"), "Bringing it in…", async () => {
+    const file = ($("pack-file") as HTMLInputElement).files?.[0];
+    if (!file) {
+      setStatus("pack-status", "Choose a Crew Pack file first.");
+      return;
+    }
+    try {
+      const pack = JSON.parse(await file.text()) as unknown;
+      const r = await host.invokeBackend<{ line: string; report: { skipped: string[] } }>({ method: "POST", path: "/crew-pack", body: { pack } });
+      setStatus("pack-status", r.report.skipped.length ? `${r.line} Left out: ${r.report.skipped.join("; ")}` : r.line);
+      ($("pack-file") as HTMLInputElement).value = "";
+      await renderAgents();
+    } catch (err) {
+      setStatus("pack-status", err instanceof SyntaxError ? "That file is not JSON — a Crew Pack is the file CrewPoppy exported." : plainError(err), "warn");
+    }
+  }),
+);
+
 // ---- the model switch: reacts at once, and says what happened
 $<HTMLInputElement>("model-switch").addEventListener("change", async (e) => {
   const sw = e.target as HTMLInputElement;
@@ -497,7 +720,7 @@ $<HTMLInputElement>("model-switch").addEventListener("change", async (e) => {
   try {
     const r = await host.invokeBackend<{ model: ModelState }>({ method: "POST", path: "/settings", body: { model: wanted } });
     renderModel(r.model);
-    setStatus("model-status", wanted ? "On. The next brief is written by the model." : "Off. The Briefer writes the next brief itself, and nothing is billed.");
+    setStatus("model-status", wanted ? "On. The crew writes with the model again." : "Off. The Briefer writes the next brief itself, your memory answers what it can, and no agent runs; nothing is billed.");
   } catch (err) {
     sw.checked = !wanted;
     setStatus("model-status", `Couldn't change that: ${plainError(err)}`, "warn");
@@ -519,11 +742,11 @@ function renderHistory(briefs: BriefRecord[], runs: RunRecord[] = []): void {
     })),
     ...runs.map((r) => ({
       at: r.at,
-      html: `<div class="brief-when">${esc(when(r.at))} · asked</div>
+      html: `<div class="brief-when">${esc(when(r.at))} · ${esc(runStatusLine(r))}</div>
         <div class="muted small">${esc(r.request.length > 200 ? `${r.request.slice(0, 200)}…` : r.request)}</div>
-        <div class="brief" style="font-size:13px">${esc(r.answer)}</div>
+        ${r.status === "waiting" ? `<div class="status">${esc(nameOf(r.agent, r.agentName))} asked: ${esc(r.question?.question ?? "")} — answer it under Today.</div>` : `<div class="brief" style="font-size:13px">${esc(r.answer)}</div>`}
         <div class="receipt">${esc(planLine(r))}</div>
-        <div class="receipt">${esc(runReadLine(r))}</div>${r.note ? `<div class="status">${esc(r.note)}</div>` : ""}`,
+        <div class="receipt">${esc(runReadLine(r))}</div>${r.note ? `<div class="status">${esc(r.note)}</div>` : ""}${stepsHtml(r)}`,
     })),
   ].sort((x, y) => (x.at < y.at ? 1 : -1));
   if (items.length === 0) {
@@ -536,6 +759,11 @@ function renderHistory(briefs: BriefRecord[], runs: RunRecord[] = []): void {
 }
 
 void refresh();
+void renderAgents();
 document.addEventListener("visibilitychange", () => {
   if (document.visibilityState === "visible") void refresh();
 });
+// While a schedule may be running by itself, the page looks again every minute.
+window.setInterval(() => {
+  if (document.visibilityState === "visible") void refresh();
+}, 60_000);
