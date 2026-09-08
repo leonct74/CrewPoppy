@@ -2594,6 +2594,52 @@ AWS edition's React: one screen today, and no build step the host has to trust.
   desktop notification at the next open. Until then, "While you were away" at the next open is
   the honest channel.
 
+- **G7 — the crew door and the alarms (design, founder's decisions of 2026-09-08 17:30–18:00).**
+  *What the live ticks taught.* The runner's first 24 executions (13:25–15:20 UTC): 7 died with
+  Node's network-level `fetch failed` 55–70 s after the container started, and the successful ones
+  printed their first line 37–76 s after start — the bundle fetch, not the tick, is the wait: the
+  direct-VPC egress path is not ready for the first 30–70 s of a fresh instance, and the bootstrap
+  retried only HTTP 403/404. The same death took the real door's first revision and the fresh-project
+  door of the certify rehearsal. The host's fix (next mechanism window: the bootstrap listens first
+  and waits five minutes, printing each failed try; a dead door revision is re-made once with its
+  logs quoted) turns the deaths into waits; the wait itself stays until its cause is found.
+  *What the ticks cost* (cloud.google.com/run/pricing, read 2026-09-08): a job is billed for its
+  whole lifetime **with a one-minute minimum**, $0.000018 per vCPU-second in Tier 1, free tier
+  240,000 vCPU-seconds a month **aggregated per billing account**. A five-minute tick is 8,755
+  starts a month × 60 s minimum = 525,300 vCPU-s — never free: **$5–9 a month per poppy**, 286 of
+  every 288 starts finding nothing to do. Fifteen minutes ≈ free for one poppy; hourly free;
+  one start per agent slot free.
+  *The founder's rules.* (1) **An alarm exists only when something is actually scheduled** — an
+  activated template's schedule, or a task given through the phone. No schedule, no alarm, no
+  standing tick: an idle crew costs nothing. (2) **Wake the agents on demand from the phone or an
+  API** rather than by polling. *The design:* one **crew door** per CrewPoppy project — a Cloud Run
+  service like MemoryPoppy's door (request-based billing: charged only while handling a request,
+  min instances 0; 180,000 vCPU-s and 2M requests free a month), the single entrance for three
+  callers, each checked by identity: Cloud Scheduler **per slot** (`poppy-slot-<agent>`, OIDC as the
+  poppy's own account — Scheduler stays for exact times because a phone cannot ring at an exact
+  minute asleep and an alarm rung from AgentsPoppy's cloud would break "your cloud, your keys"; 3
+  jobs free per billing account then $0.10 a month each); the **paired phone** (its identity gets
+  `run.invoker` on the door); the user's **own API callers** later, with a key made in the app and
+  kept in the poppy's project. The door starts the run and answers at once; a run is a job
+  execution (`jobs:run`) or, for short ones, inline. The poppy's side is unprotected and lands now:
+  `GET /cloud/slots` (each scheduled agent as a cron string in the owner's zone, from the same
+  schedule data — never typed by anyone) and the schedule's optional **task** (the text handed to
+  the agent on each scheduled run; empty = its brief), the live app's own semantics. The host's
+  side (the door class for a crew, per-slot Scheduler jobs written and removed from the slot list,
+  the phone's binding) is the next mechanism window. *Open UX cost:* the 40–75 s startup wait hits
+  the door's cold start too — the phone shows "waking your crew" until the cause is fixed.
+- **One product with the live app (roadmap, 2026-09-08).** The two editions share the idea, not
+  yet the shapes: the live app's schedule is kind/hour/minute/weekday/timezone/task/enabled, this
+  one's every/at/weekday/timeZone(+task); its agent carries modelId, caps, an email sender, this
+  one's a tier, a memory flag and a dollar cap; the live app has six recipes (shared/src/recipes.ts)
+  and a phone door (Cognito, paired by QR), this edition neither; this edition's Crew Pack exists,
+  the live app's is still promised. In order: (1) the recipes offered here, mapped to this
+  edition's tools (`workspace_*` → `file_*`, `memory_write` → the notes, `memory_read` → the memory
+  flag; PDFs, photos, e-mail and the web said as "not on Google yet"), with their schedules and
+  files — activating one sets the schedule, and the schedule sets the alarm; (2) one Crew Pack
+  both editions read (the schedule in the shared shape, converted at the edge); (3) the phone door
+  for this edition, through the crew door above.
+
 **What G1 is not.** No model, no agents, no tools, no schedules, no mobile. It reads; it does not
 write memory (a Briefer that wrote its briefs back as `note` memories would be a fine G2/G3 idea —
 it needs `memory.writes` on the card and the user's say).
