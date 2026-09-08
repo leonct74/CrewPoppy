@@ -1,7 +1,7 @@
 {
   "id": "com.crewpoppy.cloud.google",
   "name": "CrewPoppy (Google Cloud)",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "Your AI crew, in your own Google Cloud. Ask it anything on the fly: the Planner reads your memory, judges the task, and picks the cheapest model on Vertex AI that fits — or none, when your memory answers by itself. The Briefer writes your morning brief. Hard caps, and a receipt for every read.",
   "bugsUrl": "https://github.com/leonct74/CrewPoppy/issues",
   "icon": "frontend/crewpoppy-icon.png",
@@ -53,6 +53,13 @@
         "event"
       ],
       "reason": "Briefs you on the meetings ahead and the people in them, from the memory you keep — the Briefer reads, it never writes."
+    },
+    "cloud": {
+      "job": {
+        "every": "5m",
+        "entry": "backend/index.cjs",
+        "reason": "Runs your agents' schedules while CrewPoppy is closed — the same program, in your own project, as itself, reaching only Google."
+      }
     }
   },
   "frontend": {
