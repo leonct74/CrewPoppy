@@ -2568,7 +2568,12 @@ AWS edition's React: one screen today, and no build step the host has to trust.
   per billing account ("Precondition check failed" on the billing link — the day had added three
   projects); certifying the runner's throwaway freed a slot. For the next window: that refusal in
   the vendor's words, and the door-closing step inside `service.teardown` itself.
-  *Still to do:* the door's certify (below, once the slot is free).
+  **The door's certify, 16:19: CERTIFIED** — a throwaway MemoryPoppy's card-free project was
+  linked to billing by the host (the slot freed), got its network, bucket and door service, held
+  99 resources, was deleted, and the sweep found nothing. One open item for the next window: in
+  that fresh project the door's first revision did not start within Cloud Run's timeout (the same
+  program started in the founder's real project); a service whose only revision failed reports no
+  URL and must be re-deployed — force a new revision, read the revision's logs first.
 
   *Build order:* G4a (CrewPoppy job mode, tests, the honest "needs the app open" note) → the door
   mode of MemoryPoppy's backend (ID-token check, receipts, the new route; tests) → the founder's
