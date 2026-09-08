@@ -426,4 +426,13 @@ describe("the Crew HQ routes", () => {
     expect(model.requests[0]!.model).toBe("gemini-2.5-flash");
     expect(r.run.model!.name).toBe("gemini-2.5-flash");
   });
+
+  it("cloud/slots: each scheduled agent as the cron string the host's alarm takes, in the owner's zone — none for an agent without a schedule", async () => {
+    const { store } = await ready();
+    const memory = fakeMemory();
+    await handle("/agents", "POST", { name: "Emma", role: "Thank-you writer", instructions: "Write warm thank-you notes.", schedule: { every: "day", at: "15:30", task: "Thank the people I met today." } }, { store, memory, now: () => NOW, timeZone: () => "Europe/Rome" });
+    await handle("/agents", "POST", { name: "Nico", role: "Note keeper", instructions: "Keep notes." }, { store, memory, now: () => NOW, timeZone: () => "Europe/Rome" });
+    const r = (await handle("/cloud/slots", "GET", undefined, { store, memory, now: () => NOW })).body as { slots: unknown[] };
+    expect(r.slots).toEqual([{ agent: "emma", name: "Emma", cron: "30 15 * * *", timeZone: "Europe/Rome", line: "every day at 15:30 (Europe/Rome)", nextRunAt: expect.stringMatching(/T13:30:00\.000Z$/), task: "Thank the people I met today." }]);
+  });
 });

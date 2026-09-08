@@ -73,4 +73,13 @@ describe("the ticker", () => {
     expect(run).toMatchObject({ status: "stopped", trigger: "schedule", note: "Emma did not run: today's limit of 0 model calls is reached." });
     expect((await tick(capped, new Set())).ran).toEqual([]);
   });
+
+  it("hands the schedule's task to the agent as the run's request — its brief when there is none", async () => {
+    const { wire, store, deps, model } = await world("2026-09-08T07:02:00.000Z");
+    await store.saveAgent({ ...emma, schedule: { ...emma.schedule!, task: "Thank the people I met today." } });
+    await tick(deps, new Set());
+    const run = wire.col("runs").get(scheduledRunId("emma", "2026-09-08T0900")) as RunRecord;
+    expect(run).toMatchObject({ status: "succeeded", request: "Thank the people I met today." });
+    expect(JSON.stringify(model.requests[0])).toContain("Thank the people I met today.");
+  });
 });

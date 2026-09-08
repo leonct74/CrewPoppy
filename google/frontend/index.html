@@ -208,6 +208,7 @@
               <span id="agent-weekday-wrap" hidden>on <select id="agent-weekday" aria-label="Which day"></select></span>
               <span id="agent-at-wrap" hidden>at <input id="agent-at" type="time" step="300" value="09:00" aria-label="At what time" /></span>
             </div>
+            <div id="agent-task-wrap" hidden style="margin-top:6px"><textarea id="agent-task" rows="2" maxlength="4000" placeholder="What it should do each time — leave empty and it runs on its brief" aria-label="The scheduled task"></textarea></div>
             <small class="muted" id="agent-schedule-note"></small>
           </div>
           <label class="field"><span>Monthly limit</span><input id="agent-cap" type="number" min="1" max="100" step="1" value="5" style="width:110px" /><small class="muted">In dollars at the ceiling price — a hard cap; the agent stops when it reaches it.</small></label>

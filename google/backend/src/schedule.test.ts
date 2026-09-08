@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: PolyForm-Shield-1.0.0
 
 import { describe, it, expect } from "vitest";
-import { clockIn, describeSchedule, instantOf, lastSlot, nextDue, validateSchedule } from "./schedule";
+import { clockIn, cronOf, describeSchedule, instantOf, lastSlot, nextDue, validateSchedule } from "./schedule";
 
 describe("a schedule in plain words", () => {
   it("is validated in the user's words and normalised", () => {
@@ -40,5 +40,15 @@ describe("a schedule in plain words", () => {
     expect(instantOf("Europe/Rome", 2026, 10, 26, 9, 0)).toBe(Date.parse("2026-10-26T08:00:00.000Z"));
     expect(lastSlot(day, "2026-10-26T08:30:00.000Z")).toEqual({ slot: "2026-10-26T0900", dueAt: "2026-10-26T08:00:00.000Z" });
     expect(nextDue(day, "2026-10-24T08:30:00.000Z")).toBe("2026-10-25T08:00:00.000Z");
+  });
+
+  it("carries an optional task and says each slot as the cron string a cloud scheduler takes, in the owner's zone", () => {
+    const day = validateSchedule({ every: "day", at: "15:30", task: "  Write the day's thank-you notes.  " }, "Europe/Rome");
+    expect(day.schedule).toEqual({ every: "day", at: "15:30", timeZone: "Europe/Rome", task: "Write the day's thank-you notes." });
+    expect(cronOf(day.schedule!)).toBe("30 15 * * *");
+    expect(cronOf({ every: "week", at: "09:05", weekday: 5, timeZone: "Europe/Rome" })).toBe("5 9 * * 5");
+    expect(cronOf({ every: "hour", at: "00:00", timeZone: "UTC" })).toBe("0 * * * *");
+    expect(validateSchedule({ every: "day", at: "09:00", task: "" }, "UTC").schedule).toEqual({ every: "day", at: "09:00", timeZone: "UTC" });
+    expect(validateSchedule({ every: "day", at: "09:00", task: "x".repeat(4_001) }, "UTC").problems).toEqual(["the task is more than 4,000 characters"]);
   });
 });

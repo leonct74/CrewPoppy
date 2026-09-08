@@ -17,7 +17,12 @@ export interface Schedule {
   /** 0 = Sunday … 6 = Saturday; only with "week". */
   weekday?: number;
   timeZone: string;
+  /** What the agent is handed on each scheduled run (the live app's own semantics); absent = its brief. */
+  task?: string;
 }
+
+/** The longest task a schedule carries — the same room as a request. */
+export const TASK_MAX = 4_000;
 
 export const WEEKDAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"] as const;
 /** A slot the app slept through is still run this long after it was due; older ones are let go. */
@@ -49,8 +54,20 @@ export function validateSchedule(input: unknown, defaultZone: string): { schedul
   }
   const timeZone = typeof s.timeZone === "string" && s.timeZone.trim() ? s.timeZone.trim() : defaultZone;
   if (!isTimeZone(timeZone)) problems.push(`"${timeZone}" is not a time zone this crew knows`);
+  const task = typeof s.task === "string" ? s.task.trim() : "";
+  if (task.length > TASK_MAX) problems.push(`the task is more than ${TASK_MAX.toLocaleString("en-GB")} characters`);
   if (problems.length > 0) return { problems };
-  return { schedule: { every: every as Every, at, ...(weekday !== undefined ? { weekday } : {}), timeZone }, problems: [] };
+  return { schedule: { every: every as Every, at, ...(weekday !== undefined ? { weekday } : {}), timeZone, ...(task ? { task } : {}) }, problems: [] };
+}
+
+/**
+ * The same schedule as the cron string a cloud scheduler takes, in the schedule's own zone —
+ * derived from the data, never typed by anyone (DESIGN §18 G7: the host writes one alarm per slot).
+ */
+export function cronOf(s: Schedule): string {
+  if (s.every === "hour") return "0 * * * *";
+  const [H, M] = s.at.split(":").map(Number) as [number, number];
+  return s.every === "week" ? `${M} ${H} * * ${s.weekday ?? 1}` : `${M} ${H} * * *`;
 }
 
 export function isTimeZone(zone: string): boolean {

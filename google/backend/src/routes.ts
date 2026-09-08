@@ -18,7 +18,7 @@ import type { MemoryReader, ReceiptHints } from "./memory-reader";
 import { PACK_FILENAME, applyPack, buildPack, describePackReport, readPack } from "./pack";
 import { ASSISTANT, BRIEFER_ID, type TierChoice } from "./planner";
 import { ASK_MAX_CHARS, type RunDeps, askCrew, describePlan, resumeRun, runAgent } from "./runner";
-import { describeSchedule, nextDue } from "./schedule";
+import { cronOf, describeSchedule, nextDue } from "./schedule";
 import { DEFAULT_CAPS, type Caps, type SpendMonth, agentSpent, ceilingUsd, describeMeter, emptyMonth, mayCall, monthOf, recordCall, usd } from "./spend";
 import type { BriefRecord, RunRecord, Settings } from "./store";
 import { TOOL_GROUPS, TOOL_NOTES } from "./tools";
@@ -243,6 +243,15 @@ export async function handle(path: string, method: string, body: unknown, deps: 
   }
 
   // ---- Your own agents (G3b) --------------------------------------------------------------------
+  // The alarms the host may set for this crew (DESIGN §18 G7): one per scheduled agent, as the cron
+  // string a cloud scheduler takes, in the owner's zone. No schedule, no alarm — an idle crew is free.
+  if (method === "GET" && path === "/cloud/slots") {
+    const at = now();
+    const slots = (await deps.store.agents())
+      .filter((a): a is typeof a & { schedule: NonNullable<typeof a.schedule> } => !!a.schedule)
+      .map((a) => ({ agent: a.id, name: a.name, cron: cronOf(a.schedule), timeZone: a.schedule.timeZone, line: describeSchedule(a.schedule), nextRunAt: nextDue(a.schedule, at), ...(a.schedule.task ? { task: a.schedule.task } : {}) }));
+    return json(200, { ok: true, slots });
+  }
   if (method === "GET" && path === "/agents") {
     const [agents, spend] = await Promise.all([deps.store.agents(), deps.store.spend<SpendMonth>(monthOf(now())).catch(() => null)]);
     const at = now();

@@ -113,6 +113,7 @@ interface Schedule {
   at: string;
   weekday?: number;
   timeZone: string;
+  task?: string;
 }
 interface AgentDef {
   id: string;
@@ -489,6 +490,7 @@ function fillScheduleSelects(): void {
   const show = (): void => {
     $("agent-at-wrap").hidden = every.value !== "day" && every.value !== "week";
     $("agent-weekday-wrap").hidden = every.value !== "week";
+    $("agent-task-wrap").hidden = every.value === "off";
     $("agent-schedule-note").textContent = every.value === "off" ? "Runs only when you press Run." : `${FORM.schedule.note.charAt(0).toUpperCase()}${FORM.schedule.note.slice(1)}.${ownZone ? ` Your clock: ${ownZone}.` : ""}`;
   };
   every.addEventListener("change", show);
@@ -502,6 +504,7 @@ function setSchedule(s: Schedule | undefined): void {
   ($("agent-every") as HTMLSelectElement).value = s?.every ?? "off";
   ($("agent-at") as HTMLInputElement).value = s && s.every !== "hour" ? s.at : "09:00";
   ($("agent-weekday") as HTMLSelectElement).value = String(s?.weekday ?? 1);
+  ($("agent-task") as HTMLTextAreaElement).value = s?.task ?? "";
   ($("agent-every") as HTMLSelectElement).dispatchEvent(new Event("change"));
 }
 function resetAgentForm(): void {
@@ -542,7 +545,7 @@ $<HTMLFormElement>("agent-form").addEventListener("submit", (e) => {
   void withPending($("btn-save-agent"), "Saving…", async () => {
     const id = ($("agent-id") as HTMLInputElement).value;
     const every = ($("agent-every") as HTMLSelectElement).value;
-    const schedule = every === "off" ? null : { every, at: ($("agent-at") as HTMLInputElement).value, weekday: Number(($("agent-weekday") as HTMLSelectElement).value), timeZone: ownZone || undefined };
+    const schedule = every === "off" ? null : { every, at: ($("agent-at") as HTMLInputElement).value, weekday: Number(($("agent-weekday") as HTMLSelectElement).value), timeZone: ownZone || undefined, task: ($("agent-task") as HTMLTextAreaElement).value };
     const body = {
       ...(id ? { id } : {}),
       name: ($("agent-name") as HTMLInputElement).value,
