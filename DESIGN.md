@@ -2423,15 +2423,115 @@ AWS edition's React: one screen today, and no build step the host has to trust.
   `!important` beside the kit's flex rows. (4) A failed model call's prompt tokens are billed by
   Google but not counted by the meter (the error loses the usage) — a known small gap.
 
-  **Runs that outlive the app — deferred, a founder decision.** Cloud Run jobs + Cloud Scheduler
-  were this slice's plan (the table above). Built now, they would break two promises: the memory
-  contract routes every read through the HOST on the user's machine, so a job in the cloud could
-  neither read the memory nor leave a receipt; and Cloud Run needs a billing account and a
-  container built in the user's project (Cloud Build, Artifact Registry — new grants, new
-  footprint). The honest edition today runs schedules while CrewPoppy is open and says so on the
-  page. The founder chooses between: a headless host mode (the broker on a small machine the user
-  owns, keeping the contract whole), a cloud-side memory door with its own receipts (a contract
-  change), or leaving runs to the open app.
+  **Runs that outlive the app — decided (founder, 2026-09-08 afternoon): they must.** "The user
+  will stay on AgentsPoppy only the time of installing and configuring a poppy." The crew's cloud
+  runs are **G4**, designed below; "runs while the app is open" stays as the way to try the crew
+  before switching them on. The card is already required for any model on Vertex AI, so the
+  switch is not about the card: it is about opening one door, deliberately, and it costs nothing
+  at the free tier's volume.
+
+- **G4 — the crew in the cloud (designed 2026-09-08; built in three parts).** *What the user
+  sees:* one switch on the crew tab — "Run my crew even when CrewPoppy is closed" — an approval
+  screen naming exactly what is created and what it may reach, the $0 line, and afterwards, on
+  opening the app, "While you were away: Nico ran at 09:00 and asked you something; Emma read two
+  memories for …". *Why it is the host's work and not the poppy's:* on Google, I2 says the poppy
+  must never be able to grant itself IAM — `actAs`, `setIamPolicy`, `serviceusage.*` are refused at
+  compile time — and a Cloud Run job runs AS a service account, a scheduler calls it AS one, and
+  both APIs must be switched on. So the poppy DECLARES and the host PROVISIONS, exactly as the
+  host already builds the project, the role and the bindings (SECURITY_MECHANISM §2.7):
+
+  ```json
+  "cloud": { "job": { "every": "5m", "entry": "backend/index.cjs",
+             "reason": "Runs your agents' schedules while CrewPoppy is closed." } }
+  ```
+
+  *What the host makes, all inside the poppy's project (I4 holds by construction — the teardown
+  is still "delete the project"):* the APIs (Cloud Run, Cloud Scheduler, Cloud Storage); a bucket
+  holding the poppy's installed backend bytes — the catalogue-pinned package's `backend/index.cjs`,
+  its sha256 on the footprint, so **reviewed bytes = installed bytes = cloud bytes** (§6.2's rule,
+  extended); a Cloud Run **job** `poppy-runner` on Google's own public `node:22-slim` image (Cloud
+  Run pulls public Docker Hub images directly — no image to publish, no Cloud Build, no registry),
+  whose command is a ten-line bootstrap that fetches the bundle from the bucket with the metadata
+  server's token and runs it; the job runs **as the poppy's own service account with exactly its
+  role** — nothing new in the wall; a Cloud Scheduler job `poppy-tick` every five minutes calling
+  `run.googleapis.com/v2/…/jobs/poppy-runner:run` with OAuth as that same service account, which
+  the host binds `roles/run.invoker` **on the job resource** (the broker stays the bindings' only
+  writer, I1); and a VPC with **Private Google Access and no route to the internet**, the job's
+  egress pinned to it — so `network: { egress: "none", machine: "google-only" }` is enforced in
+  the cloud by the network, as the net-gate enforces it at home (a job left on the default
+  network could reach anything; the rating must never say "none" there). *The rating (I6)* gains
+  one class: "runs by itself in your cloud, every five minutes, as itself, reaching only Google" —
+  medium, with the footprint named. *Cost:* the job's free tier is 240,000 vCPU-seconds a month
+  (a five-minute tick that finds nothing is a few seconds), the scheduler's first three jobs per
+  billing account are free, the bucket holds 110 KB, the network is free: $0 for the free tier's
+  volume, and the tokens are the same as at home.
+
+  *G4a — the runner, poppy-side (unprotected; built first).* The same backend in **job mode**:
+  no host, so the project token comes from the metadata server (it IS the service account), the
+  store opens as usual, `tick()` runs the due slots once with the same slot-derived ids (so a
+  slot the app already ran is not run twice, and vice versa), waiting runs stay waiting for the
+  app, and the process exits. An agent that may read the memory runs in the job only when the
+  memory door (G4c) is there; until then its slot is recorded as "needs CrewPoppy open — your
+  memory is reachable only through AgentsPoppy", once, not every five minutes. Runs land in the
+  same `runs` collection; the page's "while you were away" is a read of what is newer than the
+  last open.
+
+  *G4b — the provisioning, host-side (PROTECTED: `gcp/vendor.ts`, `gcp/provider.ts`, the rating,
+  the manifest types, SECURITY_MECHANISM §2.7/§4; the founder's window).* The declaration, the
+  approval line, the six resources above, their footprint entries, the revoke path (pause the
+  scheduler, delete nothing — a paused crew is a paused crew), the certify sweep knowing the new
+  asset types. Invariants touched: I2 (the host does the IAM-bearing work; the poppy still cannot),
+  I4 (new kinds on the footprint), I6 (the new rating class), and the net-gate's promise (the VPC).
+
+  *G4c — the cloud door of the memory (MemoryPoppy + host; PROTECTED on the host side).* With the
+  app closed there is no host to route a read through, and CrewPoppy must not learn MemoryPoppy's
+  schema. So a provider that wants to serve cloud runs declares a **door**:
+
+  ```json
+  "cloud": { "door": { "entry": "backend/server.cjs",
+             "reason": "Lets the poppies you allow read your memory while AgentsPoppy is closed." } }
+  ```
+
+  The host provisions, in MemoryPoppy's project, a Cloud Run **service** `memory-door` — the same
+  bundle in **door mode**, serving the contract's provider routes and nothing else, on the same
+  no-internet VPC, requiring a Google **ID token** whose audience is the door and whose account is
+  one the host allowed. When the user switches CrewPoppy's cloud runs on, the card asks one more
+  line — "CrewPoppy may read people and meetings from MemoryPoppy while AgentsPoppy is closed" —
+  and on approval the host binds CrewPoppy's service account `roles/run.invoker` **on the door
+  service**: the one cross-project binding in the design, written and removed only by the host,
+  removed at revoke and at CrewPoppy's teardown, gone with MemoryPoppy's project if that is deleted
+  (a new teardown step that reaches outside the consumer's wall — I4's first exception, named).
+  The host also writes the consumer's allowed kinds into MemoryPoppy's own store (`doors/<app>`),
+  so the door narrows every read with `@agentspoppy/core`'s own `narrowSearch` and `filterForReader`
+  — the same code the host runs, belt and braces as today — and writes every read's **receipt**
+  into its own `receipts` collection, naming the consumer app, the purpose, the model hint and the
+  bytes. The next time the app opens, the host asks the local MemoryPoppy for
+  `GET /memory/receipts?since=` and writes them on the consumer's Activity, marked "while you were
+  away". M5 is amended, not broken: the host holds no memory, and neither does the door; the host
+  is no longer the only door, but it is the only maker and the only revoker of doors. Contract
+  additions (drafted in the scratchpad for the window): the `cloud.door` declaration, the door's
+  wire (ID token, `caller` from the token, the `doors/*` narrowing record), `GET /memory/receipts`,
+  the receipt's cloud form, and M7: *a read while the host is away is narrowed the same, receipted
+  the same, and shown at the next open*.
+
+  *Build order:* G4a (CrewPoppy job mode, tests, the honest "needs the app open" note) → the door
+  mode of MemoryPoppy's backend (ID-token check, receipts, the new route; tests) → the founder's
+  window for G4b + G4c on the host, spec and mechanism document updated in the same commit → live
+  proof on the founder's account: the app closed, a slot run by the job, a memory read through the
+  door, the receipt on Activity at the next open, `certify` clean.
+
+- **G5 — reach (roadmap, founder's examples of 2026-09-08).** Grocery orders, a shop's site, a
+  device at home: actions that leave the user's cloud. A new grant class — "reach this
+  destination" — approved per destination on the card, allowlisted in the VPC's egress (a route
+  per destination, nothing else), always through `ask_user` before money moves or a device acts,
+  the AWS edition's allowlisted `http_request` and phone-approval as the patterns. Documents —
+  bank statements — go into the user's own bucket in the memory poppy's project and become
+  transactions and monthly summaries; the model reads summaries, not statements.
+
+- **G6 — reaching the user (roadmap).** A run that asks a question while the app is closed needs
+  a way to be heard: email to the owner, the phone app (§15h) paired to this edition, or a
+  desktop notification at the next open. Until then, "While you were away" at the next open is
+  the honest channel.
 
 **What G1 is not.** No model, no agents, no tools, no schedules, no mobile. It reads; it does not
 write memory (a Briefer that wrote its briefs back as `note` memories would be a fine G2/G3 idea —
