@@ -3,7 +3,7 @@
 
 /**
  * The crew's own records, in Firestore inside the poppy's own project (DESIGN.md §18 — Firestore
- * for DynamoDB): `briefs`, `agents`, `runs`, `spend`, and since G3c the agents' own `notes` and
+ * for DynamoDB): `agents`, `runs`, `spend`, and since G3c the agents' own `notes` and
  * `files`. `open()` brings the database up on the first run and never throws — the page shows
  * the state, and the routes that need the store answer 503 until it is ready.
  */
@@ -13,7 +13,6 @@ import { GoogleError } from "./google";
 import type { Step } from "./loop";
 import { fileIdFor, noteIdFor } from "./tools";
 
-export const BRIEFS = "briefs";
 export const META = "meta";
 export const SPEND = "spend";
 export const RUNS = "runs";
@@ -21,26 +20,6 @@ export const AGENTS = "agents";
 export const NOTES = "notes";
 export const FILES = "files";
 export const SCHEMA_VERSION = 1;
-
-export interface BriefRecord {
-  id: string;
-  at: string;
-  purpose: string;
-  /** The brief, as shown. */
-  text: string;
-  /** What it was made from — memory ids, so the page can say exactly what was read. */
-  memoryIds: string[];
-  /** The receipts' ids on the connection's Activity — the reads this brief caused. */
-  receipts: string[];
-  /** How many of what were read. */
-  read: { events: number; people: number; bytes: number };
-  /** Who wrote the words: the model, or the Briefer's own template. */
-  writtenBy: "model" | "template";
-  /** When the model wrote it: which, and what it cost in tokens — and at most in dollars, at the ceiling. */
-  model?: { name: string; words: string; promptTokens: number; outputTokens: number; ceilingUsd: number; listUsd?: number; price?: string };
-  /** Why the template wrote it although a model was there: a cap, or a refusal, in the user's words. */
-  note?: string;
-}
 
 export interface Settings {
   /** Whether the crew writes with the model (default: yes, when the build has one). */
@@ -206,10 +185,6 @@ export class CrewStore {
     return this.deps.wire;
   }
 
-  async saveBrief(b: BriefRecord): Promise<void> {
-    await this.need().set(BRIEFS, b.id, b);
-  }
-
   async getMeta<T extends object>(id: string): Promise<T | null> {
     return this.need().get<T>(META, id);
   }
@@ -308,9 +283,4 @@ export class CrewStore {
     return all.find((r) => r.agent === agentId && (r.status === "running" || r.status === "waiting")) ?? null;
   }
 
-  /** Newest first. */
-  async briefs(limit = 20): Promise<BriefRecord[]> {
-    const all = await this.need().listChanged<BriefRecord>(BRIEFS, "at", null);
-    return all.map((d) => ({ ...d.data, id: d.id })).sort((x, y) => (x.at < y.at ? 1 : x.at > y.at ? -1 : 0)).slice(0, limit);
-  }
 }

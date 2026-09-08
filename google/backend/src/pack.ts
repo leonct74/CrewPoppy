@@ -6,7 +6,7 @@
  * the crew learned, as one file the user owns — in the SHARED format both editions read
  * (shared/src/pack.ts). Agents are data — the definition, the notes an agent kept, its files — so
  * the whole crew leaves as JSON and comes back anywhere: after a teardown, on another machine, in
- * the AWS edition. Runs and briefs are history, not knowledge; they stay where they were made.
+ * the AWS edition. Runs are history, not knowledge; they stay where they were made.
  *
  * This edition's edge: its tool names become the live app's on the way out and are mapped back on
  * the way in, with the abilities not on Google yet said, never dropped in silence; a tier is the

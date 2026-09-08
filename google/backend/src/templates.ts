@@ -123,8 +123,35 @@ function templateOf(r: Recipe): Template {
   };
 }
 
-/** The live app's catalogue, as this edition offers it — in the catalogue's own order. */
-export const TEMPLATES: readonly Template[] = RECIPES.map(templateOf);
+/**
+ * This edition's own template: the morning brief from the user's MEMORY poppy — what the Google
+ * edition's first step did as a built-in "Briefer" (DESIGN §18 G1). The founder chose the live
+ * app's shape on 2026-09-08: no built-in members; the brief is an agent the user activates, with a
+ * schedule and a task, and nothing runs until they do.
+ */
+export const MORNING_BRIEF: Template = {
+  key: "morning-brief-memory",
+  name: "Bea",
+  role: "Your morning brief, from your memory",
+  blurb: "Every morning it reads today's meetings and the people in them from your memory poppy, through AgentsPoppy, and writes you a short brief — nothing invented, a receipt for every read.",
+  needs: ["Your memory poppy, installed and open to CrewPoppy for people and meetings — every read leaves a receipt on your Activity"],
+  instructions: [
+    "You write the user's morning brief from the MEMORIES you are given and from what memory_search returns, and from nothing else.",
+    "Say what is on today's calendar, who is in each meeting, and anything recent worth remembering about those people.",
+    "Never add a fact, a name, a time, a place or a number that is not in the memories; never guess what a meeting is about.",
+    "If the memories hold nothing for today, say so warmly in one or two sentences.",
+    "Open with a greeting that fits the time of day. Plain words, second person, at most 120 words, no headings, no bullet symbols. British spelling.",
+  ].join("\n"),
+  tools: [],
+  memory: true,
+  capUsd: 2,
+  schedule: { every: "day", at: "07:30", task: "Write my morning brief: today's meetings, the people in them, and anything recent worth remembering about them." },
+  files: [],
+  notYet: [],
+};
+
+/** The live app's catalogue, as this edition offers it — in the catalogue's own order — then this edition's own. */
+export const TEMPLATES: readonly Template[] = [...RECIPES.map(templateOf), MORNING_BRIEF];
 
 export function templateByKey(key: string): Template | undefined {
   return TEMPLATES.find((t) => t.key === key);

@@ -90,7 +90,7 @@
       <img src="./crewpoppy-icon.png" alt="" />
       <h1>CrewPoppy</h1>
     </header>
-    <p class="sub">Your AI crew, in your own Google Cloud. The Planner in front; the Assistant, the Briefer, and the agents you define — with their tools, their schedules and a Crew Pack to take them anywhere.</p>
+    <p class="sub">Your AI crew, in your own Google Cloud: the agents you choose — from a template or your own — with their tools, their schedules, your memory when you allow it, and a Crew Pack to take them anywhere.</p>
 
     <nav class="tabs" role="tablist">
       <button role="tab" aria-selected="true" data-tab="today">Today</button>
@@ -101,25 +101,9 @@
 
     <section id="tab-today">
       <div class="panel">
-        <h2>Ask your crew</h2>
-        <p class="muted small" style="margin:0 0 8px">Anything, on the fly. The Planner reads your memory when the question is about your life, judges the task, and picks the cheapest model that fits — or none. You can overrule it.</p>
-        <textarea id="ask" rows="3" placeholder="What's on my calendar today? · Rewrite this more politely: … · Plan a launch for …" aria-label="Ask your crew"></textarea>
-        <div class="row" style="margin-top:8px">
-          <button id="btn-ask" class="btn">Ask</button>
-          <select id="ask-choice" aria-label="Which model">
-            <option value="auto">Let the Planner choose</option>
-            <option value="quick">Quick — the smallest model</option>
-            <option value="standard">Standard model</option>
-            <option value="best">Best — the deep model</option>
-          </select>
-        </div>
-        <div id="answer-wrap" hidden>
-          <div id="answer" class="brief" style="margin-top:12px"></div>
-          <div id="plan-line" class="receipt"></div>
-          <div id="answer-read" class="receipt"></div>
-          <div id="answer-steps"></div>
-        </div>
-        <div id="ask-status" class="status"></div>
+        <h2>Your cloud</h2>
+        <div id="where" class="status" style="margin:0"></div>
+        <div id="memory-line" class="muted small" style="margin-top:6px"></div>
       </div>
       <div class="panel" id="away-panel" hidden>
         <h2>While you were away</h2>
@@ -131,52 +115,18 @@
         <p class="muted small" style="margin:0 0 8px">An agent paused to ask you before going on. Nothing happens until you answer — or stop the run.</p>
         <div id="waiting"></div>
       </div>
-      <div class="panel">
-        <h2>Your brief</h2>
-        <div id="where" class="status" style="margin:0 0 10px"></div>
-        <div id="brief-when" class="brief-when"></div>
-        <div id="brief" class="brief muted">Loading…</div>
-        <div class="row">
-          <button id="btn-brief" class="btn">Brief me now</button>
-          <span id="memory-line" class="muted small"></span>
-        </div>
-        <div id="receipt" class="receipt"></div>
-        <div id="written-by" class="status"></div>
-        <div id="brief-status" class="status"></div>
-      </div>
     </section>
 
     <section id="tab-crew" hidden>
       <div class="panel">
         <h2>Your crew</h2>
-        <div class="crew">
-          <div class="avatar">P</div>
-          <div>
-            <div><strong>The Planner</strong> <span class="muted">· the main agent — reads, judges, dispatches</span></div>
-            <div class="muted small">Every request goes through the Planner first. It reads your memory when the question is about your life, judges the task's difficulty from rules you can read on the answer, and picks the cheapest model on Vertex AI that fits — none for a question your memory answers by itself, the smallest for a rewrite or a short answer, the standard for most, the deep one for planning and analysis. It spends no tokens deciding.</div>
-          </div>
-        </div>
-        <div class="crew">
-          <div class="avatar">A</div>
-          <div>
-            <div><strong>The Assistant</strong> <span class="muted">· answers what you ask, on the fly</span></div>
-            <div class="muted small">The member for unplanned tasks. Gets your request and, as data, the memories the Planner read; never invents a fact about your life; says plainly when your memory holds nothing relevant.</div>
-          </div>
-        </div>
-        <div class="crew">
-          <div class="avatar">B</div>
-          <div>
-            <div><strong>The Briefer</strong> <span class="muted">· reads your memory, writes your brief</span></div>
-            <div class="muted small">Reads people and meetings from the memory poppy you installed, through AgentsPoppy — never writes, never sends. Writes your brief with Gemini on Vertex AI inside this project, under your card and CrewPoppy's caps — or in its own words when the model is off, capped or away, and says which.</div>
-          </div>
-        </div>
         <div id="agents" class="agents"></div>
         <div id="model-panel" class="source" style="margin-top:10px">
-          <label class="row" style="gap:10px"><input type="checkbox" id="model-switch" /> <span id="model-label">The Briefer writes with a model on Vertex AI, inside this project.</span></label>
+          <label class="row" style="gap:10px"><input type="checkbox" id="model-switch" /> <span id="model-label">Your crew writes with a model on Vertex AI, inside this project.</span></label>
           <div id="meter" class="muted small" style="margin-top:6px"></div>
           <div id="model-status" class="status"></div>
         </div>
-        <p class="muted small" style="margin:10px 0 0">Your agents run while CrewPoppy is open — on your word, or on their schedule. Runs that outlive the app are a later release.</p>
+        <p class="muted small" style="margin:10px 0 0">Your agents run on your word, or on their schedule — and in your cloud while CrewPoppy is closed, once its cloud runner is on.</p>
       </div>
       <div class="panel">
         <h2>Crew Pack</h2>

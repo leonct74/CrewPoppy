@@ -46,12 +46,12 @@ export const FORM = {
     { key: "instructions", label: "Brief", note: "what it does, how, in what tone, with what limits. Instructions never grant abilities: the agent can only write; it cannot send, publish or reach anything" },
   ] as FormField[],
   tiers: [
-    { value: "auto", label: "Let the Planner choose", note: "the Planner judges each request and picks the cheapest model that fits — the default" },
+    { value: "auto", label: "Let CrewPoppy choose", note: "each request is judged by rules you can read on the answer, and the cheapest model that fits is picked — the default" },
     { value: "light", label: "Quick — the smallest model", note: "rewrites, summaries, short answers; the cheapest" },
     { value: "standard", label: "Standard model", note: "most everyday work" },
     { value: "deep", label: "Best — the deep model", note: "planning, analysis, long pieces; the dearest" },
   ] as TierOption[],
-  memory: { label: "May read my memory", note: "the Planner reads the people and meetings from your memory poppy when a run is about your life, and the agent may search it itself — every read leaves a receipt on your Activity. Untick for agents that never need your life, and nothing of it is read" },
+  memory: { label: "May read my memory", note: "CrewPoppy reads the people and meetings from your memory poppy when a run is about your life, and the agent may search it itself — every read leaves a receipt on your Activity. Untick for agents that never need your life, and nothing of it is read" },
   /** The tools an owner ticks; the memory search is the memory tick above, so its group is left out here. */
   tools: TOOL_GROUPS.filter((g) => g.key !== "memory").map((g) => ({
     key: g.key,

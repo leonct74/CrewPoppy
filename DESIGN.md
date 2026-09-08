@@ -2639,6 +2639,18 @@ AWS edition's React: one screen today, and no build step the host has to trust.
   side (the door class for a crew, per-slot Scheduler jobs written and removed from the slot list,
   the phone's binding) is the next mechanism window. *Open UX cost:* the 40–75 s startup wait hits
   the door's cold start too — the phone shows "waking your crew" until the cause is fixed.
+- **No built-in members (founder, 2026-09-08 19:40).** "I don't understand what this crew represents
+  and why you put it" — the Planner, the Assistant and the Briefer were G1–G3 machinery dressed as
+  teammates, a presentation the live app never had. The founder chose the live app's shape ("better
+  designed, although we didn't have the memory poppy set up yet"): **the crew is the agents the user
+  chooses**, from a template or by hand; the machinery stays invisible. So: the three cards, the Ask
+  box (`/ask`, `askCrew`, the Assistant) and the Briefer (`/brief`, `briefer.ts`, the `briefs`
+  collection) are gone; the routing rules stay behind every agent run and are said in one line on the
+  answer ("Gemini 2.5 Flash-Lite on Vertex AI — Emma's own setting · …"); the morning brief from the
+  memory poppy is this edition's own template (`MORNING_BRIEF`, "Bea": memory on, daily 07:30, a task)
+  — nothing runs until the user activates it. Emma and Nico, the test agents of the live proofs, were
+  removed from the founder's crew the same evening. Old `briefs` documents in the founder's project
+  are orphans; nothing reads them.
 - **The money line (founder, 2026-09-08 19:20).** "I wouldn't put this estimate as it is now, it
   sounds much more expensive than it actually is. Ideally we should show the tokens consumed and the
   price per million tokens." So: every money line shows the TOKENS (in and out) and their cost at

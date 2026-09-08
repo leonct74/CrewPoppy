@@ -9,7 +9,8 @@ const NOW = "2026-09-08T16:00:00.000Z";
 
 describe("the live app's recipes, offered here", () => {
   it("offers every recipe of the shared catalogue, its tools mapped to this edition's, the missing abilities named — and never the user's memory by default", () => {
-    expect(TEMPLATES.map((t) => t.key)).toEqual(RECIPES.map((r) => r.key));
+    expect(TEMPLATES.map((t) => t.key)).toEqual([...RECIPES.map((r) => r.key), "morning-brief-memory"]);
+    expect(templateByKey("morning-brief-memory")).toMatchObject({ name: "Bea", memory: true, tools: [], schedule: { every: "day", at: "07:30" }, notYet: [] });
     const nora = templateByKey("document-answerer")!;
     expect(nora).toMatchObject({ name: "Nora", tools: ["note_read", "note_write", "file_list", "file_read"], memory: false, capUsd: 5, notYet: [], files: [] });
     expect(nora.unavailable).toBeUndefined();

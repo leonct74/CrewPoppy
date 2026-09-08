@@ -58,18 +58,6 @@ interface MemoryInfo {
   reads?: string[];
   error?: string;
 }
-interface BriefRecord {
-  id: string;
-  at: string;
-  purpose: string;
-  text: string;
-  memoryIds: string[];
-  receipts: string[];
-  read: { events: number; people: number; bytes: number };
-  writtenBy?: "model" | "template";
-  model?: { name: string; words: string; promptTokens: number; outputTokens: number; ceilingUsd: number; listUsd?: number; price?: string };
-  note?: string;
-}
 interface ModelState {
   available: boolean;
   enabled: boolean;
@@ -129,7 +117,7 @@ interface AgentDef {
   monthUsd?: number;
   monthTokens?: number;
   monthListUsd?: number;
-  /** Google's price per million for this agent's model; "" when the Planner chooses. */
+  /** Google's price per million for this agent's model; "" when CrewPoppy chooses per request. */
   price?: string;
   scheduleLine?: string;
   nextRunAt?: string;
@@ -138,10 +126,8 @@ interface State {
   cloud: CloudState;
   memory: MemoryInfo | null;
   memoryWired: boolean;
-  briefs: BriefRecord[];
   runs?: RunRecord[];
   waiting?: RunRecord[];
-  purpose: string;
   model?: ModelState;
   timeZone?: string;
 }
@@ -150,13 +136,11 @@ const WEEKDAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Frida
 const money = (n: number): string => (n === 0 ? "$0.00" : `$${Math.max(0.01, Math.round(n * 100) / 100).toFixed(2)}`);
 /** The crew's names for the page: the built-in members, and your own agents as last listed. */
 const agentNames = new Map<string, string>([
-  ["assistant", "The Assistant"],
-  ["briefer", "The Briefer"],
 ]);
 const nameOf = (id: string, name?: string): string => name ?? agentNames.get(id) ?? id;
 
 function planLine(r: RunRecord): string {
-  const parts = [`Planner: ${r.why}`, TIER_WORDS[r.tier]];
+  const parts = [`${TIER_WORDS[r.tier]} — ${r.why}`];
   if (r.read.purpose) parts.push(`${r.read.count} ${r.read.count === 1 ? "memory" : "memories"} read`);
   if (r.model) parts.push(`${(r.model.promptTokens + r.model.outputTokens).toLocaleString("en-GB")} tokens (${r.model.promptTokens.toLocaleString("en-GB")} in, ${r.model.outputTokens.toLocaleString("en-GB")} out)${r.model.listUsd !== undefined ? ` ≈ ${usdFine(r.model.listUsd)} at Google's price` : ""}${r.model.price ? ` — ${r.model.price}` : ""}`);
   else if (r.tier === "none") parts.push("no tokens");
@@ -236,7 +220,7 @@ function describeMemory(m: MemoryInfo | null, wired: boolean): string {
   if (!wired) return "This build has no door to your memory.";
   if (!m) return "";
   if (m.error) return `Couldn't ask about your memory: ${m.error}`;
-  if (!m.available) return "No memory poppy is installed yet — install MemoryPoppy, and the Briefer has something to read.";
+  if (!m.available) return "No memory poppy is installed yet — install MemoryPoppy, and your agents have something to read.";
   const words = (m.reads ?? []).map((k) => (k === "event" ? "meetings" : k === "person" ? "people" : k)).join(" and ");
   return `May read ${words || "nothing"} from ${m.provider?.name ?? "your memory poppy"}, for “Morning briefing” only.`;
 }
@@ -245,21 +229,6 @@ function usdFine(amount: number): string {
   if (amount === 0) return "$0.00";
   if (amount < 0.01) return `$${amount.toFixed(4)}`;
   return `$${(Math.round(amount * 100) / 100).toFixed(2)}`;
-}
-/** "Written by Gemini 2.5 Flash on Vertex AI · 1,240 tokens ≈ $0.0009 at Google's price." */
-function writtenByLine(b: BriefRecord): string {
-  if (b.writtenBy === "model" && b.model) {
-    const tokens = b.model.promptTokens + b.model.outputTokens;
-    return `Written by ${b.model.words} · ${tokens.toLocaleString("en-GB")} tokens${b.model.listUsd !== undefined ? ` ≈ ${usdFine(b.model.listUsd)} at Google's price` : ""}${b.model.price ? ` (${b.model.price})` : ""}.`;
-  }
-  return b.note ?? "Written by the Briefer itself, without a model.";
-}
-function readLine(b: BriefRecord): string {
-  const parts: string[] = [];
-  if (b.read.events) parts.push(`${b.read.events} ${b.read.events === 1 ? "meeting" : "meetings"}`);
-  if (b.read.people) parts.push(`${b.read.people} ${b.read.people === 1 ? "person" : "people"}`);
-  const kb = b.read.bytes >= 1024 ? `${(b.read.bytes / 1024).toFixed(1)} KB` : `${b.read.bytes} B`;
-  return `Read ${parts.length ? parts.join(" and ") : "nothing"} for “${b.purpose}” — ${kb}. Written on your Activity${b.receipts.length ? ` (${b.receipts.length} ${b.receipts.length === 1 ? "receipt" : "receipts"})` : ""}.`;
 }
 
 // ---- tabs
@@ -279,21 +248,6 @@ for (const tab of document.querySelectorAll<HTMLElement>("[role=tab]")) {
 let settleTimer: number | undefined;
 let ownZone = "";
 let openedOnce = false;
-function showBrief(b: BriefRecord | undefined): void {
-  if (!b) {
-    $("brief-when").textContent = "";
-    $("brief").className = "brief muted";
-    $("brief").textContent = "No brief yet. Press “Brief me now” and the Briefer reads the week ahead and the month behind from your memory.";
-    $("receipt").textContent = "";
-    setStatus("written-by", "");
-    return;
-  }
-  $("brief-when").textContent = `Written ${when(b.at)}`;
-  $("brief").className = "brief";
-  $("brief").textContent = b.text;
-  $("receipt").textContent = readLine(b);
-  setStatus("written-by", writtenByLine(b));
-}
 function renderModel(m: ModelState | undefined): void {
   const sw = $<HTMLInputElement>("model-switch");
   if (!m || !m.available) {
@@ -318,69 +272,23 @@ async function refresh(): Promise<void> {
     if (state.cloud && (state.cloud.state === "setting-up" || state.cloud.state === "starting")) {
       window.clearTimeout(settleTimer);
       settleTimer = window.setTimeout(() => void refresh(), 3000);
-      $("brief").className = "brief muted";
-      $("brief").textContent = "Your crew's project is being set up. This takes about a minute the first time.";
+      setStatus("where", "Your crew's project is being set up. This takes about a minute the first time.");
       return;
     }
     if (!templatesShown) void renderTemplates();
-    showBrief(state.briefs[0]);
     if (!openedOnce) {
       openedOnce = true;
       void renderAway();
     }
     renderWaiting(state.waiting ?? []);
-    renderHistory(state.briefs, state.runs ?? []);
+    renderHistory(state.runs ?? []);
     renderModel(state.model);
   } catch (err) {
-    setStatus("where", `Couldn't reach the Briefer: ${plainError(err)}`, "warn");
+    setStatus("where", `Couldn't reach your crew: ${plainError(err)}`, "warn");
   }
 }
-$<HTMLButtonElement>("btn-brief").addEventListener(
-  "click",
-  withPending($("btn-brief"), "Reading your memory…", async () => {
-    setStatus("brief-status", "");
-    try {
-      const r = await host.invokeBackend<{ brief: BriefRecord; truncated: boolean }>({ method: "POST", path: "/brief" });
-      showBrief(r.brief);
-      if (r.truncated) setStatus("brief-status", "Your memory held more than the Briefer asked for — it read the first forty meetings.");
-      await refresh();
-    } catch (err) {
-      setStatus("brief-status", `The Briefer couldn't write today's brief: ${plainError(err)}`, "warn");
-    }
-  }),
-);
 
 // ---- ask your crew
-function showAnswer(r: RunRecord): void {
-  $("answer-wrap").hidden = false;
-  $("answer").textContent = r.answer;
-  $("plan-line").textContent = planLine(r);
-  $("answer-read").textContent = runReadLine(r);
-  $("answer-steps").innerHTML = stepsHtml(r);
-  setStatus("ask-status", r.note ?? "");
-}
-$<HTMLButtonElement>("btn-ask").addEventListener(
-  "click",
-  withPending($("btn-ask"), "Asking…", async () => {
-    const request = ($("ask") as HTMLTextAreaElement).value.trim();
-    const choice = ($("ask-choice") as HTMLSelectElement).value;
-    if (!request) {
-      setStatus("ask-status", "Ask something — a request in your own words.");
-      return;
-    }
-    setStatus("ask-status", "The Planner is reading and judging…");
-    try {
-      const r = await host.invokeBackend<{ run: RunRecord }>({ method: "POST", path: "/ask", body: { request, choice } });
-      showAnswer(r.run);
-      await refresh();
-    } catch (err) {
-      setStatus("ask-status", `Your crew couldn't answer: ${plainError(err)}`, "warn");
-    }
-  }),
-);
-$("ask").addEventListener("keydown", (e: KeyboardEvent) => {
-  if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) $("btn-ask").click();
-});
 
 // ---- while you were away (G4): the cloud job's runs since the last open
 async function renderAway(): Promise<void> {
@@ -470,8 +378,8 @@ function renderWaiting(runs: RunRecord[]): void {
 }
 async function renderHistoryFromState(): Promise<void> {
   try {
-    const h = await host.invokeBackend<{ briefs: BriefRecord[]; runs: RunRecord[] }>({ method: "GET", path: "/history" });
-    renderHistory(h.briefs, h.runs);
+    const h = await host.invokeBackend<{ runs: RunRecord[] }>({ method: "GET", path: "/history" });
+    renderHistory(h.runs);
   } catch {
     /* the next refresh will */
   }
@@ -683,6 +591,10 @@ async function renderAgents(): Promise<void> {
     return;
   }
   for (const a of agents) agentNames.set(a.id, a.name);
+  if (agents.length === 0) {
+    el.innerHTML = `<div class="muted small" style="margin:6px 0 10px">No agents yet. Start from a template below, or make your own.</div>`;
+    return;
+  }
   el.innerHTML = agents
     .map(
       (a) => `<div class="agent" data-id="${esc(a.id)}">
@@ -724,7 +636,7 @@ async function renderAgents(): Promise<void> {
       "click",
       withPending(btn, "Running…", async () => {
         const request = (q(`.agent[data-id="${id}"] .agent-request`) as HTMLTextAreaElement).value.trim();
-        q(`[data-status="${id}"]`).textContent = "The Planner is reading and judging…";
+        q(`[data-status="${id}"]`).textContent = "Reading and judging the request…";
         try {
           const r = await host.invokeBackend<{ ok: boolean; run?: RunRecord; message?: string; agent?: AgentDef }>({ method: "POST", path: `/agents/${encodeURIComponent(id)}/run`, body: { request } });
           if (!r.ok || !r.run) {
@@ -819,7 +731,7 @@ $<HTMLInputElement>("model-switch").addEventListener("change", async (e) => {
   try {
     const r = await host.invokeBackend<{ model: ModelState }>({ method: "POST", path: "/settings", body: { model: wanted } });
     renderModel(r.model);
-    setStatus("model-status", wanted ? "On. The crew writes with the model again." : "Off. The Briefer writes the next brief itself, your memory answers what it can, and no agent runs; nothing is billed.");
+    setStatus("model-status", wanted ? "On. The crew writes with the model again." : "Off. No agent runs and nothing is billed until you switch it on again.");
   } catch (err) {
     sw.checked = !wanted;
     setStatus("model-status", `Couldn't change that: ${plainError(err)}`, "warn");
@@ -829,16 +741,9 @@ $<HTMLInputElement>("model-switch").addEventListener("change", async (e) => {
 });
 
 // ---- history
-function renderHistory(briefs: BriefRecord[], runs: RunRecord[] = []): void {
+function renderHistory(runs: RunRecord[] = []): void {
   const el = $("history");
   const items = [
-    ...briefs.map((b) => ({
-      at: b.at,
-      html: `<div class="brief-when">${esc(when(b.at))} · brief</div>
-        <div class="brief" style="font-size:13px">${esc(b.text)}</div>
-        <details><summary>What was read, and who wrote it</summary><div class="receipt">${esc(readLine(b))}</div><div class="receipt">${esc(writtenByLine(b))}</div>
-          <ul class="plain">${b.memoryIds.map((id) => `<li class="mono">${esc(id)}</li>`).join("")}</ul></details>`,
-    })),
     ...runs.map((r) => ({
       at: r.at,
       html: `<div class="brief-when">${esc(when(r.at))} · ${esc(runStatusLine(r))}</div>

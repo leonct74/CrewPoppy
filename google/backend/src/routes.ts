@@ -12,15 +12,14 @@
 import type { Memory, MemoryAvailability, MemoryPage } from "@agentspoppy/core";
 import { formatMemoryBytes, memoryBytes } from "@agentspoppy/core";
 import { randomBytes } from "node:crypto";
-import { AGENT_LIMITS, agentFrom, idFor, validateAgent } from "./agents";
-import { type Brief, writeBrief } from "./briefer";
+import { AGENT_LIMITS, agentFrom, validateAgent } from "./agents";
 import type { MemoryReader, ReceiptHints } from "./memory-reader";
 import { PACK_FILENAME, applyPack, buildPack, describePackReport, readPack } from "./pack";
-import { ASSISTANT, BRIEFER_ID, TIERS, type TierChoice, priceLine } from "./planner";
-import { ASK_MAX_CHARS, type RunDeps, askCrew, describePlan, resumeRun, runAgent } from "./runner";
+import { TIERS, priceLine } from "./planner";
+import { type RunDeps, describePlan, resumeRun, runAgent } from "./runner";
 import { cronOf, describeSchedule, nextDue } from "./schedule";
 import { DEFAULT_CAPS, type Caps, type SpendMonth, agentUsage, ceilingUsd, describeMeter, emptyMonth, listUsd, mayCall, monthOf, recordCall } from "./spend";
-import type { BriefRecord, RunRecord, Settings } from "./store";
+import type { RunRecord, Settings } from "./store";
 import { TEMPLATES, activateTemplate, templateByKey } from "./templates";
 import { TOOL_GROUPS, TOOL_NOTES } from "./tools";
 
@@ -29,23 +28,6 @@ export type { RunDeps as RouteDeps } from "./runner";
 export { describePlan } from "./runner";
 
 export const POPPY_ID = "com.crewpoppy.cloud.google";
-export const PURPOSE = "Morning briefing";
-/** The most words the model may write for one brief. */
-const BRIEF_MAX_OUTPUT_TOKENS = 400;
-/** A brief's material rarely passes this; the ceiling on the receipt is computed from it. */
-
-/** The Briefer's instructions to the model — the material is the whole truth, the model only the pen. */
-export const BRIEFER_INSTRUCTIONS = [
-  "You are the Briefer, one member of the user's own crew. Write the user's brief from the MATERIAL below and from nothing else.",
-  "Never add a fact, a name, a time, a place or a number that is not in the material; never guess what a meeting is about.",
-  "If the material says there is nothing on the calendar, say so warmly in one or two sentences.",
-  "Plain words, second person, at most 120 words, no headings, no bullet symbols, no emojis. Keep the greeting the material opens with. British spelling.",
-].join(" ");
-/** The week ahead, and the month behind: a brief is the day's plan with its recent context. */
-const AHEAD_DAYS = 7;
-const BEHIND_DAYS = 30;
-const MAX_EVENTS = 40;
-
 export interface Reply {
   status: number;
   body: unknown;
@@ -54,12 +36,6 @@ export interface Reply {
   filename?: string;
 }
 const json = (status: number, body: unknown): Reply => ({ status, body });
-
-/** The crew as the page shows it: the pre-built members. */
-export const CREW = [
-  { id: BRIEFER_ID, name: "The Briefer", role: "reads your memory, writes your brief", tier: "standard" as const },
-  { id: ASSISTANT.id, name: ASSISTANT.name, role: ASSISTANT.role, tier: "auto" as const },
-];
 
 /** One-shot download tokens: the host's browser fetches `/local-download/<token>` exactly once. */
 const downloads = new Map<string, { expiresAt: number }>();
@@ -108,17 +84,16 @@ export async function handle(path: string, method: string, body: unknown, deps: 
         memory = { available: false, error: plain(e) };
       }
     }
-    let briefs: BriefRecord[] = [];
     let runs: RunRecord[] = [];
     let waiting: RunRecord[] = [];
     if (deps.store.ready) {
       try {
-        [briefs, runs, waiting] = await Promise.all([deps.store.briefs(10), deps.store.runs(10), deps.store.waiting()]);
+        [runs, waiting] = await Promise.all([deps.store.runs(10), deps.store.waiting()]);
       } catch (e) {
         deps.log?.(`could not list the records: ${plain(e)}`);
       }
     }
-    return json(200, { ok: true, cloud: deps.store.state(), memory, memoryWired: deps.memory !== null, briefs, runs: runs.map(publicRun), waiting: waiting.map(publicRun), crew: CREW, purpose: PURPOSE, model: await modelState(deps, now()), tools: { groups: TOOL_GROUPS, notes: TOOL_NOTES }, timeZone: timeZone() });
+    return json(200, { ok: true, cloud: deps.store.state(), memory, memoryWired: deps.memory !== null, runs: runs.map(publicRun), waiting: waiting.map(publicRun), model: await modelState(deps, now()), tools: { groups: TOOL_GROUPS, notes: TOOL_NOTES }, timeZone: timeZone() });
   }
   // The templates are the catalogue's, not the store's: they show while the project is still being set up.
   if (method === "GET" && path === "/templates") {
@@ -145,100 +120,12 @@ export async function handle(path: string, method: string, body: unknown, deps: 
     return json(200, { ok: true, model: await modelState(deps, now()) });
   }
 
-  if (method === "POST" && path === "/brief") {
-    if (!deps.memory) return json(501, { ok: false, error: "no_memory_route", message: "This build has no door to your memory — its manifest must declare permissionSet.memory.reads." });
-    const at = now();
-    const t = Date.parse(at);
-    const since = new Date(t - BEHIND_DAYS * 86_400_000).toISOString();
-    const until = new Date(t + AHEAD_DAYS * 86_400_000).toISOString();
-    // Where the memories go next: to the model, when there is one and it is on — the receipt says so.
-    const settings = (await deps.store.getMeta<Settings>("settings").catch(() => null)) ?? {};
-    const useModel = !!deps.model && settings.model !== false;
-    const hints: ReceiptHints = useModel && deps.model ? { model: deps.model.words } : {};
-    let page: MemoryPage;
-    try {
-      page = await deps.memory.search({ purpose: PURPOSE, kinds: ["event"], since, until, limit: MAX_EVENTS, ...hints });
-    } catch (e) {
-      return json(502, { ok: false, error: "memory_read_failed", message: plain(e) });
-    }
-    const events: Memory[] = page.memories.filter((m) => m.kind === "event");
-    const receipts: string[] = page.receipt ? [page.receipt] : [];
-    let people: Memory[] = [];
-    const personIds = [...new Set(events.flatMap((e) => (e.links ?? []).filter((l) => l.relation === "with").map((l) => l.to)))];
-    if (personIds.length > 0) {
-      try {
-        const got = await deps.memory.get({ purpose: PURPOSE, ids: personIds.slice(0, 100), ...hints });
-        people = got.memories.filter((m) => m.kind === "person");
-        if (got.receipt) receipts.push(got.receipt);
-      } catch (e) {
-        deps.log?.(`the people of the meetings could not be read: ${plain(e)}`);
-      }
-    }
-    // The Briefer's own words are the material — and the brief itself when the model is off, capped, or away.
-    const brief: Brief = writeBrief({ events, people, now: at, timeZone: timeZone() });
-    let text = brief.text;
-    let writtenBy: BriefRecord["writtenBy"] = "template";
-    let modelUsed: BriefRecord["model"] | undefined;
-    let note: string | undefined;
-    if (useModel && deps.model) {
-      const caps = deps.caps ?? DEFAULT_CAPS;
-      const month = monthOf(at);
-      const spend = (await deps.store.spend<SpendMonth>(month).catch(() => null)) ?? emptyMonth(month);
-      const allowed = mayCall(spend, caps, at);
-      if (!allowed.ok) {
-        note = `The Briefer wrote this itself: ${allowed.reason}.`;
-      } else {
-        try {
-          const reply = await deps.model.generate(BRIEFER_INSTRUCTIONS, `MATERIAL:\n${brief.text}`, BRIEF_MAX_OUTPUT_TOKENS);
-          text = reply.text;
-          writtenBy = "model";
-          const briefTier = tierOfModel(reply.model);
-          modelUsed = { name: reply.model, words: deps.model.words, promptTokens: reply.promptTokens, outputTokens: reply.outputTokens, ceilingUsd: ceilingUsd(reply.promptTokens + reply.outputTokens), listUsd: listUsd(reply.promptTokens, reply.outputTokens, briefTier.listUsdPerMillion), price: priceLine(briefTier) };
-          const t = tierOfModel(reply.model);
-          await deps.store.saveSpend(month, recordCall(spend, reply.promptTokens, reply.outputTokens, at, ceilingUsd(reply.promptTokens + reply.outputTokens, t.ceilingUsdPerMillion), undefined, listUsd(reply.promptTokens, reply.outputTokens, t.listUsdPerMillion)));
-        } catch (e) {
-          note = `The Briefer wrote this itself — ${plain(e)}`;
-          deps.log?.(`model call failed, template used: ${plain(e)}`);
-        }
-      }
-    }
-    const record: BriefRecord = {
-      id: (deps.newId ?? defaultId)(),
-      at,
-      purpose: PURPOSE,
-      text,
-      memoryIds: brief.memoryIds,
-      receipts,
-      read: { events: events.length, people: people.length, bytes: [...events, ...people].reduce((n, m) => n + memoryBytes(m), 0) },
-      writtenBy,
-      ...(modelUsed ? { model: modelUsed } : {}),
-      ...(note ? { note } : {}),
-    };
-    try {
-      await deps.store.saveBrief(record);
-    } catch (e) {
-      return json(503, { ok: false, error: "store_unavailable", message: plain(e) });
-    }
-    return json(200, { ok: true, brief: record, readLine: describeRead(record), truncated: page.truncated });
-  }
-  if (method === "GET" && path === "/briefs") {
-    return json(200, { ok: true, briefs: await deps.store.briefs(30) });
-  }
   if (method === "GET" && path === "/history") {
-    const [briefs, runs] = await Promise.all([deps.store.briefs(30), deps.store.runs(30)]);
-    return json(200, { ok: true, briefs, runs: runs.map(publicRun) });
+    const runs = await deps.store.runs(30);
+    return json(200, { ok: true, runs: runs.map(publicRun) });
   }
 
   // ---- Ask your crew: the Planner routes a task on the fly (G3) ---------------------------------
-  if (method === "POST" && path === "/ask") {
-    const b = (body ?? {}) as { request?: unknown; choice?: unknown };
-    const request = typeof b.request === "string" ? b.request.trim() : "";
-    if (!request) return json(400, { ok: false, error: "bad_request", message: "Ask something — a request in your own words." });
-    if (request.length > ASK_MAX_CHARS) return json(400, { ok: false, error: "bad_request", message: `That is more than ${ASK_MAX_CHARS.toLocaleString("en-GB")} characters — shorten it, or paste the long part into a file for a later release.` });
-    const choice: TierChoice = b.choice === "quick" || b.choice === "standard" || b.choice === "best" ? b.choice : "auto";
-    const { run, planLine } = await askCrew(deps, request, choice);
-    return json(200, { ok: true, run: publicRun(run), planLine });
-  }
 
   // ---- A run that asked you (G3c) ---------------------------------------------------------------
   const runMatch = /^\/runs\/([A-Za-z0-9~_-]+)\/(answer|stop)$/.exec(path);
@@ -269,7 +156,7 @@ export async function handle(path: string, method: string, body: unknown, deps: 
     const t = templateByKey(templateMatch[1]!);
     if (!t) return json(404, { ok: false, error: "not_found", message: "That template is not in the catalogue." });
     if (t.unavailable) return json(409, { ok: false, error: "not_yet", message: `${t.name} is coming to this edition — ${t.unavailable}, which it cannot do yet.` });
-    const taken = new Set([...(await deps.store.agents()).map((a) => a.id), ...CREW.map((c) => c.id)]);
+    const taken = new Set((await deps.store.agents()).map((a) => a.id));
     const { agent, files } = activateTemplate(t, taken, now(), timeZone());
     await deps.store.saveAgent(agent);
     for (const f of files) await deps.store.saveFile(f);
@@ -287,18 +174,14 @@ export async function handle(path: string, method: string, body: unknown, deps: 
   if (method === "GET" && path === "/agents") {
     const [agents, spend] = await Promise.all([deps.store.agents(), deps.store.spend<SpendMonth>(monthOf(now())).catch(() => null)]);
     const at = now();
-    return json(200, { ok: true, agents: agents.map((a) => ({ ...a, ...usageOf(spend, a), scheduleLine: a.schedule ? describeSchedule(a.schedule) : "", nextRunAt: a.schedule ? nextDue(a.schedule, at) : "" })), builtIn: CREW });
+    return json(200, { ok: true, agents: agents.map((a) => ({ ...a, ...usageOf(spend, a), scheduleLine: a.schedule ? describeSchedule(a.schedule) : "", nextRunAt: a.schedule ? nextDue(a.schedule, at) : "" })), });
   }
   if (method === "POST" && path === "/agents") {
     const input = (body ?? {}) as Record<string, unknown>;
     const problems = validateAgent(input, timeZone());
     if (problems.length > 0) return json(400, { ok: false, error: "bad_request", message: problems.join("; "), problems });
     const existing = typeof input.id === "string" ? await deps.store.agent(input.id) : null;
-    const taken = new Set([...(await deps.store.agents()).map((a) => a.id), ...CREW.map((c) => c.id)]);
-    // The crew's own names stay the crew's: no "Assistant" or "Briefer" of the user's beside them.
-    if (!existing && CREW.some((c) => c.id === idFor(String(input.name ?? ""), new Set()))) {
-      return json(409, { ok: false, error: "taken", message: `"${String(input.name).trim()}" is one of the crew's own names — pick another` });
-    }
+    const taken = new Set((await deps.store.agents()).map((a) => a.id));
     const agent = agentFrom(input, existing, now(), taken, timeZone());
     await deps.store.saveAgent(agent);
     const spendNow = await deps.store.spend<SpendMonth>(monthOf(now())).catch(() => null);
@@ -341,7 +224,7 @@ export async function handle(path: string, method: string, body: unknown, deps: 
   if (method === "POST" && path === "/crew-pack") {
     const read = readPack((body as { pack?: unknown } | undefined)?.pack ?? body);
     if ("error" in read) return json(400, { ok: false, error: "bad_pack", message: read.error });
-    const report = await applyPack(deps.store, read.pack, now(), new Set(CREW.map((c) => c.id)), timeZone());
+    const report = await applyPack(deps.store, read.pack, now(), new Set(), timeZone());
     return json(200, { ok: true, report, line: describePackReport(report) });
   }
 
@@ -354,14 +237,6 @@ function publicRun(r: RunRecord): Omit<RunRecord, "conversation"> {
   return rest;
 }
 
-/** "Read 2 meetings and 3 people for “Morning briefing” — 1.2 KB." — the page's line under a brief. */
-export function describeRead(b: BriefRecord): string {
-  const parts: string[] = [];
-  if (b.read.events) parts.push(`${b.read.events} ${b.read.events === 1 ? "meeting" : "meetings"}`);
-  if (b.read.people) parts.push(`${b.read.people} ${b.read.people === 1 ? "person" : "people"}`);
-  const what = parts.length === 0 ? "nothing" : parts.join(" and ");
-  return `Read ${what} for “${b.purpose}” — ${formatMemoryBytes(b.read.bytes)}.`;
-}
 
 function defaultId(): string {
   return `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 12)}`;
