@@ -2560,7 +2560,15 @@ AWS edition's React: one screen today, and no build step the host has to trust.
   while AgentsPoppy is closed — through MemoryPoppy's door" with its own switch; the door's receipts
   are synced at every open. One more poppy-side fix: the receipts are collected strictly after the
   bookmark (the second sync wrote one twice).
-  *Still to do:* a certify rehearsal with a runner and a door provisioned.
+  **Certify rehearsal with a runner, 2026-09-08 16:15: CERTIFIED.** A throwaway
+  `com.crewpoppy.cloud.google-certify` got its own project, its runner (network, bucket, job, tick)
+  through the host's route; the harness found 97 resources in the project (Compute's default
+  network and firewall rules come with the API), deleted the project, and the sweep found nothing
+  — I4 holds for the new kinds by construction. The door's rehearsal hit Google's limit of projects
+  per billing account ("Precondition check failed" on the billing link — the day had added three
+  projects); certifying the runner's throwaway freed a slot. For the next window: that refusal in
+  the vendor's words, and the door-closing step inside `service.teardown` itself.
+  *Still to do:* the door's certify (below, once the slot is free).
 
   *Build order:* G4a (CrewPoppy job mode, tests, the honest "needs the app open" note) → the door
   mode of MemoryPoppy's backend (ID-token check, receipts, the new route; tests) → the founder's
