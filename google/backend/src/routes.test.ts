@@ -404,4 +404,26 @@ describe("the Crew HQ routes", () => {
     const second = (await handle("/opened", "POST", undefined, { store, memory, now: () => "2026-09-08T07:00:00.000Z" })).body as { away: Array<{ id: string }> };
     expect(second.away.map((r) => r.id)).toEqual(["c2"]);
   });
+
+  it("an agent with tools whose small model garbles its calls twice gets the standard model for the run — and the run says so", async () => {
+    const { store } = await ready();
+    const memory = fakeMemory();
+    const model = scriptedModel([{ text: "Done properly." }]);
+    let first = true;
+    const flaky = model.converse.bind(model);
+    model.converse = async (req) => {
+      if (first) {
+        first = false;
+        throw new Error("Gemini 2.5 Flash-Lite on Vertex AI garbled a tool call twice (MALFORMED_FUNCTION_CALL) — try again, or pick the standard model for this job.");
+      }
+      return flaky(req);
+    };
+    await handle("/agents", "POST", { name: "Nico", role: "Note writer", instructions: "Write a note.", tier: "light", memory: false }, { store, memory, model, now: () => NOW });
+    const r = (await handle("/agents/nico/run", "POST", {}, { store, memory, model, now: () => NOW, newId: () => "run-esc" })).body as { ok: boolean; run: RunRecordLike };
+    expect(r.ok).toBe(true);
+    expect(r.run).toMatchObject({ status: "succeeded", tier: "standard", answer: "Done properly." });
+    expect(r.run.why).toBe("Nico's own setting; the small model garbled its tool calls, so Gemini 2.5 Flash on Vertex AI did this run");
+    expect(model.requests[0]!.model).toBe("gemini-2.5-flash");
+    expect(r.run.model!.name).toBe("gemini-2.5-flash");
+  });
 });

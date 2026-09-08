@@ -241,14 +241,26 @@ export async function runAgent(deps: RunDeps, agent: AgentDef, request: string, 
   const ctx: DispatchContext = { agentId: agent.id, agentName: agent.name, enabled, purpose, hints, memory: deps.memory, store: deps.store, timeZone: timeZone(), now, log: deps.log };
   const user = `${request ? `REQUEST:\n${request}\n\n` : "Do your job as briefed.\n\n"}${memoriesAsMaterial(first.memories, timeZone(), consult)}\n\nAnswer in at most ${tier.maxWords} words.`;
   let outcome: LoopOutcome;
+  let ran = tier;
+  let escalated: string | undefined;
   try {
-    outcome = await drive(deps, { system: instructionsFor(agent), task: user, tools: specsFor(enabled), tier, ctx, meter, capUsd: agent.capUsd, agentName: agent.name });
+    try {
+      outcome = await drive(deps, { system: instructionsFor(agent), task: user, tools: specsFor(enabled), tier, ctx, meter, capUsd: agent.capUsd, agentName: agent.name });
+    } catch (e) {
+      // 🪤 LIVE (2026-09-08, the first cloud run): Flash-Lite garbled its tool calls twice even with
+      // thinking on. An agent with tools then gets the standard model for this run, and the run says so.
+      if (!(tier.tier === "light" && enabled.length > 0 && /garbled a tool call/i.test(plain(e)))) throw e;
+      ran = TIERS.standard;
+      meter.rate = ran.ceilingUsdPerMillion;
+      escalated = `the small model garbled its tool calls, so ${ran.words} did this run`;
+      outcome = await drive(deps, { system: instructionsFor(agent), task: user, tools: specsFor(enabled), tier: ran, ctx, meter, capUsd: agent.capUsd, agentName: agent.name });
+    }
   } catch (e) {
-    const failed: RunRecord = { ...run, status: "stopped", note: `${agent.name} could not answer — ${plain(e)}`, ...(meter.runUsd > 0 ? { model: { name: tier.model, words: tier.words, promptTokens: run.model?.promptTokens ?? 0, outputTokens: run.model?.outputTokens ?? 0, ceilingUsd: meter.runUsd } } : {}) };
+    const failed: RunRecord = { ...run, tier: ran.tier, status: "stopped", note: `${agent.name} could not answer — ${plain(e)}`, ...(meter.runUsd > 0 ? { model: { name: ran.model, words: ran.words, promptTokens: run.model?.promptTokens ?? 0, outputTokens: run.model?.outputTokens ?? 0, ceilingUsd: meter.runUsd } } : {}) };
     await deps.store.saveRun(failed).catch(() => {});
     return { ok: false, error: "model_failed", message: `${agent.name} could not answer — ${plain(e)}` };
   }
-  const done = settled(run, outcome, tier, meter, agent.name, now());
+  const done = settled({ ...run, tier: ran.tier, why: escalated ? `${run.why}; ${escalated}` : run.why }, outcome, ran, meter, agent.name, now());
   await deps.store.saveRun(done).catch((e) => deps.log?.(`could not save the run: ${plain(e)}`));
   return { ok: true, run: done, planLine: describePlan(done), agent: { ...agent, monthUsd: agentSpent(meter.spend, agent.id) } };
 }
