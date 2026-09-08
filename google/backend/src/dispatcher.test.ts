@@ -16,7 +16,7 @@ class FakeStore implements DispatchStore {
     return this.notes.get(`${agent}~${key}`) ?? null;
   }
   async saveNote(n: NoteRecord) {
-    if (this.failWrites) throw new Error("PERMISSION_DENIED on projects/poppy-com-crewpoppy-cl-033c81/databases/(default)");
+    if (this.failWrites) throw new Error("PERMISSION_DENIED on projects/poppy-com-crewpoppy-cl-abc123/databases/(default)");
     this.notes.set(`${n.agent}~${n.key}`, n);
   }
   async file(agent: string, path: string) {

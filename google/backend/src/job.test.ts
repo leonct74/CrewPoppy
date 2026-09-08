@@ -26,14 +26,14 @@ describe("job mode", () => {
       asked.push(url);
       expect((init?.headers as Record<string, string>)["Metadata-Flavor"]).toBe("Google");
       if (url.endsWith("/token")) return new Response(JSON.stringify({ access_token: "ya29.meta", expires_in: 3599 }));
-      if (url.endsWith("/project-id")) return new Response("poppy-com-crewpoppy-cl-033c81\n");
-      if (url.endsWith("/email")) return new Response("agentspoppy@poppy-com-crewpoppy-cl-033c81.iam.gserviceaccount.com");
+      if (url.endsWith("/project-id")) return new Response("poppy-com-crewpoppy-cl-abc123\n");
+      if (url.endsWith("/email")) return new Response("agentspoppy@poppy-com-crewpoppy-cl-abc123.iam.gserviceaccount.com");
       if (url.includes("/identity?")) return new Response(`h.${Buffer.from(JSON.stringify({ exp: 1_800_000_000 })).toString("base64url")}.s`);
       return new Response("nope", { status: 404 });
     };
     let t = 1_700_000_000_000;
     const token = createMetadataTokenProvider(fetchFn, () => t);
-    expect(await token()).toEqual({ accessToken: "ya29.meta", projectId: "poppy-com-crewpoppy-cl-033c81", serviceAccount: "agentspoppy@poppy-com-crewpoppy-cl-033c81.iam.gserviceaccount.com", expiration: new Date(t + 3599 * 1000).toISOString() });
+    expect(await token()).toEqual({ accessToken: "ya29.meta", projectId: "poppy-com-crewpoppy-cl-abc123", serviceAccount: "agentspoppy@poppy-com-crewpoppy-cl-abc123.iam.gserviceaccount.com", expiration: new Date(t + 3599 * 1000).toISOString() });
     await token();
     expect(asked.filter((u) => u.endsWith("/token"))).toHaveLength(1);
     const identity = createIdentityTokenProvider(fetchFn, () => t);

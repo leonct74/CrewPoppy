@@ -2646,7 +2646,7 @@ it needs `memory.writes` on the card and the user's say).
 
 **Status — G1 built and proven live, 2026-09-08 00:08–00:15 (founder's dev host).** Approved on
 the card ("Reads people and meetings from your memory — worth knowing"; the datastore grant "its
-own"); the first mint created `poppy-com-crewpoppy-cl-033c81` with no billing account and the
+own"); the first mint created `poppy-com-crewpoppy-cl-…` with no billing account and the
 backend created `(default)` in `eur3`; "Brief me now" read the founder's memory through the host —
 the receipt **`memory-read | Read 1 meeting for "Morning briefing" — 876 B`** sits on the
 connection's Activity beside `credentials-issued` — and wrote "Good night. Nothing on your calendar

@@ -6,7 +6,7 @@ import type { FetchLike } from "./google";
 import { MODEL_WORDS, VertexModel, explainModelError } from "./vertex";
 import { GoogleError } from "./google";
 
-const token = async () => ({ accessToken: "ya29.crew", projectId: "poppy-com-crewpoppy-cl-033c81", serviceAccount: "agentspoppy@poppy-com-crewpoppy-cl-033c81.iam.gserviceaccount.com", expiration: "2099-01-01T00:00:00Z" });
+const token = async () => ({ accessToken: "ya29.crew", projectId: "poppy-com-crewpoppy-cl-abc123", serviceAccount: "agentspoppy@poppy-com-crewpoppy-cl-abc123.iam.gserviceaccount.com", expiration: "2099-01-01T00:00:00Z" });
 
 function google(answers: Array<{ status: number; body: unknown }>) {
   const calls: Array<{ url: string; body: unknown; auth: string | undefined }> = [];
@@ -24,7 +24,7 @@ describe("the model on Vertex AI", () => {
     const m = new VertexModel(token, { fetch: g.fetch, sleep: async () => {} });
     const r = await m.generate("Be brief.", "MATERIAL:\nGood morning.", 400);
     expect(r).toEqual({ text: "Good morning. Nothing today.", promptTokens: 120, outputTokens: 9, model: "gemini-2.5-flash" });
-    expect(g.calls[0]!.url).toBe("https://aiplatform.googleapis.com/v1/projects/poppy-com-crewpoppy-cl-033c81/locations/global/publishers/google/models/gemini-2.5-flash:generateContent");
+    expect(g.calls[0]!.url).toBe("https://aiplatform.googleapis.com/v1/projects/poppy-com-crewpoppy-cl-abc123/locations/global/publishers/google/models/gemini-2.5-flash:generateContent");
     expect(g.calls[0]!.auth).toBe("Bearer ya29.crew");
     expect(g.calls[0]!.body).toEqual({
       systemInstruction: { parts: [{ text: "Be brief." }] },
