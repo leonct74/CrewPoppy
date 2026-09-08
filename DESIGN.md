@@ -2551,9 +2551,16 @@ AWS edition's React: one screen today, and no build step the host has to trust.
   resource name, not link; a service has no URL until a revision is healthy, so the door is born
   knowing its predicted URL and starts without an audience. And one poppy-side lesson: Nico's
   Flash-Lite garbled its tool calls twice even with thinking on — an agent with tools whose small
-  model garbles twice now gets the standard model for that run, and says so.
-  *Still to do:* the switch on the host's card (the app), and a certify rehearsal with a runner and
-  a door provisioned.
+  model garbles twice now gets the standard model for that run, and says so. **15:46:17, the
+  second cloud tick, with the new bytes:** Nico ran in the cloud, called `ask_user` — "Who is the
+  note for?" — and the run waited; the app opened to it under "Waiting for you" and the question
+  was answered there: a pause in the cloud, resumed at home. **The app's card** (agentspoppy
+  `8bf6e13`): "Runs in your cloud while AgentsPoppy is closed — every five minutes, as itself,
+  reaching only Google", the program's hash, Pause; and "May read person and event from MemoryPoppy
+  while AgentsPoppy is closed — through MemoryPoppy's door" with its own switch; the door's receipts
+  are synced at every open. One more poppy-side fix: the receipts are collected strictly after the
+  bookmark (the second sync wrote one twice).
+  *Still to do:* a certify rehearsal with a runner and a door provisioned.
 
   *Build order:* G4a (CrewPoppy job mode, tests, the honest "needs the app open" note) → the door
   mode of MemoryPoppy's backend (ID-token check, receipts, the new route; tests) → the founder's
