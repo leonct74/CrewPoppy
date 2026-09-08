@@ -335,6 +335,17 @@ core AgentsPoppy no-lock-in guarantee, and the answer to your teardown worry:
   template library), or move regions for data residency — all just import a Crew Pack.
 - **Post-MVP backup:** optional scheduled auto-export of Crew Packs to the owner's own S3 (and/or
   DynamoDB point-in-time recovery), so even an *accidental* teardown is recoverable.
+- **Shipped 2026-09-08 — one pack for both editions (`shared/src/pack.ts`, format
+  `crewpoppy-crew-pack` v2).** The pack speaks this edition's terms — tool names, the schedule
+  shape, a model CLASS instead of a Bedrock id — and each edition converts at its edge: here
+  (`backend/src/crew-pack.ts`) a model id becomes its class on the way out and the catalogue's pick
+  for the class on the way in (an updated agent keeps its model when the class still fits), binary
+  files travel as base64, a file over 5 MB is named in `omitted`; the Google edition maps the tools
+  to its own catalogue and says which abilities it lacks. Import shows the plan first (`apply:false`)
+  and writes through `saveAgent`'s own sanitisers on the owner's second click; memories and files
+  land only for agents that exist afterwards. The Remove dialog offers the pack FIRST once agents
+  exist (`RemovePanel.onSavePack`) — the §3b promise, kept. Not exported from the shared barrel
+  (the Lambda never reads a pack; its bundle hash stays put).
 
 ### 3c. Faces — optional AI-generated avatars (adoption feature)
 
@@ -2636,9 +2647,9 @@ AWS edition's React: one screen today, and no build step the host has to trust.
   the live app's is still promised. In order: (1) the recipes offered here, mapped to this
   edition's tools (`workspace_*` → `file_*`, `memory_write` → the notes, `memory_read` → the memory
   flag; PDFs, photos, e-mail and the web said as "not on Google yet"), with their schedules and
-  files — activating one sets the schedule, and the schedule sets the alarm; (2) one Crew Pack
-  both editions read (the schedule in the shared shape, converted at the edge); (3) the phone door
-  for this edition, through the crew door above.
+  files — activating one sets the schedule, and the schedule sets the alarm — *done 2026-09-08*;
+  (2) one Crew Pack both editions read (the schedule in the shared shape, converted at the edge) —
+  *done 2026-09-08, §3b*; (3) the phone door for this edition, through the crew door above.
 
 **What G1 is not.** No model, no agents, no tools, no schedules, no mobile. It reads; it does not
 write memory (a Briefer that wrote its briefs back as `note` memories would be a fine G2/G3 idea —
