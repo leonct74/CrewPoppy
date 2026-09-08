@@ -2535,9 +2535,25 @@ AWS edition's React: one screen today, and no build step the host has to trust.
   validator reads `cloud`; the broker's routes: `cloud-runner {on}`, `cloud-guest {provider, on}`,
   `POST /memory/door-receipts`. MemoryPoppy's door mode was built the same day (its DESIGN §14).
   Both manifests now declare: CrewPoppy `cloud.job` (v0.4.0), MemoryPoppy `cloud.door` (v0.2.0).
-  *Still to do:* the switch on the host's card (the app), and the live proof — which creates a
-  network, a bucket, a job, a scheduler and a door service in the founder's two poppy projects,
-  so it waits for his word.
+  **PROVEN LIVE, 2026-09-08 15:09–15:34, on the founder's word ("Okay, proceed").** Through the
+  broker's routes, as the app's switch will call them: `cloud-guest` made MemoryPoppy's door in its
+  project — linked the card-free project to the founder's billing account and said so, switched on
+  the four APIs, made the network with no way out, the bucket, the service `poppy-door` at its
+  predicted URL `https://poppy-door-<number>.europe-west1.run.app` — let CrewPoppy's account in,
+  and wrote the guest into MemoryPoppy; `cloud-runner` made CrewPoppy's runner in its project (the
+  job, the invoker binding, the five-minute tick) with the door's address in its bootstrap. Nico
+  and Emma were scheduled for 15:30, the app's backend stopped, the page left. At 15:31:08 the
+  cloud job ran both slots: **Emma read one memory through the door** (receipt written by the
+  door), and wrote the Cozy Code thank-you; the door's receipt reached CrewPoppy's Activity at
+  the next open, with the line *through MemoryPoppy's door, while AgentsPoppy was closed*; the
+  page's "While you were away" listed both. Three live lessons, fixed in the window: a just-enabled
+  API answers "disabled" for a while (patience, three minutes); Cloud Run wants networks by
+  resource name, not link; a service has no URL until a revision is healthy, so the door is born
+  knowing its predicted URL and starts without an audience. And one poppy-side lesson: Nico's
+  Flash-Lite garbled its tool calls twice even with thinking on — an agent with tools whose small
+  model garbles twice now gets the standard model for that run, and says so.
+  *Still to do:* the switch on the host's card (the app), and a certify rehearsal with a runner and
+  a door provisioned.
 
   *Build order:* G4a (CrewPoppy job mode, tests, the honest "needs the app open" note) → the door
   mode of MemoryPoppy's backend (ID-token check, receipts, the new route; tests) → the founder's
