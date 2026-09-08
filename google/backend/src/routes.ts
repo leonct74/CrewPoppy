@@ -108,6 +108,11 @@ export async function handle(path: string, method: string, body: unknown, deps: 
     }
     return json(200, { ok: true, cloud: deps.store.state(), memory, memoryWired: deps.memory !== null, briefs, runs: runs.map(publicRun), waiting: waiting.map(publicRun), crew: CREW, purpose: PURPOSE, model: await modelState(deps, now()), tools: { groups: TOOL_GROUPS, notes: TOOL_NOTES }, timeZone: timeZone() });
   }
+  // The templates are the catalogue's, not the store's: they show while the project is still being set up.
+  if (method === "GET" && path === "/templates") {
+    const zone = timeZone();
+    return json(200, { ok: true, templates: TEMPLATES.map((t) => ({ ...t, files: t.files.map((f) => f.path), scheduleLine: t.schedule ? describeSchedule({ ...t.schedule, timeZone: zone }) : "" })) });
+  }
   if (!deps.store.ready) return json(503, { ok: false, error: "not_ready", message: deps.store.unavailableMessage() });
 
   // The page just opened: what the cloud job did while the app was closed (G4), since the last open.
@@ -245,10 +250,6 @@ export async function handle(path: string, method: string, body: unknown, deps: 
 
   // ---- Your own agents (G3b) --------------------------------------------------------------------
   // ---- Templates: the live app's recipes, offered here (DESIGN §18, one product with the live app)
-  if (method === "GET" && path === "/templates") {
-    const zone = timeZone();
-    return json(200, { ok: true, templates: TEMPLATES.map((t) => ({ ...t, files: t.files.map((f) => f.path), scheduleLine: t.schedule ? describeSchedule({ ...t.schedule, timeZone: zone }) : "" })) });
-  }
   const templateMatch = /^\/templates\/([a-z0-9-]+)\/activate$/.exec(path);
   if (method === "POST" && templateMatch) {
     const t = templateByKey(templateMatch[1]!);

@@ -257,7 +257,10 @@ for (const tab of document.querySelectorAll<HTMLElement>("[role=tab]")) {
   tab.addEventListener("click", () => {
     for (const t of document.querySelectorAll<HTMLElement>("[role=tab]")) t.setAttribute("aria-selected", String(t === tab));
     for (const s of TABS) $(`tab-${s}`).hidden = s !== tab.dataset.tab;
-    if (tab.dataset.tab === "crew") void renderAgents();
+    if (tab.dataset.tab === "crew") {
+      void renderAgents();
+      if (!templatesShown) void renderTemplates();
+    }
   });
 }
 
@@ -304,6 +307,7 @@ async function refresh(): Promise<void> {
       $("brief").textContent = "Your crew's project is being set up. This takes about a minute the first time.";
       return;
     }
+    if (!templatesShown) void renderTemplates();
     showBrief(state.briefs[0]);
     if (!openedOnce) {
       openedOnce = true;
@@ -610,15 +614,18 @@ interface Template {
   files: string[];
 }
 /** The live app's recipes, as this edition offers them (DESIGN §18, one product with the live app). */
+/** True once the cards are on the page; until then the crew tab and the first ready state ask again. */
+let templatesShown = false;
 async function renderTemplates(): Promise<void> {
   const el = $("templates");
   let templates: Template[] = [];
   try {
     templates = (await host.invokeBackend<{ templates: Template[] }>({ method: "GET", path: "/templates" })).templates;
   } catch (err) {
-    el.innerHTML = `<div class="status warn">${esc(`Couldn't read the templates: ${plainError(err)}`)}</div>`;
+    el.innerHTML = `<div class="status warn">${esc(`The templates could not be read just now — ${plainError(err)} They will show when you open this tab again.`)}</div>`;
     return;
   }
+  templatesShown = true;
   el.innerHTML = templates
     .map(
       (t) => `<div class="template">

@@ -453,4 +453,14 @@ describe("the Crew HQ routes", () => {
     expect((refused.body as { message: string }).message).toBe("Max is coming to this edition — its offers are PDFs sent by e-mail, which it cannot do yet.");
     expect((await handle("/templates/nobody/activate", "POST", undefined, { store, memory })).status).toBe(404);
   });
+
+  it("templates: the catalogue answers while the project is still being set up — the store's routes wait, this one does not", async () => {
+    const wire = new FakeWire();
+    const store = new CrewStore({ wire, now: () => NOW });
+    const memory = fakeMemory();
+    expect((await handle("/agents", "GET", undefined, { store, memory })).status).toBe(503);
+    const r = await handle("/templates", "GET", undefined, { store, memory, timeZone: () => "Europe/Rome" });
+    expect(r.status).toBe(200);
+    expect((r.body as { templates: Array<{ key: string }> }).templates.map((t) => t.key)).toEqual(["offer-writer", "document-answerer", "expense-tracker", "trip-splitter", "morning-brief"]);
+  });
 });
