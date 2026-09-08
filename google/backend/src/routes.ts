@@ -16,10 +16,10 @@ import { AGENT_LIMITS, agentFrom, idFor, validateAgent } from "./agents";
 import { type Brief, writeBrief } from "./briefer";
 import type { MemoryReader, ReceiptHints } from "./memory-reader";
 import { PACK_FILENAME, applyPack, buildPack, describePackReport, readPack } from "./pack";
-import { ASSISTANT, BRIEFER_ID, type TierChoice } from "./planner";
+import { ASSISTANT, BRIEFER_ID, TIERS, type TierChoice, priceLine } from "./planner";
 import { ASK_MAX_CHARS, type RunDeps, askCrew, describePlan, resumeRun, runAgent } from "./runner";
 import { cronOf, describeSchedule, nextDue } from "./schedule";
-import { DEFAULT_CAPS, type Caps, type SpendMonth, agentSpent, ceilingUsd, describeMeter, emptyMonth, mayCall, monthOf, recordCall, usd } from "./spend";
+import { DEFAULT_CAPS, type Caps, type SpendMonth, agentUsage, ceilingUsd, describeMeter, emptyMonth, listUsd, mayCall, monthOf, recordCall } from "./spend";
 import type { BriefRecord, RunRecord, Settings } from "./store";
 import { TEMPLATES, activateTemplate, templateByKey } from "./templates";
 import { TOOL_GROUPS, TOOL_NOTES } from "./tools";
@@ -33,7 +33,6 @@ export const PURPOSE = "Morning briefing";
 /** The most words the model may write for one brief. */
 const BRIEF_MAX_OUTPUT_TOKENS = 400;
 /** A brief's material rarely passes this; the ceiling on the receipt is computed from it. */
-const BRIEF_PROMPT_TOKENS_ESTIMATE = 1_500;
 
 /** The Briefer's instructions to the model — the material is the whole truth, the model only the pen. */
 export const BRIEFER_INSTRUCTIONS = [
@@ -67,9 +66,22 @@ const downloads = new Map<string, { expiresAt: number }>();
 const DOWNLOAD_TTL_MS = 5 * 60 * 1000;
 
 /** What the page shows about the model: whether there is one, whether it is on, and the meter. */
-async function modelState(deps: RunDeps, now: string): Promise<{ available: boolean; enabled: boolean; name: string; words: string; meter: string; caps: Caps }> {
+/** The tier a model name belongs to — the Briefer's Flash is the standard tier. */
+const tierOfModel = (model: string) => Object.values(TIERS).find((t) => t.model === model) ?? TIERS.standard;
+
+/** The money an agent's tile shows: its tokens and their cost at Google's price; the ceiling figure only for its cap. */
+function usageOf(spend: SpendMonth | null, a: { id: string; tier: string }): { monthUsd: number; monthTokens: number; monthListUsd: number; price: string } {
+  const u = spend ? agentUsage(spend, a.id) : { tokens: 0, listUsd: 0, ceilingUsd: 0 };
+  const tier = a.tier === "auto" ? undefined : TIERS[a.tier as keyof typeof TIERS];
+  return { monthUsd: u.ceilingUsd, monthTokens: u.tokens, monthListUsd: u.listUsd, price: tier ? priceLine(tier) : "" };
+}
+
+/** Google's price per million for each model the crew may use — shown beside the choice. */
+const TIER_PRICES = (["light", "standard", "deep"] as const).map((t) => ({ tier: t, words: TIERS[t].words, price: priceLine(TIERS[t]) }));
+
+async function modelState(deps: RunDeps, now: string): Promise<{ available: boolean; enabled: boolean; name: string; words: string; meter: string; caps: Caps; tiers: typeof TIER_PRICES }> {
   const caps = deps.caps ?? DEFAULT_CAPS;
-  if (!deps.model) return { available: false, enabled: false, name: "", words: "", meter: "", caps };
+  if (!deps.model) return { available: false, enabled: false, name: "", words: "", meter: "", caps, tiers: TIER_PRICES };
   let enabled = true;
   let spend: SpendMonth = emptyMonth(monthOf(now));
   if (deps.store.ready) {
@@ -77,7 +89,7 @@ async function modelState(deps: RunDeps, now: string): Promise<{ available: bool
     enabled = settings?.model !== false;
     spend = (await deps.store.spend<SpendMonth>(monthOf(now)).catch(() => null)) ?? spend;
   }
-  return { available: true, enabled, name: deps.model.name, words: deps.model.words, meter: describeMeter(spend, caps), caps };
+  return { available: true, enabled, name: deps.model.name, words: deps.model.words, meter: describeMeter(spend, caps), caps, tiers: TIER_PRICES };
 }
 
 export async function handle(path: string, method: string, body: unknown, deps: RunDeps): Promise<Reply> {
@@ -142,7 +154,7 @@ export async function handle(path: string, method: string, body: unknown, deps: 
     // Where the memories go next: to the model, when there is one and it is on — the receipt says so.
     const settings = (await deps.store.getMeta<Settings>("settings").catch(() => null)) ?? {};
     const useModel = !!deps.model && settings.model !== false;
-    const hints: ReceiptHints = useModel && deps.model ? { model: deps.model.words, estimatedCost: usd(ceilingUsd(BRIEF_PROMPT_TOKENS_ESTIMATE + BRIEF_MAX_OUTPUT_TOKENS)) } : {};
+    const hints: ReceiptHints = useModel && deps.model ? { model: deps.model.words } : {};
     let page: MemoryPage;
     try {
       page = await deps.memory.search({ purpose: PURPOSE, kinds: ["event"], since, until, limit: MAX_EVENTS, ...hints });
@@ -180,8 +192,10 @@ export async function handle(path: string, method: string, body: unknown, deps: 
           const reply = await deps.model.generate(BRIEFER_INSTRUCTIONS, `MATERIAL:\n${brief.text}`, BRIEF_MAX_OUTPUT_TOKENS);
           text = reply.text;
           writtenBy = "model";
-          modelUsed = { name: reply.model, words: deps.model.words, promptTokens: reply.promptTokens, outputTokens: reply.outputTokens, ceilingUsd: ceilingUsd(reply.promptTokens + reply.outputTokens) };
-          await deps.store.saveSpend(month, recordCall(spend, reply.promptTokens, reply.outputTokens, at));
+          const briefTier = tierOfModel(reply.model);
+          modelUsed = { name: reply.model, words: deps.model.words, promptTokens: reply.promptTokens, outputTokens: reply.outputTokens, ceilingUsd: ceilingUsd(reply.promptTokens + reply.outputTokens), listUsd: listUsd(reply.promptTokens, reply.outputTokens, briefTier.listUsdPerMillion), price: priceLine(briefTier) };
+          const t = tierOfModel(reply.model);
+          await deps.store.saveSpend(month, recordCall(spend, reply.promptTokens, reply.outputTokens, at, ceilingUsd(reply.promptTokens + reply.outputTokens, t.ceilingUsdPerMillion), undefined, listUsd(reply.promptTokens, reply.outputTokens, t.listUsdPerMillion)));
         } catch (e) {
           note = `The Briefer wrote this itself — ${plain(e)}`;
           deps.log?.(`model call failed, template used: ${plain(e)}`);
@@ -273,7 +287,7 @@ export async function handle(path: string, method: string, body: unknown, deps: 
   if (method === "GET" && path === "/agents") {
     const [agents, spend] = await Promise.all([deps.store.agents(), deps.store.spend<SpendMonth>(monthOf(now())).catch(() => null)]);
     const at = now();
-    return json(200, { ok: true, agents: agents.map((a) => ({ ...a, monthUsd: spend ? agentSpent(spend, a.id) : 0, scheduleLine: a.schedule ? describeSchedule(a.schedule) : "", nextRunAt: a.schedule ? nextDue(a.schedule, at) : "" })), builtIn: CREW });
+    return json(200, { ok: true, agents: agents.map((a) => ({ ...a, ...usageOf(spend, a), scheduleLine: a.schedule ? describeSchedule(a.schedule) : "", nextRunAt: a.schedule ? nextDue(a.schedule, at) : "" })), builtIn: CREW });
   }
   if (method === "POST" && path === "/agents") {
     const input = (body ?? {}) as Record<string, unknown>;
@@ -287,7 +301,8 @@ export async function handle(path: string, method: string, body: unknown, deps: 
     }
     const agent = agentFrom(input, existing, now(), taken, timeZone());
     await deps.store.saveAgent(agent);
-    return json(200, { ok: true, agent: { ...agent, scheduleLine: agent.schedule ? describeSchedule(agent.schedule) : "", nextRunAt: agent.schedule ? nextDue(agent.schedule, now()) : "" } });
+    const spendNow = await deps.store.spend<SpendMonth>(monthOf(now())).catch(() => null);
+    return json(200, { ok: true, agent: { ...agent, ...usageOf(spendNow, agent), scheduleLine: agent.schedule ? describeSchedule(agent.schedule) : "", nextRunAt: agent.schedule ? nextDue(agent.schedule, now()) : "" } });
   }
   const agentMatch = /^\/agents\/([a-z0-9-]+)\/(run|delete)$/.exec(path);
   if (method === "POST" && agentMatch) {

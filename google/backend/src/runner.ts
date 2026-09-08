@@ -15,8 +15,8 @@ import { judgeTier, judgeWords } from "./judge";
 import { type LoopOutcome, type Usage, MAX_ITERATIONS, MAX_RUN_MS, answered, runLoop } from "./loop";
 import { memoriesAsMaterial } from "./material";
 import type { MemoryReader, ReceiptHints } from "./memory-reader";
-import { ASSISTANT, type Plan, TIERS, type TierChoice, type TierSpec, classify } from "./planner";
-import { type Caps, DEFAULT_CAPS, type SpendMonth, agentSpent, ceilingUsd, emptyMonth, mayCall, monthOf, recordCall, usd } from "./spend";
+import { ASSISTANT, type Plan, TIERS, type TierChoice, type TierSpec, classify, priceLine } from "./planner";
+import { type Caps, DEFAULT_CAPS, type SpendMonth, agentSpent, ceilingUsd, emptyMonth, listUsd, mayCall, monthOf, recordCall, usd } from "./spend";
 import type { CrewStore, RunRecord, Settings } from "./store";
 import { MEMORY_TOOL, specsFor } from "./tools";
 import type { FunctionDeclaration, Model } from "./vertex";
@@ -62,26 +62,31 @@ async function modelOn(deps: RunDeps): Promise<boolean> {
 /** The month's counters, live: read before the run and after every call, written after every call. */
 class Meter {
   spend: SpendMonth;
+  /** The run so far: at the ceiling (the cap's figure) and at Google's price (the shown figure). */
   runUsd = 0;
+  runListUsd = 0;
   constructor(
     private readonly deps: RunDeps,
     private readonly month: string,
     spend: SpendMonth,
-    /** The tier's ceiling rate — set again once the judge has spoken. */
+    /** The tier's ceiling rate and Google's price — set again once the judge has spoken. */
     public rate: number,
+    public rates: { in: number; out: number },
     private readonly agentId?: string,
   ) {
     this.spend = spend;
   }
-  static async open(deps: RunDeps, at: string, rate: number, agentId?: string): Promise<Meter> {
+  static async open(deps: RunDeps, at: string, tier: TierSpec, agentId?: string): Promise<Meter> {
     const month = monthOf(at);
     const spend = (await deps.store.spend<SpendMonth>(month).catch(() => null)) ?? emptyMonth(month);
-    return new Meter(deps, month, spend, rate, agentId);
+    return new Meter(deps, month, spend, tier.ceilingUsdPerMillion, tier.listUsdPerMillion, agentId);
   }
-  async record(promptTokens: number, outputTokens: number, at: string, rate = this.rate): Promise<number> {
+  async record(promptTokens: number, outputTokens: number, at: string, rate = this.rate, rates = this.rates): Promise<number> {
     const callUsd = ceilingUsd(promptTokens + outputTokens, rate);
+    const callListUsd = listUsd(promptTokens, outputTokens, rates);
     this.runUsd += callUsd;
-    this.spend = recordCall(this.spend, promptTokens, outputTokens, at, callUsd, this.agentId);
+    this.runListUsd += callListUsd;
+    this.spend = recordCall(this.spend, promptTokens, outputTokens, at, callUsd, this.agentId, callListUsd);
     await this.deps.store.saveSpend(this.month, this.spend);
     return callUsd;
   }
@@ -99,7 +104,9 @@ async function readMemory(deps: RunDeps, purpose: string, query: string, hints: 
 }
 
 function hintsFor(tier: TierSpec, extraTokens: number): ReceiptHints {
-  return { model: tier.words, estimatedCost: usd(ceilingUsd(ASK_MEMORY_BUDGET / 4 + extraTokens + tier.maxOutputTokens, tier.ceilingUsdPerMillion)) };
+  // No guessed amount on the receipt (founder, 2026-09-08): the model's name is the fact; the tokens are known only after the run.
+  void extraTokens;
+  return { model: tier.words };
 }
 
 interface Drive {
@@ -166,7 +173,7 @@ function settled(run: RunRecord, outcome: LoopOutcome, tier: TierSpec, meter: Me
     steps: [...(run.steps ?? []), ...outcome.steps],
     iterations: (run.iterations ?? 0) + outcome.iterations,
     toolsUsed: [...new Set([...(run.toolsUsed ?? []), ...outcome.toolsUsed])],
-    ...(promptTokens + outputTokens > 0 ? { model: { name: tier.model, words: tier.words, promptTokens, outputTokens, ceilingUsd: (run.model?.ceilingUsd ?? 0) + meter.runUsd } } : {}),
+    ...(promptTokens + outputTokens > 0 ? { model: { name: tier.model, words: tier.words, promptTokens, outputTokens, ceilingUsd: (run.model?.ceilingUsd ?? 0) + meter.runUsd, listUsd: (run.model?.listUsd ?? 0) + meter.runListUsd, price: priceLine(tier) } } : {}),
     ...(note ? { note } : {}),
     ...(status === "waiting" && outcome.question ? { question: outcome.question, conversation } : {}),
     ...(run.answeredAt ? { answeredAt: run.answeredAt } : {}),
@@ -195,7 +202,7 @@ export async function runAgent(deps: RunDeps, agent: AgentDef, request: string, 
   if (!(await modelOn(deps))) return { ok: false, error: "model_off", message: deps.model ? "The model is switched off — turn it on under Your crew to run an agent." : "This build has no model." };
   let plan: Plan = agent.tier === "auto" ? classify(task) : { tier: agent.tier, why: `${agent.name}'s own setting`, wantsMemory: true, memoryQuery: "", placed: true };
   if (plan.tier === "none") plan = { ...plan, tier: "light", why: "a light task, by the request" }; // an agent always answers in its own words
-  const meter = await Meter.open(deps, at, TIERS[plan.tier].ceilingUsdPerMillion, agent.id);
+  const meter = await Meter.open(deps, at, TIERS[plan.tier], agent.id);
   const allowed = mayCall(meter.spend, caps, at);
   if (!allowed.ok) return { ok: false, error: "capped", message: `${agent.name} did not run: ${allowed.reason}.` };
   if (agentSpent(meter.spend, agent.id) >= agent.capUsd) return { ok: false, error: "capped", message: `${agent.name} did not run: its monthly limit of ${usd(agent.capUsd)} (at the ceiling) is reached — raise it on the agent, or wait for next month.` };
@@ -204,13 +211,14 @@ export async function runAgent(deps: RunDeps, agent: AgentDef, request: string, 
   if (agent.tier === "auto" && plan.placed === false) {
     const j = await judgeTier(deps.model!, task);
     if (j) {
-      const judgeUsd = await meter.record(j.promptTokens, j.outputTokens, at, TIERS.light.ceilingUsdPerMillion);
-      judge = { tier: j.tier, promptTokens: j.promptTokens, outputTokens: j.outputTokens, ceilingUsd: judgeUsd };
+      const judgeUsd = await meter.record(j.promptTokens, j.outputTokens, at, TIERS.light.ceilingUsdPerMillion, TIERS.light.listUsdPerMillion);
+      judge = { tier: j.tier, promptTokens: j.promptTokens, outputTokens: j.outputTokens, ceilingUsd: judgeUsd, listUsd: listUsd(j.promptTokens, j.outputTokens, TIERS.light.listUsdPerMillion) };
       plan = { ...plan, tier: j.tier, why: judgeWords(j.tier), placed: true };
     }
   }
   const tier = TIERS[plan.tier];
   meter.rate = tier.ceilingUsdPerMillion;
+  meter.rates = tier.listUsdPerMillion;
   const purpose = `${agent.name}: "${task.length > 120 ? `${task.slice(0, 119)}…` : task}"`;
   const hints = hintsFor(tier, 400);
   const consult = agent.memory && !!deps.memory;
@@ -235,7 +243,7 @@ export async function runAgent(deps: RunDeps, agent: AgentDef, request: string, 
     ...(first.note ? { note: first.note } : {}),
   };
   // The judge's tokens are on the record from the start; its dollars are already on the meter, which the settled run adds once.
-  if (judge) run.model = { name: tier.model, words: tier.words, promptTokens: judge.promptTokens, outputTokens: judge.outputTokens, ceilingUsd: 0 };
+  if (judge) run.model = { name: tier.model, words: tier.words, promptTokens: judge.promptTokens, outputTokens: judge.outputTokens, ceilingUsd: 0, listUsd: 0, price: priceLine(tier) };
   await deps.store.saveRun(run).catch((e) => deps.log?.(`could not save the run: ${plain(e)}`));
   const enabled = toolsFor(agent);
   const ctx: DispatchContext = { agentId: agent.id, agentName: agent.name, enabled, purpose, hints, memory: deps.memory, store: deps.store, timeZone: timeZone(), now, log: deps.log };
@@ -252,6 +260,7 @@ export async function runAgent(deps: RunDeps, agent: AgentDef, request: string, 
       if (!(tier.tier === "light" && enabled.length > 0 && /garbled a tool call/i.test(plain(e)))) throw e;
       ran = TIERS.standard;
       meter.rate = ran.ceilingUsdPerMillion;
+  meter.rates = ran.listUsdPerMillion;
       escalated = `the small model garbled its tool calls, so ${ran.words} did this run`;
       outcome = await drive(deps, { system: instructionsFor(agent), task: user, tools: specsFor(enabled), tier: ran, ctx, meter, capUsd: agent.capUsd, agentName: agent.name });
     }
@@ -274,7 +283,7 @@ export async function resumeRun(deps: RunDeps, run: RunRecord, answer: string): 
   if (run.agent !== ASSISTANT.id && !agent) return { ok: false, error: "not_found", message: "That agent is no longer in your crew." };
   const tier = TIERS[run.tier === "none" ? "light" : run.tier];
   const at = now();
-  const meter = await Meter.open(deps, at, tier.ceilingUsdPerMillion, agent?.id);
+  const meter = await Meter.open(deps, at, tier, agent?.id);
   const allowed = mayCall(meter.spend, DEFAULT_CAPS, at);
   if (!allowed.ok) return { ok: false, error: "capped", message: `The run cannot continue: ${allowed.reason}.` };
   const name = agent?.name ?? ASSISTANT.name;
@@ -334,19 +343,20 @@ export async function askCrew(deps: RunDeps, request: string, choice: TierChoice
   const on = await modelOn(deps);
   let plan = classify(request, choice);
   if (plan.tier !== "none" && !on) plan = { ...plan, tier: "none", why: deps.model ? "the model is switched off — your memory answers what it can" : "this build has no model — your memory answers what it can" };
-  const meter = await Meter.open(deps, at, TIERS[plan.tier].ceilingUsdPerMillion);
+  const meter = await Meter.open(deps, at, TIERS[plan.tier]);
   let judge: RunRecord["judge"] | undefined;
   let note: string | undefined;
   if (plan.tier !== "none" && plan.placed === false && mayCall(meter.spend, caps, at).ok) {
     const j = await judgeTier(deps.model!, request);
     if (j) {
-      const judgeUsd = await meter.record(j.promptTokens, j.outputTokens, at, TIERS.light.ceilingUsdPerMillion);
-      judge = { tier: j.tier, promptTokens: j.promptTokens, outputTokens: j.outputTokens, ceilingUsd: judgeUsd };
+      const judgeUsd = await meter.record(j.promptTokens, j.outputTokens, at, TIERS.light.ceilingUsdPerMillion, TIERS.light.listUsdPerMillion);
+      judge = { tier: j.tier, promptTokens: j.promptTokens, outputTokens: j.outputTokens, ceilingUsd: judgeUsd, listUsd: listUsd(j.promptTokens, j.outputTokens, TIERS.light.listUsdPerMillion) };
       plan = { ...plan, tier: j.tier, why: judgeWords(j.tier), placed: true };
     }
   }
   const tier = TIERS[plan.tier];
   meter.rate = tier.ceilingUsdPerMillion;
+  meter.rates = tier.listUsdPerMillion;
   const purpose = `Asked: "${request.length > 150 ? `${request.slice(0, 149)}…` : request}"`;
   const consult = plan.wantsMemory && !!deps.memory;
   const first = consult ? await readMemory(deps, purpose, plan.memoryQuery, plan.tier !== "none" ? hintsFor(tier, 200) : {}) : { memories: [], receipts: [] as string[] };

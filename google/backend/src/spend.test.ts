@@ -2,19 +2,26 @@
 // SPDX-License-Identifier: PolyForm-Shield-1.0.0
 
 import { describe, it, expect } from "vitest";
-import { CEILING_USD_PER_MILLION_TOKENS, DEFAULT_CAPS, ceilingUsd, describeMeter, emptyMonth, mayCall, recordCall, usd } from "./spend";
+import { CEILING_USD_PER_MILLION_TOKENS, DEFAULT_CAPS, agentUsage, ceilingUsd, describeMeter, emptyMonth, listUsd, mayCall, recordCall, usd, usdFine } from "./spend";
 
 const NOW = "2026-09-08T06:30:00.000Z";
 
 describe("the caps and the meter", () => {
-  it("never guesses a price: the money line is a ceiling, and says so", () => {
+  it("shows the tokens and Google's price for them, and names the ceiling only as the hard stop (founder, 2026-09-08)", () => {
     expect(CEILING_USD_PER_MILLION_TOKENS).toBeGreaterThanOrEqual(10);
     expect(ceilingUsd(1_000_000)).toBe(10);
     expect(usd(0.0012)).toBe("$0.01");
     expect(usd(0)).toBe("$0.00");
-    const m = recordCall(recordCall(emptyMonth("2026-09"), 1000, 100, NOW), 500, 50, NOW);
-    expect(describeMeter(m, DEFAULT_CAPS)).toBe("This month: 2 model calls · 1,650 tokens, at most $0.02 at the ceiling · limits $10.00 a month at the ceiling, 60 calls a day.");
-    expect(describeMeter(emptyMonth("2026-09"), DEFAULT_CAPS)).toMatch(/0 model calls · nothing spent/);
+    expect(usdFine(0.000297)).toBe("$0.0003");
+    expect(usdFine(0.0349)).toBe("$0.03");
+    const flashLite = { in: 0.1, out: 0.4 };
+    expect(listUsd(963, 239, flashLite)).toBeCloseTo(0.0001919, 9);
+    let m = recordCall(emptyMonth("2026-09"), 1000, 100, NOW, ceilingUsd(1100, 5), "emma", listUsd(1000, 100, flashLite));
+    m = recordCall(m, 500, 50, NOW, ceilingUsd(550, 5), "emma", listUsd(500, 50, flashLite));
+    expect(describeMeter(m, DEFAULT_CAPS)).toBe("This month: 2 model calls · 1,650 tokens (1,500 in, 150 out) ≈ $0.0002 at Google's prices · hard stop at $10.00 on CrewPoppy's safety ceiling, 60 calls a day.");
+    expect(agentUsage(m, "emma")).toEqual({ tokens: 1650, listUsd: expect.closeTo(0.00021, 6), ceilingUsd: expect.closeTo(0.00825, 6) });
+    expect(agentUsage(m, "nico")).toEqual({ tokens: 0, listUsd: 0, ceilingUsd: 0 });
+    expect(describeMeter(emptyMonth("2026-09"), DEFAULT_CAPS)).toMatch(/0 model calls · no tokens · hard stop/);
   });
 
   it("stops at the daily cap, the monthly cap and the token cap — early, never late", () => {

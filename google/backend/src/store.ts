@@ -37,7 +37,7 @@ export interface BriefRecord {
   /** Who wrote the words: the model, or the Briefer's own template. */
   writtenBy: "model" | "template";
   /** When the model wrote it: which, and what it cost in tokens — and at most in dollars, at the ceiling. */
-  model?: { name: string; words: string; promptTokens: number; outputTokens: number; ceilingUsd: number };
+  model?: { name: string; words: string; promptTokens: number; outputTokens: number; ceilingUsd: number; listUsd?: number; price?: string };
   /** Why the template wrote it although a model was there: a cap, or a refusal, in the user's words. */
   note?: string;
 }
@@ -66,7 +66,7 @@ export interface RunRecord {
   answer: string;
   /** What was read from the memory, and the receipts it left. */
   read: { count: number; bytes: number; receipts: string[]; purpose: string };
-  model?: { name: string; words: string; promptTokens: number; outputTokens: number; ceilingUsd: number };
+  model?: { name: string; words: string; promptTokens: number; outputTokens: number; ceilingUsd: number; listUsd?: number; price?: string };
   /** When the answer did not come the planned way: a cap, a refusal — in the user's words. */
   note?: string;
   /** Absent on a run from before the loop (G3c): those succeeded. */
@@ -88,7 +88,7 @@ export interface RunRecord {
   conversation?: string;
   answeredAt?: string;
   /** When the small model was asked which tier: its word and its cost. */
-  judge?: { tier: "light" | "standard" | "deep"; promptTokens: number; outputTokens: number; ceilingUsd: number };
+  judge?: { tier: "light" | "standard" | "deep"; promptTokens: number; outputTokens: number; ceilingUsd: number; listUsd?: number };
 }
 
 /** A note an agent keeps between runs — filed under the agent the runner named, never a name the model chose. */

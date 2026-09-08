@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: PolyForm-Shield-1.0.0
 
 import { describe, it, expect } from "vitest";
-import { TIERS, classify, memoryQueryOf } from "./planner";
+import { TIERS, classify, memoryQueryOf, priceLine } from "./planner";
 
 describe("the Planner", () => {
   it("answers a calendar question from the memory alone — no model, no tokens", () => {
@@ -41,6 +41,11 @@ describe("the Planner", () => {
     expect(TIERS.none.ceilingUsdPerMillion).toBe(0);
     expect(TIERS.light.ceilingUsdPerMillion).toBeLessThan(TIERS.standard.ceilingUsdPerMillion);
     expect(TIERS.standard.ceilingUsdPerMillion).toBeLessThan(TIERS.deep.ceilingUsdPerMillion);
+    // Google's published prices (read 2026-09-08) sit under the ceilings, and are said in plain words.
+    for (const t of [TIERS.light, TIERS.standard, TIERS.deep]) expect(Math.max(t.listUsdPerMillion.in, t.listUsdPerMillion.out)).toBeLessThan(t.ceilingUsdPerMillion);
+    expect(priceLine(TIERS.light)).toBe("$0.10 in, $0.40 out per million tokens");
+    expect(priceLine(TIERS.deep)).toBe("$1.25 in, $10.00 out per million tokens");
+    expect(priceLine(TIERS.none)).toBe("no tokens");
     expect(TIERS.deep.model).toBe("gemini-2.5-pro");
   });
 });

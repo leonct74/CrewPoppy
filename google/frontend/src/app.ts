@@ -67,7 +67,7 @@ interface BriefRecord {
   receipts: string[];
   read: { events: number; people: number; bytes: number };
   writtenBy?: "model" | "template";
-  model?: { name: string; words: string; promptTokens: number; outputTokens: number; ceilingUsd: number };
+  model?: { name: string; words: string; promptTokens: number; outputTokens: number; ceilingUsd: number; listUsd?: number; price?: string };
   note?: string;
 }
 interface ModelState {
@@ -76,6 +76,7 @@ interface ModelState {
   name: string;
   words: string;
   meter: string;
+  tiers?: Array<{ tier: string; words: string; price: string }>;
   caps: { callsPerDay: number; callsPerMonth: number; tokensPerMonth: number };
 }
 interface Step {
@@ -94,7 +95,7 @@ interface RunRecord {
   choice: string;
   answer: string;
   read: { count: number; bytes: number; receipts: string[]; purpose: string };
-  model?: { name: string; words: string; promptTokens: number; outputTokens: number; ceilingUsd: number };
+  model?: { name: string; words: string; promptTokens: number; outputTokens: number; ceilingUsd: number; listUsd?: number; price?: string };
   note?: string;
   status?: "running" | "succeeded" | "stopped" | "waiting";
   trigger?: "ask" | "run" | "schedule";
@@ -126,6 +127,10 @@ interface AgentDef {
   tools: string[];
   schedule?: Schedule;
   monthUsd?: number;
+  monthTokens?: number;
+  monthListUsd?: number;
+  /** Google's price per million for this agent's model; "" when the Planner chooses. */
+  price?: string;
   scheduleLine?: string;
   nextRunAt?: string;
 }
@@ -153,7 +158,7 @@ const nameOf = (id: string, name?: string): string => name ?? agentNames.get(id)
 function planLine(r: RunRecord): string {
   const parts = [`Planner: ${r.why}`, TIER_WORDS[r.tier]];
   if (r.read.purpose) parts.push(`${r.read.count} ${r.read.count === 1 ? "memory" : "memories"} read`);
-  if (r.model) parts.push(`${(r.model.promptTokens + r.model.outputTokens).toLocaleString("en-GB")} tokens`, `at most ${money(r.model.ceilingUsd)}`);
+  if (r.model) parts.push(`${(r.model.promptTokens + r.model.outputTokens).toLocaleString("en-GB")} tokens (${r.model.promptTokens.toLocaleString("en-GB")} in, ${r.model.outputTokens.toLocaleString("en-GB")} out)${r.model.listUsd !== undefined ? ` ≈ ${usdFine(r.model.listUsd)} at Google's price` : ""}${r.model.price ? ` — ${r.model.price}` : ""}`);
   else if (r.tier === "none") parts.push("no tokens");
   return `${parts.join(" · ")}.`;
 }
@@ -235,11 +240,17 @@ function describeMemory(m: MemoryInfo | null, wired: boolean): string {
   const words = (m.reads ?? []).map((k) => (k === "event" ? "meetings" : k === "person" ? "people" : k)).join(" and ");
   return `May read ${words || "nothing"} from ${m.provider?.name ?? "your memory poppy"}, for “Morning briefing” only.`;
 }
-/** "Written by Gemini 2.5 Flash on Vertex AI · 1,240 tokens · at most $0.01 at the ceiling." */
+/** "$0.0003" under a cent, "$0.03" above — a tiny amount read honestly. */
+function usdFine(amount: number): string {
+  if (amount === 0) return "$0.00";
+  if (amount < 0.01) return `$${amount.toFixed(4)}`;
+  return `$${(Math.round(amount * 100) / 100).toFixed(2)}`;
+}
+/** "Written by Gemini 2.5 Flash on Vertex AI · 1,240 tokens ≈ $0.0009 at Google's price." */
 function writtenByLine(b: BriefRecord): string {
   if (b.writtenBy === "model" && b.model) {
     const tokens = b.model.promptTokens + b.model.outputTokens;
-    return `Written by ${b.model.words} · ${tokens.toLocaleString("en-GB")} tokens · at most ${money(b.model.ceilingUsd)} at the ceiling.`;
+    return `Written by ${b.model.words} · ${tokens.toLocaleString("en-GB")} tokens${b.model.listUsd !== undefined ? ` ≈ ${usdFine(b.model.listUsd)} at Google's price` : ""}${b.model.price ? ` (${b.model.price})` : ""}.`;
   }
   return b.note ?? "Written by the Briefer itself, without a model.";
 }
@@ -293,6 +304,10 @@ function renderModel(m: ModelState | undefined): void {
   sw.checked = m.enabled;
   $("model-label").textContent = `The crew writes with ${m.words} and its siblings, inside this project — billed to your Google Cloud, capped by CrewPoppy.`;
   $("meter").textContent = m.meter;
+  if (m.tiers) {
+    for (const t of m.tiers) tierPrices.set(t.tier, t.price);
+    $<HTMLSelectElement>("agent-tier").dispatchEvent(new Event("change"));
+  }
 }
 async function refresh(): Promise<void> {
   try {
@@ -466,11 +481,14 @@ async function renderHistoryFromState(): Promise<void> {
 const TIER_LABEL: Record<AgentDef["tier"], string> = Object.fromEntries(FORM.tiers.map((t) => [t.value, t.label])) as Record<AgentDef["tier"], string>;
 const TOOL_LABEL = new Map(FORM.tools.flatMap((g) => g.tools.map((t) => [t.value, t.label] as const)));
 
+/** Google's price per million for each model, from the backend's state — shown beside the choice. */
+const tierPrices = new Map<string, string>();
 function fillTierSelect(): void {
   const sel = $<HTMLSelectElement>("agent-tier");
   sel.innerHTML = FORM.tiers.map((t) => `<option value="${t.value}">${esc(t.label)}</option>`).join("");
   const note = (): void => {
-    $("agent-tier-note").textContent = FORM.tiers.find((t) => t.value === sel.value)?.note ?? "";
+    const price = tierPrices.get(sel.value);
+    $("agent-tier-note").textContent = `${FORM.tiers.find((t) => t.value === sel.value)?.note ?? ""}${price ? ` — ${price}` : ""}`;
   };
   sel.addEventListener("change", note);
   note();
@@ -670,7 +688,7 @@ async function renderAgents(): Promise<void> {
       (a) => `<div class="agent" data-id="${esc(a.id)}">
         <div class="row" style="justify-content:space-between">
           <div><strong>${esc(a.name)}</strong> <span class="muted">· ${esc(a.role)}</span></div>
-          <span class="muted small">${esc(TIER_LABEL[a.tier] ?? a.tier)} · this month ${esc(money(a.monthUsd ?? 0))} / ${esc(money(a.capUsd))}</span>
+          <span class="muted small">${esc(TIER_LABEL[a.tier] ?? a.tier)}${a.price ? ` (${esc(a.price)})` : ""} · this month ${a.monthTokens ? `${esc(a.monthTokens.toLocaleString("en-GB"))} tokens ≈ ${esc(usdFine(a.monthListUsd ?? 0))} at Google's price` : "no tokens yet"} · stops at ${esc(money(a.capUsd))} on the safety ceiling</span>
         </div>
         <div class="muted small">${esc(toolWords(a))}${a.scheduleLine ? ` · runs ${esc(a.scheduleLine)}${a.nextRunAt ? `, next ${esc(when(a.nextRunAt))}` : ""}` : ""}</div>
         <div class="muted small">${esc(a.instructions.length > 220 ? `${a.instructions.slice(0, 220)}…` : a.instructions)}</div>

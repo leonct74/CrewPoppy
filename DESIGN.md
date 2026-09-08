@@ -2639,6 +2639,15 @@ AWS edition's React: one screen today, and no build step the host has to trust.
   side (the door class for a crew, per-slot Scheduler jobs written and removed from the slot list,
   the phone's binding) is the next mechanism window. *Open UX cost:* the 40–75 s startup wait hits
   the door's cold start too — the phone shows "waking your crew" until the cause is fixed.
+- **The money line (founder, 2026-09-08 19:20).** "I wouldn't put this estimate as it is now, it
+  sounds much more expensive than it actually is. Ideally we should show the tokens consumed and the
+  price per million tokens." So: every money line shows the TOKENS (in and out) and their cost at
+  Google's published Vertex AI price for the model (`TierSpec.listUsdPerMillion`, read from
+  cloud.google.com/vertex-ai/generative-ai/pricing the same day: Flash-Lite $0.10/$0.40, Flash
+  $0.30/$2.50, Pro $1.25/$10 per million), and names the ceiling only as what it is — the hard stop
+  (`spend.listUsd`, `agentUsage`, the tile, the plan line, the brief line, the meter). The caps still
+  count the ceiling (§7: stop early, never late). The memory-read receipt no longer carries a guessed
+  amount: the model's name is the fact; the tokens are known only after the run.
 - **One product with the live app (roadmap, 2026-09-08).** The two editions share the idea, not
   yet the shapes: the live app's schedule is kind/hour/minute/weekday/timezone/task/enabled, this
   one's every/at/weekday/timeZone(+task); its agent carries modelId, caps, an email sender, this

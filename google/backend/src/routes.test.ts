@@ -171,14 +171,14 @@ describe("the Crew HQ routes", () => {
     expect(b.writtenBy).toBe("model");
     expect(b.text).toBe("Good morning. One thing today: the board meeting at nine with Anna Rossi.");
     expect(b.model).toMatchObject({ name: "gemini-2.5-flash", promptTokens: 210, outputTokens: 18 });
-    expect(memory.calls[0]).toMatchObject({ path: "search", req: { model: "Gemini 2.5 Flash on Vertex AI", estimatedCost: "$0.02" } });
+    expect(memory.calls[0]).toMatchObject({ path: "search", req: { model: "Gemini 2.5 Flash on Vertex AI" } });
     expect(asked[0]!.user).toContain("MATERIAL:\nGood morning.");
     expect(asked[0]!.user).toContain("Board meeting with Anna Rossi");
     expect(asked[0]!.max).toBe(400);
     expect(wire.col("spend").get("2026-09")).toMatchObject({ calls: 1, promptTokens: 210, outputTokens: 18 });
     const state = (await handle("/state", "GET", undefined, { store, memory, model, now: () => NOW })).body as { model: { available: boolean; enabled: boolean; meter: string } };
     expect(state.model).toMatchObject({ available: true, enabled: true });
-    expect(state.model.meter).toMatch(/^This month: 1 model call · 228 tokens, at most \$0\.01 at the ceiling/);
+    expect(state.model.meter).toMatch(/^This month: 1 model call · 228 tokens \(\d+ in, \d+ out\) ≈ \$0\.000\d at Google's prices · hard stop/);
   });
 
   it("the Briefer writes itself when the model is off, capped, or away — and says why; nothing is counted", async () => {

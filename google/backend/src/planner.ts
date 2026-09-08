@@ -23,15 +23,28 @@ export interface TierSpec {
   /** Most words the answer may run to. */
   maxWords: number;
   maxOutputTokens: number;
-  /** The safety ceiling, US dollars per million tokens — above any published rate for the model. */
+  /** The safety ceiling, US dollars per million tokens — above any published rate for the model. Counts the caps. */
   ceilingUsdPerMillion: number;
+  /**
+   * Google's published Vertex AI price, US dollars per million tokens in and out
+   * (cloud.google.com/vertex-ai/generative-ai/pricing, read 2026-09-08; Pro's rate for prompts up to
+   * 200k tokens). SHOWN beside the tokens, never used for a cap — the founder's rule: say what was
+   * used and what Google charges for it, and keep the ceiling as the hard stop only.
+   */
+  listUsdPerMillion: { in: number; out: number };
+}
+
+/** "$0.10 in, $0.40 out per million tokens" — Google's price for the tier's model, in plain words. */
+export function priceLine(tier: TierSpec): string {
+  if (tier.tier === "none") return "no tokens";
+  return `$${tier.listUsdPerMillion.in.toFixed(2)} in, $${tier.listUsdPerMillion.out.toFixed(2)} out per million tokens`;
 }
 
 export const TIERS: Record<Tier, TierSpec> = {
-  none: { tier: "none", model: "", words: "no model — answered from your memory", maxWords: 0, maxOutputTokens: 0, ceilingUsdPerMillion: 0 },
-  light: { tier: "light", model: "gemini-2.5-flash-lite", words: "Gemini 2.5 Flash-Lite on Vertex AI", maxWords: 150, maxOutputTokens: 400, ceilingUsdPerMillion: 5 },
-  standard: { tier: "standard", model: "gemini-2.5-flash", words: "Gemini 2.5 Flash on Vertex AI", maxWords: 300, maxOutputTokens: 900, ceilingUsdPerMillion: 10 },
-  deep: { tier: "deep", model: "gemini-2.5-pro", words: "Gemini 2.5 Pro on Vertex AI", maxWords: 700, maxOutputTokens: 2_000, ceilingUsdPerMillion: 40 },
+  none: { tier: "none", model: "", words: "no model — answered from your memory", maxWords: 0, maxOutputTokens: 0, ceilingUsdPerMillion: 0, listUsdPerMillion: { in: 0, out: 0 } },
+  light: { tier: "light", model: "gemini-2.5-flash-lite", words: "Gemini 2.5 Flash-Lite on Vertex AI", maxWords: 150, maxOutputTokens: 400, ceilingUsdPerMillion: 5, listUsdPerMillion: { in: 0.1, out: 0.4 } },
+  standard: { tier: "standard", model: "gemini-2.5-flash", words: "Gemini 2.5 Flash on Vertex AI", maxWords: 300, maxOutputTokens: 900, ceilingUsdPerMillion: 10, listUsdPerMillion: { in: 0.3, out: 2.5 } },
+  deep: { tier: "deep", model: "gemini-2.5-pro", words: "Gemini 2.5 Pro on Vertex AI", maxWords: 700, maxOutputTokens: 2_000, ceilingUsdPerMillion: 40, listUsdPerMillion: { in: 1.25, out: 10 } },
 };
 
 /** What the user may ask for beside "let the Planner choose". */
