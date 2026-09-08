@@ -688,7 +688,7 @@ async function renderAgents(): Promise<void> {
       (a) => `<div class="agent" data-id="${esc(a.id)}">
         <div class="row" style="justify-content:space-between">
           <div><strong>${esc(a.name)}</strong> <span class="muted">· ${esc(a.role)}</span></div>
-          <span class="muted small">${esc(TIER_LABEL[a.tier] ?? a.tier)}${a.price ? ` (${esc(a.price)})` : ""} · this month ${a.monthTokens ? `${esc(a.monthTokens.toLocaleString("en-GB"))} tokens ≈ ${esc(usdFine(a.monthListUsd ?? 0))} at Google's price` : "no tokens yet"} · stops at ${esc(money(a.capUsd))} on the safety ceiling</span>
+          <span class="muted small">${esc(TIER_LABEL[a.tier] ?? a.tier)}${a.price ? ` (${esc(a.price)})` : ""} · this month ${a.monthTokens ? `${esc(a.monthTokens.toLocaleString("en-GB"))} tokens ≈ ${esc(usdFine(a.monthListUsd ?? 0))} at Google's price` : a.monthUsd ? "tokens counted from today" : "no tokens yet"} · stops at ${esc(money(a.capUsd))} on the safety ceiling</span>
         </div>
         <div class="muted small">${esc(toolWords(a))}${a.scheduleLine ? ` · runs ${esc(a.scheduleLine)}${a.nextRunAt ? `, next ${esc(when(a.nextRunAt))}` : ""}` : ""}</div>
         <div class="muted small">${esc(a.instructions.length > 220 ? `${a.instructions.slice(0, 220)}…` : a.instructions)}</div>
