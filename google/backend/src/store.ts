@@ -13,6 +13,7 @@ import { GoogleError } from "./google";
 export const BRIEFS = "briefs";
 export const META = "meta";
 export const SPEND = "spend";
+export const RUNS = "runs";
 export const SCHEMA_VERSION = 1;
 
 export interface BriefRecord {
@@ -36,8 +37,28 @@ export interface BriefRecord {
 }
 
 export interface Settings {
-  /** Whether the Briefer writes with the model (default: yes, when the build has one). */
+  /** Whether the crew writes with the model (default: yes, when the build has one). */
   model?: boolean;
+}
+
+/** One request answered by the crew — the Planner's choice, the reads, the answer, the cost. */
+export interface RunRecord {
+  id: string;
+  at: string;
+  /** The crew member that answered: "assistant" for tasks on the fly. */
+  agent: string;
+  request: string;
+  /** The Planner's tier and its one-line reason. */
+  tier: "none" | "light" | "standard" | "deep";
+  why: string;
+  /** Whether the user overruled the Planner. */
+  choice: "auto" | "quick" | "standard" | "best";
+  answer: string;
+  /** What was read from the memory, and the receipts it left. */
+  read: { count: number; bytes: number; receipts: string[]; purpose: string };
+  model?: { name: string; words: string; promptTokens: number; outputTokens: number; ceilingUsd: number };
+  /** When the answer did not come the planned way: a cap, a refusal — in the user's words. */
+  note?: string;
 }
 
 export type StoreState =
@@ -155,6 +176,18 @@ export class CrewStore {
   async saveSpend(month: string, value: object): Promise<void> {
     if (!this.ready) throw new Error(this.unavailableMessage());
     await this.deps.wire.set(SPEND, month, value);
+  }
+
+  async saveRun(r: RunRecord): Promise<void> {
+    if (!this.ready) throw new Error(this.unavailableMessage());
+    await this.deps.wire.set(RUNS, r.id, r);
+  }
+
+  /** Newest first. */
+  async runs(limit = 30): Promise<RunRecord[]> {
+    if (!this.ready) throw new Error(this.unavailableMessage());
+    const all = await this.deps.wire.listChanged<RunRecord>(RUNS, "at", null);
+    return all.map((d) => ({ ...d.data, id: d.id })).sort((x, y) => (x.at < y.at ? 1 : x.at > y.at ? -1 : 0)).slice(0, limit);
   }
 
   /** Newest first. */

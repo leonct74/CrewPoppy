@@ -26,7 +26,8 @@ export interface ModelReply {
 export interface Model {
   readonly name: string;
   readonly words: string;
-  generate(system: string, user: string, maxOutputTokens: number): Promise<ModelReply>;
+  /** `model` overrides the default model id for this one call — the Planner's tier (G3). */
+  generate(system: string, user: string, maxOutputTokens: number, model?: string): Promise<ModelReply>;
 }
 
 export interface VertexModelOptions {
@@ -54,33 +55,33 @@ export class VertexModel implements Model {
     this.location = opts.location ?? DEFAULT_LOCATION;
   }
 
-  private url(projectId: string): string {
+  private url(projectId: string, model = this.name): string {
     const host = this.location === "global" ? "aiplatform.googleapis.com" : `${this.location}-aiplatform.googleapis.com`;
-    return `https://${host}/v1/projects/${encodeURIComponent(projectId)}/locations/${this.location}/publishers/google/models/${encodeURIComponent(this.name)}:generateContent`;
+    return `https://${host}/v1/projects/${encodeURIComponent(projectId)}/locations/${this.location}/publishers/google/models/${encodeURIComponent(model)}:generateContent`;
   }
 
-  async generate(system: string, user: string, maxOutputTokens: number): Promise<ModelReply> {
+  async generate(system: string, user: string, maxOutputTokens: number, model = this.name): Promise<ModelReply> {
     // A permission just granted takes Google up to a minute to reach Vertex AI (the same lesson as
     // the store's first Firestore call): one 403 "permission denied" is retried once, after a pause.
     try {
-      return await this.generateOnce(system, user, maxOutputTokens);
+      return await this.generateOnce(system, user, maxOutputTokens, model);
     } catch (e) {
       if (!(e instanceof GoogleError && e.status === 403 && /denied on resource/i.test(e.message))) throw new Error(explainModelError(e));
       await (this.opts.sleep ?? ((ms) => new Promise((r) => setTimeout(r, ms))))(20_000);
       try {
-        return await this.generateOnce(system, user, maxOutputTokens);
+        return await this.generateOnce(system, user, maxOutputTokens, model);
       } catch (again) {
         throw new Error(explainModelError(again));
       }
     }
   }
 
-  private async generateOnce(system: string, user: string, maxOutputTokens: number): Promise<ModelReply> {
+  private async generateOnce(system: string, user: string, maxOutputTokens: number, model: string): Promise<ModelReply> {
     const t = await this.token();
     let res: GenerateResponse;
     try {
       res = await googleJson<GenerateResponse>(
-        this.url(t.projectId),
+        this.url(t.projectId, model),
         {
           method: "POST",
           token: t.accessToken,
@@ -105,7 +106,7 @@ export class VertexModel implements Model {
       text,
       promptTokens: res.usageMetadata?.promptTokenCount ?? 0,
       outputTokens: res.usageMetadata?.candidatesTokenCount ?? 0,
-      model: this.name,
+      model,
     };
   }
 }

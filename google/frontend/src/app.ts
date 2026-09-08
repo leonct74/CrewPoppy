@@ -75,13 +75,42 @@ interface ModelState {
   meter: string;
   caps: { callsPerDay: number; callsPerMonth: number; tokensPerMonth: number };
 }
+interface RunRecord {
+  id: string;
+  at: string;
+  agent: string;
+  request: string;
+  tier: "none" | "light" | "standard" | "deep";
+  why: string;
+  choice: string;
+  answer: string;
+  read: { count: number; bytes: number; receipts: string[]; purpose: string };
+  model?: { name: string; words: string; promptTokens: number; outputTokens: number; ceilingUsd: number };
+  note?: string;
+}
 interface State {
   cloud: CloudState;
   memory: MemoryInfo | null;
   memoryWired: boolean;
   briefs: BriefRecord[];
+  runs?: RunRecord[];
   purpose: string;
   model?: ModelState;
+}
+const TIER_WORDS: Record<RunRecord["tier"], string> = { none: "no model", light: "Gemini 2.5 Flash-Lite on Vertex AI", standard: "Gemini 2.5 Flash on Vertex AI", deep: "Gemini 2.5 Pro on Vertex AI" };
+function planLine(r: RunRecord): string {
+  const parts = [`Planner: ${r.why}`, TIER_WORDS[r.tier]];
+  if (r.read.purpose) parts.push(`${r.read.count} ${r.read.count === 1 ? "memory" : "memories"} read`);
+  if (r.model) {
+    const usd = `$${Math.max(0.01, Math.round(r.model.ceilingUsd * 100) / 100).toFixed(2)}`;
+    parts.push(`${(r.model.promptTokens + r.model.outputTokens).toLocaleString("en-GB")} tokens`, `at most ${usd}`);
+  } else if (r.tier === "none") parts.push("no tokens");
+  return `${parts.join(" · ")}.`;
+}
+function runReadLine(r: RunRecord): string {
+  if (!r.read.purpose) return "Nothing read from your memory — the request was not about your life.";
+  const kb = r.read.bytes >= 1024 ? `${(r.read.bytes / 1024).toFixed(1)} KB` : `${r.read.bytes} B`;
+  return `Read ${r.read.count} ${r.read.count === 1 ? "memory" : "memories"} for ${r.read.purpose} — ${kb}. Written on your Activity${r.read.receipts.length ? ` (${r.read.receipts.length} ${r.read.receipts.length === 1 ? "receipt" : "receipts"})` : ""}.`;
 }
 
 const $ = <T extends HTMLElement = HTMLElement>(id: string): T => document.getElementById(id) as T;
@@ -212,7 +241,7 @@ async function refresh(): Promise<void> {
       return;
     }
     showBrief(state.briefs[0]);
-    renderHistory(state.briefs);
+    renderHistory(state.briefs, state.runs ?? []);
     renderModel(state.model);
   } catch (err) {
     setStatus("where", `Couldn't reach the Briefer: ${plainError(err)}`, "warn");
@@ -233,6 +262,37 @@ $<HTMLButtonElement>("btn-brief").addEventListener(
   }),
 );
 
+// ---- ask your crew
+function showAnswer(r: RunRecord): void {
+  $("answer-wrap").hidden = false;
+  $("answer").textContent = r.answer;
+  $("plan-line").textContent = planLine(r);
+  $("answer-read").textContent = runReadLine(r);
+  setStatus("ask-status", r.note ?? "");
+}
+$<HTMLButtonElement>("btn-ask").addEventListener(
+  "click",
+  withPending($("btn-ask"), "Asking…", async () => {
+    const request = ($("ask") as HTMLTextAreaElement).value.trim();
+    const choice = ($("ask-choice") as HTMLSelectElement).value;
+    if (!request) {
+      setStatus("ask-status", "Ask something — a request in your own words.");
+      return;
+    }
+    setStatus("ask-status", "The Planner is reading and judging…");
+    try {
+      const r = await host.invokeBackend<{ run: RunRecord }>({ method: "POST", path: "/ask", body: { request, choice } });
+      showAnswer(r.run);
+      await refresh();
+    } catch (err) {
+      setStatus("ask-status", `Your crew couldn't answer: ${plainError(err)}`, "warn");
+    }
+  }),
+);
+$("ask").addEventListener("keydown", (e: KeyboardEvent) => {
+  if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) $("btn-ask").click();
+});
+
 // ---- the model switch: reacts at once, and says what happened
 $<HTMLInputElement>("model-switch").addEventListener("change", async (e) => {
   const sw = e.target as HTMLInputElement;
@@ -252,24 +312,32 @@ $<HTMLInputElement>("model-switch").addEventListener("change", async (e) => {
 });
 
 // ---- history
-function renderHistory(briefs: BriefRecord[]): void {
+function renderHistory(briefs: BriefRecord[], runs: RunRecord[] = []): void {
   const el = $("history");
-  if (briefs.length === 0) {
+  const items = [
+    ...briefs.map((b) => ({
+      at: b.at,
+      html: `<div class="brief-when">${esc(when(b.at))} · brief</div>
+        <div class="brief" style="font-size:13px">${esc(b.text)}</div>
+        <details><summary>What was read, and who wrote it</summary><div class="receipt">${esc(readLine(b))}</div><div class="receipt">${esc(writtenByLine(b))}</div>
+          <ul class="plain">${b.memoryIds.map((id) => `<li class="mono">${esc(id)}</li>`).join("")}</ul></details>`,
+    })),
+    ...runs.map((r) => ({
+      at: r.at,
+      html: `<div class="brief-when">${esc(when(r.at))} · asked</div>
+        <div class="muted small">${esc(r.request.length > 200 ? `${r.request.slice(0, 200)}…` : r.request)}</div>
+        <div class="brief" style="font-size:13px">${esc(r.answer)}</div>
+        <div class="receipt">${esc(planLine(r))}</div>
+        <div class="receipt">${esc(runReadLine(r))}</div>${r.note ? `<div class="status">${esc(r.note)}</div>` : ""}`,
+    })),
+  ].sort((x, y) => (x.at < y.at ? 1 : -1));
+  if (items.length === 0) {
     el.className = "history muted";
-    el.textContent = "No briefs yet.";
+    el.textContent = "Nothing yet — ask your crew something, or press “Brief me now”.";
     return;
   }
   el.className = "history";
-  el.innerHTML = briefs
-    .map(
-      (b) => `<div class="item">
-        <div class="brief-when">${esc(when(b.at))}</div>
-        <div class="brief" style="font-size:13px">${esc(b.text)}</div>
-        <details><summary>What was read, and who wrote it</summary><div class="receipt">${esc(readLine(b))}</div><div class="receipt">${esc(writtenByLine(b))}</div>
-          <ul class="plain">${b.memoryIds.map((id) => `<li class="mono">${esc(id)}</li>`).join("")}</ul></details>
-      </div>`,
-    )
-    .join("");
+  el.innerHTML = items.map((i) => `<div class="item">${i.html}</div>`).join("");
 }
 
 void refresh();

@@ -1,8 +1,8 @@
 {
   "id": "com.crewpoppy.cloud.google",
   "name": "CrewPoppy (Google Cloud)",
-  "version": "0.2.0",
-  "description": "Your AI crew, in your own Google Cloud. Starts with one member — the Briefer, who reads the memory you keep in MemoryPoppy and writes your morning brief, with Gemini on Vertex AI inside a project of your own, under hard caps. Every read is written on your Activity.",
+  "version": "0.3.0",
+  "description": "Your AI crew, in your own Google Cloud. Ask it anything on the fly: the Planner reads your memory, judges the task, and picks the cheapest model on Vertex AI that fits — or none, when your memory answers by itself. The Briefer writes your morning brief. Hard caps, and a receipt for every read.",
   "bugsUrl": "https://github.com/leonct74/CrewPoppy/issues",
   "icon": "frontend/crewpoppy-icon.png",
   "compliance": {

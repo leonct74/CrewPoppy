@@ -50,6 +50,10 @@
       .history .item:first-child { border-top: none; }
       details summary { cursor: pointer; font-size: 12.5px; color: var(--poppy-muted-2); }
       ul.plain { margin: 6px 0 0; padding-left: 18px; font-size: 12.5px; color: var(--poppy-muted-2); }
+      textarea, select { width: 100%; background: var(--poppy-surface-0); color: var(--poppy-text); border: 1px solid var(--poppy-border); border-radius: var(--poppy-radius); padding: 8px 10px; font: inherit; font-size: 13px; }
+      textarea { resize: vertical; }
+      select { width: auto; }
+      textarea:focus, select:focus-visible { outline: 2px solid var(--poppy-accent); outline-offset: 1px; }
     </style>
   </head>
   <body>
@@ -62,11 +66,31 @@
     <nav class="tabs" role="tablist">
       <button role="tab" aria-selected="true" data-tab="today">Today</button>
       <button role="tab" aria-selected="false" data-tab="crew">Your crew</button>
-      <button role="tab" aria-selected="false" data-tab="briefs">Past briefs</button>
+      <button role="tab" aria-selected="false" data-tab="briefs">History</button>
       <button role="tab" aria-selected="false" data-tab="feedback">Feedback</button>
     </nav>
 
     <section id="tab-today">
+      <div class="panel">
+        <h2>Ask your crew</h2>
+        <p class="muted small" style="margin:0 0 8px">Anything, on the fly. The Planner reads your memory when the question is about your life, judges the task, and picks the cheapest model that fits — or none. You can overrule it.</p>
+        <textarea id="ask" rows="3" placeholder="What's on my calendar today? · Rewrite this more politely: … · Plan a launch for …" aria-label="Ask your crew"></textarea>
+        <div class="row" style="margin-top:8px">
+          <button id="btn-ask" class="btn">Ask</button>
+          <select id="ask-choice" aria-label="Which model">
+            <option value="auto">Let the Planner choose</option>
+            <option value="quick">Quick — the smallest model</option>
+            <option value="standard">Standard model</option>
+            <option value="best">Best — the deep model</option>
+          </select>
+        </div>
+        <div id="answer-wrap" hidden>
+          <div id="answer" class="brief" style="margin-top:12px"></div>
+          <div id="plan-line" class="receipt"></div>
+          <div id="answer-read" class="receipt"></div>
+        </div>
+        <div id="ask-status" class="status"></div>
+      </div>
       <div class="panel">
         <h2>Your brief</h2>
         <div id="where" class="status" style="margin:0 0 10px"></div>
@@ -86,6 +110,20 @@
       <div class="panel">
         <h2>Your crew</h2>
         <div class="crew">
+          <div class="avatar">P</div>
+          <div>
+            <div><strong>The Planner</strong> <span class="muted">· the main agent — reads, judges, dispatches</span></div>
+            <div class="muted small">Every request goes through the Planner first. It reads your memory when the question is about your life, judges the task's difficulty from rules you can read on the answer, and picks the cheapest model on Vertex AI that fits — none for a question your memory answers by itself, the smallest for a rewrite or a short answer, the standard for most, the deep one for planning and analysis. It spends no tokens deciding.</div>
+          </div>
+        </div>
+        <div class="crew">
+          <div class="avatar">A</div>
+          <div>
+            <div><strong>The Assistant</strong> <span class="muted">· answers what you ask, on the fly</span></div>
+            <div class="muted small">The member for unplanned tasks. Gets your request and, as data, the memories the Planner read; never invents a fact about your life; says plainly when your memory holds nothing relevant.</div>
+          </div>
+        </div>
+        <div class="crew">
           <div class="avatar">B</div>
           <div>
             <div><strong>The Briefer</strong> <span class="muted">· reads your memory, writes your brief</span></div>
@@ -103,7 +141,8 @@
 
     <section id="tab-briefs" hidden>
       <div class="panel">
-        <h2>Past briefs</h2>
+        <h2>History</h2>
+        <p class="muted small" style="margin:0 0 10px">Every brief and every answer, newest first — with what was read and who wrote it.</p>
         <div id="history" class="history muted">Loading…</div>
       </div>
     </section>

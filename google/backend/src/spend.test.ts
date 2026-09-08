@@ -13,12 +13,12 @@ describe("the caps and the meter", () => {
     expect(usd(0.0012)).toBe("$0.01");
     expect(usd(0)).toBe("$0.00");
     const m = recordCall(recordCall(emptyMonth("2026-09"), 1000, 100, NOW), 500, 50, NOW);
-    expect(describeMeter(m, DEFAULT_CAPS)).toBe("This month: 2 briefs by the model · 1,650 tokens, at most $0.02 at the ceiling · limits 24 a day, 300 a month, 500k tokens.");
-    expect(describeMeter(emptyMonth("2026-09"), DEFAULT_CAPS)).toMatch(/0 briefs by the model · nothing spent/);
+    expect(describeMeter(m, DEFAULT_CAPS)).toBe("This month: 2 model calls · 1,650 tokens, at most $0.02 at the ceiling · limits $10.00 a month at the ceiling, 24 calls a day.");
+    expect(describeMeter(emptyMonth("2026-09"), DEFAULT_CAPS)).toMatch(/0 model calls · nothing spent/);
   });
 
   it("stops at the daily cap, the monthly cap and the token cap — early, never late", () => {
-    const caps = { callsPerDay: 2, callsPerMonth: 3, tokensPerMonth: 1000 };
+    const caps = { callsPerDay: 2, callsPerMonth: 3, tokensPerMonth: 1000, usdPerMonth: 10 };
     let m = emptyMonth("2026-09");
     expect(mayCall(m, caps, NOW)).toEqual({ ok: true });
     m = recordCall(m, 100, 10, NOW);
@@ -30,5 +30,8 @@ describe("the caps and the meter", () => {
     expect(mayCall(m, caps, "2026-09-10T06:30:00.000Z")).toEqual({ ok: false, reason: "this month's limit of 3 model calls is reached" });
     const heavy = recordCall(emptyMonth("2026-09"), 900, 100, NOW);
     expect(mayCall(heavy, caps, tomorrow)).toEqual({ ok: false, reason: "this month's limit of 1,000 tokens is reached" });
+    const dear = recordCall(emptyMonth("2026-09"), 100, 10, NOW, 10);
+    expect(mayCall(dear, { ...caps, tokensPerMonth: 1_000_000 }, tomorrow)).toEqual({ ok: false, reason: "this month's spending limit of $10.00 (at the ceiling) is reached" });
+    expect(dear.ceilingUsd).toBe(10);
   });
 });

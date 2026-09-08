@@ -2324,10 +2324,30 @@ AWS edition's React: one screen today, and no build step the host has to trust.
   Claude on Vertex) with the §7 caps enforced from the first token, and the memory-read receipt
   says so: "…to Gemini on Vertex AI, about €0.002". The G1 brief stays as the fallback when the
   model is off or capped.
-- **G3 — the crew.** Agents as on AWS (§3): persona, brief, tools, trigger, caps — stored in
-  Firestore; the runner and the trusted dispatcher ported (memory tools go through the host);
-  Cloud Run jobs + Cloud Scheduler for runs that outlive the app; the helper prompt on the editor;
-  the Crew Pack. The mobile app (§15h) pairs to whichever edition the user runs — later.
+- **G3 — the crew, with the Planner in front (founder, 2026-09-08).** The founder's decision, in
+  his words: *"to optimise the tokens spent, it should be a main agent accessing the memory and,
+  based on the user request and the difficulty of the task, able to decide which agent model
+  should run that task — because beside having pre-built agents for defined tasks, the user will
+  start using CrewPoppy for asking even unplanned tasks on the fly, of different complexity."*
+  So the crew's main agent is **the Planner**: every request — typed on the fly, or a scheduled
+  task — goes through it first. It **reads the memory** through the host when the request is
+  about the user's own life (one receipt in the user's own words: `Asked: "…"`), **judges the
+  difficulty** from rules a person can read on the answer (it spends no tokens deciding), and
+  **dispatches** to the cheapest tier that fits: *none* — a question the memory answers by itself
+  (what's on my calendar, when did I last meet someone, who is someone); *light* — Gemini 2.5
+  Flash-Lite for a rewrite, a summary, a short answer; *standard* — Gemini 2.5 Flash for most
+  tasks; *deep* — Gemini 2.5 Pro for planning, analysis, long pieces, several questions at once.
+  The user can overrule it per request (Quick · Standard · Best). The member for unplanned tasks is
+  **the Assistant**; the memories reach it as delimited data, never as instructions (§4's posture).
+  Every answer carries the Planner's line — the tier, why, the memories read, the tokens, the
+  ceiling — and is kept in `runs` beside the briefs. The caps of §7 gain a **monthly cap in ceiling
+  dollars** ($10, §14.6) on top of the calls and tokens; each tier has its own ceiling rate, above
+  its published price. *G3a (built 2026-09-08):* the Planner, the Assistant, Ask your crew, runs and
+  History. *G3b:* agents the user defines as on AWS (§3) — persona, brief, tools, trigger, caps,
+  a tier or "let the Planner choose" — in Firestore, with the helper prompt on the editor; the
+  runner and the trusted dispatcher ported (memory tools through the host); Cloud Run jobs + Cloud
+  Scheduler for runs that outlive the app; the Crew Pack; a light-model judge for the requests the
+  rules cannot place. The mobile app (§15h) pairs to whichever edition the user runs — later.
 
 **What G1 is not.** No model, no agents, no tools, no schedules, no mobile. It reads; it does not
 write memory (a Briefer that wrote its briefs back as `note` memories would be a fine G2/G3 idea —

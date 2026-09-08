@@ -16,6 +16,8 @@ export interface SpendMonth {
   outputTokens: number;
   /** Calls per day, "2026-09-08" → n — the daily cap's counter. */
   days: Record<string, number>;
+  /** The month's cost at the ceiling, in US dollars — each call priced at its tier's ceiling rate. */
+  ceilingUsd?: number;
   lastCallAt?: string;
 }
 
@@ -23,10 +25,12 @@ export interface Caps {
   callsPerDay: number;
   callsPerMonth: number;
   tokensPerMonth: number;
+  /** The month's spend cap, in ceiling dollars (§14.6: $10 by default, never unlimited). */
+  usdPerMonth: number;
 }
 
-/** Safe defaults, never unlimited (§14.6): a brief a few times a day, a modest month. */
-export const DEFAULT_CAPS: Caps = { callsPerDay: 24, callsPerMonth: 300, tokensPerMonth: 500_000 };
+/** Safe defaults, never unlimited (§14.6): a brief a few times a day, a modest month, ten dollars. */
+export const DEFAULT_CAPS: Caps = { callsPerDay: 24, callsPerMonth: 300, tokensPerMonth: 500_000, usdPerMonth: 10 };
 
 /** US dollars per million tokens, in or out — the ceiling, not a price. */
 export const CEILING_USD_PER_MILLION_TOKENS = 10;
@@ -35,11 +39,12 @@ export const monthOf = (iso: string): string => iso.slice(0, 7);
 export const dayOf = (iso: string): string => iso.slice(0, 10);
 
 export function emptyMonth(month: string): SpendMonth {
-  return { month, calls: 0, promptTokens: 0, outputTokens: 0, days: {} };
+  return { month, calls: 0, promptTokens: 0, outputTokens: 0, days: {}, ceilingUsd: 0 };
 }
 
-export function ceilingUsd(tokens: number): number {
-  return (tokens / 1_000_000) * CEILING_USD_PER_MILLION_TOKENS;
+/** Tokens priced at a ceiling rate (dollars per million); the default rate is the standard tier's. */
+export function ceilingUsd(tokens: number, usdPerMillion = CEILING_USD_PER_MILLION_TOKENS): number {
+  return (tokens / 1_000_000) * usdPerMillion;
 }
 
 /** "$0.03" — two decimals, never below a cent when anything was spent. */
@@ -54,10 +59,11 @@ export function mayCall(spend: SpendMonth, caps: Caps, nowIso: string): { ok: tr
   if (today >= caps.callsPerDay) return { ok: false, reason: `today's limit of ${caps.callsPerDay} model calls is reached` };
   if (spend.calls >= caps.callsPerMonth) return { ok: false, reason: `this month's limit of ${caps.callsPerMonth} model calls is reached` };
   if (spend.promptTokens + spend.outputTokens >= caps.tokensPerMonth) return { ok: false, reason: `this month's limit of ${caps.tokensPerMonth.toLocaleString("en-GB")} tokens is reached` };
+  if ((spend.ceilingUsd ?? 0) >= caps.usdPerMonth) return { ok: false, reason: `this month's spending limit of ${usd(caps.usdPerMonth)} (at the ceiling) is reached` };
   return { ok: true };
 }
 
-export function recordCall(spend: SpendMonth, promptTokens: number, outputTokens: number, nowIso: string): SpendMonth {
+export function recordCall(spend: SpendMonth, promptTokens: number, outputTokens: number, nowIso: string, callUsd = ceilingUsd(promptTokens + outputTokens)): SpendMonth {
   const day = dayOf(nowIso);
   return {
     ...spend,
@@ -65,6 +71,7 @@ export function recordCall(spend: SpendMonth, promptTokens: number, outputTokens
     promptTokens: spend.promptTokens + promptTokens,
     outputTokens: spend.outputTokens + outputTokens,
     days: { ...spend.days, [day]: (spend.days[day] ?? 0) + 1 },
+    ceilingUsd: (spend.ceilingUsd ?? 0) + callUsd,
     lastCallAt: nowIso,
   };
 }
@@ -72,7 +79,7 @@ export function recordCall(spend: SpendMonth, promptTokens: number, outputTokens
 /** The one always-current money line (§7b). */
 export function describeMeter(spend: SpendMonth, caps: Caps): string {
   const tokens = spend.promptTokens + spend.outputTokens;
-  const calls = `${spend.calls} ${spend.calls === 1 ? "brief" : "briefs"} by the model`;
-  const cost = tokens === 0 ? "nothing spent" : `${tokens.toLocaleString("en-GB")} tokens, at most ${usd(ceilingUsd(tokens))} at the ceiling`;
-  return `This month: ${calls} · ${cost} · limits ${caps.callsPerDay} a day, ${caps.callsPerMonth} a month, ${(caps.tokensPerMonth / 1000).toFixed(0)}k tokens.`;
+  const calls = `${spend.calls} model ${spend.calls === 1 ? "call" : "calls"}`;
+  const cost = tokens === 0 ? "nothing spent" : `${tokens.toLocaleString("en-GB")} tokens, at most ${usd(spend.ceilingUsd ?? ceilingUsd(tokens))} at the ceiling`;
+  return `This month: ${calls} · ${cost} · limits ${usd(caps.usdPerMonth)} a month at the ceiling, ${caps.callsPerDay} calls a day.`;
 }
