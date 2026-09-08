@@ -598,6 +598,56 @@ function toolWords(a: AgentDef): string {
   return words.length ? words.join(" · ") : "no tools — it only writes";
 }
 
+interface Template {
+  key: string;
+  name: string;
+  role: string;
+  blurb: string;
+  needs: string[];
+  notYet: string[];
+  unavailable?: string;
+  scheduleLine: string;
+  files: string[];
+}
+/** The live app's recipes, as this edition offers them (DESIGN §18, one product with the live app). */
+async function renderTemplates(): Promise<void> {
+  const el = $("templates");
+  let templates: Template[] = [];
+  try {
+    templates = (await host.invokeBackend<{ templates: Template[] }>({ method: "GET", path: "/templates" })).templates;
+  } catch (err) {
+    el.innerHTML = `<div class="status warn">${esc(`Couldn't read the templates: ${plainError(err)}`)}</div>`;
+    return;
+  }
+  el.innerHTML = templates
+    .map(
+      (t) => `<div class="template">
+        <div><strong>${esc(t.name)}</strong> <span class="muted">· ${esc(t.role)}</span></div>
+        <div class="muted small" style="margin:4px 0">${esc(t.blurb)}</div>
+        ${t.scheduleLine ? `<div class="muted small">Runs ${esc(t.scheduleLine)}.</div>` : ""}
+        ${t.files.length ? `<div class="muted small">Comes with ${esc(t.files.join(", "))}.</div>` : ""}
+        ${t.notYet.length ? `<div class="muted small">Not on Google yet: ${esc(t.notYet.join(", "))} — it writes a file instead and says so.</div>` : ""}
+        <div class="row" style="margin-top:6px">${t.unavailable ? `<span class="muted small">Coming to this edition — ${esc(t.unavailable)}.</span>` : `<button class="ghost" data-activate="${esc(t.key)}">Add ${esc(t.name)} to the crew</button>`}</div>
+      </div>`,
+    )
+    .join("");
+  for (const btn of el.querySelectorAll<HTMLButtonElement>("button[data-activate]")) {
+    const key = btn.dataset.activate ?? "";
+    btn.addEventListener(
+      "click",
+      withPending(btn, "Adding…", async () => {
+        try {
+          const r = await host.invokeBackend<{ agent: AgentDef; files: string[] }>({ method: "POST", path: `/templates/${key}/activate` });
+          setStatus("templates-status", `${r.agent.name} is in the crew${r.agent.scheduleLine ? ` — runs ${r.agent.scheduleLine}` : ""}${r.files.length ? `, with ${r.files.join(", ")}` : ""}. Edit the brief any time.`);
+          await renderAgents();
+        } catch (err) {
+          setStatus("templates-status", plainError(err), "warn");
+        }
+      }),
+    );
+  }
+}
+
 async function renderAgents(): Promise<void> {
   const el = $("agents");
   let agents: AgentDef[] = [];
@@ -783,6 +833,7 @@ function renderHistory(briefs: BriefRecord[], runs: RunRecord[] = []): void {
 }
 
 void refresh();
+void renderTemplates();
 void renderAgents();
 document.addEventListener("visibilitychange", () => {
   if (document.visibilityState === "visible") void refresh();

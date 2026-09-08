@@ -21,6 +21,7 @@ import { ASK_MAX_CHARS, type RunDeps, askCrew, describePlan, resumeRun, runAgent
 import { cronOf, describeSchedule, nextDue } from "./schedule";
 import { DEFAULT_CAPS, type Caps, type SpendMonth, agentSpent, ceilingUsd, describeMeter, emptyMonth, mayCall, monthOf, recordCall, usd } from "./spend";
 import type { BriefRecord, RunRecord, Settings } from "./store";
+import { TEMPLATES, activateTemplate, templateByKey } from "./templates";
 import { TOOL_GROUPS, TOOL_NOTES } from "./tools";
 
 export type { MemoryReader, ReceiptHints } from "./memory-reader";
@@ -243,6 +244,22 @@ export async function handle(path: string, method: string, body: unknown, deps: 
   }
 
   // ---- Your own agents (G3b) --------------------------------------------------------------------
+  // ---- Templates: the live app's recipes, offered here (DESIGN §18, one product with the live app)
+  if (method === "GET" && path === "/templates") {
+    const zone = timeZone();
+    return json(200, { ok: true, templates: TEMPLATES.map((t) => ({ ...t, files: t.files.map((f) => f.path), scheduleLine: t.schedule ? describeSchedule({ ...t.schedule, timeZone: zone }) : "" })) });
+  }
+  const templateMatch = /^\/templates\/([a-z0-9-]+)\/activate$/.exec(path);
+  if (method === "POST" && templateMatch) {
+    const t = templateByKey(templateMatch[1]!);
+    if (!t) return json(404, { ok: false, error: "not_found", message: "That template is not in the catalogue." });
+    if (t.unavailable) return json(409, { ok: false, error: "not_yet", message: `${t.name} is coming to this edition — ${t.unavailable}, which it cannot do yet.` });
+    const taken = new Set([...(await deps.store.agents()).map((a) => a.id), ...CREW.map((c) => c.id)]);
+    const { agent, files } = activateTemplate(t, taken, now(), timeZone());
+    await deps.store.saveAgent(agent);
+    for (const f of files) await deps.store.saveFile(f);
+    return json(200, { ok: true, agent: { ...agent, scheduleLine: agent.schedule ? describeSchedule(agent.schedule) : "", nextRunAt: agent.schedule ? nextDue(agent.schedule, now()) : "" }, files: files.map((f) => f.path) });
+  }
   // The alarms the host may set for this crew (DESIGN §18 G7): one per scheduled agent, as the cron
   // string a cloud scheduler takes, in the owner's zone. No schedule, no alarm — an idle crew is free.
   if (method === "GET" && path === "/cloud/slots") {

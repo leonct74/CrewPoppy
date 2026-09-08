@@ -435,4 +435,22 @@ describe("the Crew HQ routes", () => {
     const r = (await handle("/cloud/slots", "GET", undefined, { store, memory, now: () => NOW })).body as { slots: unknown[] };
     expect(r.slots).toEqual([{ agent: "emma", name: "Emma", cron: "30 15 * * *", timeZone: "Europe/Rome", line: "every day at 15:30 (Europe/Rome)", nextRunAt: expect.stringMatching(/T13:30:00\.000Z$/), task: "Thank the people I met today." }]);
   });
+
+  it("templates: the live app's recipes offered with what is not on Google yet; activating adds the agent and its files; a recipe this edition cannot serve is refused in words", async () => {
+    const { store } = await ready();
+    const memory = fakeMemory();
+    const list = (await handle("/templates", "GET", undefined, { store, memory, timeZone: () => "Europe/Rome" })).body as { templates: Array<{ key: string; name: string; notYet: string[]; unavailable?: string; files: string[]; scheduleLine: string }> };
+    expect(list.templates.map((t) => t.key)).toEqual(["offer-writer", "document-answerer", "expense-tracker", "trip-splitter", "morning-brief"]);
+    expect(list.templates.find((t) => t.key === "expense-tracker")).toMatchObject({ name: "Penny", notYet: ["reading photos", "PDFs", "e-mail to you"], files: ["categories.md"], scheduleLine: "" });
+    expect(list.templates.find((t) => t.key === "morning-brief")).toMatchObject({ unavailable: "it reads web pages and e-mails you the brief", scheduleLine: "every day at 07:30 (Europe/Rome)" });
+    const made = (await handle("/templates/expense-tracker/activate", "POST", undefined, { store, memory, now: () => NOW, timeZone: () => "Europe/Rome" })).body as { agent: { id: string; tools: string[]; memory: boolean }; files: string[] };
+    expect(made.agent).toMatchObject({ id: "penny", memory: false, tools: ["note_read", "note_write", "file_list", "file_read", "file_write", "file_append", "ask_user"] });
+    expect(made.files).toEqual(["categories.md"]);
+    expect((await store.files("penny")).map((f) => f.path)).toEqual(["categories.md"]);
+    expect((await store.agent("penny"))?.name).toBe("Penny");
+    const refused = await handle("/templates/offer-writer/activate", "POST", undefined, { store, memory, now: () => NOW });
+    expect(refused.status).toBe(409);
+    expect((refused.body as { message: string }).message).toBe("Max is coming to this edition — its offers are PDFs sent by e-mail, which it cannot do yet.");
+    expect((await handle("/templates/nobody/activate", "POST", undefined, { store, memory })).status).toBe(404);
+  });
 });

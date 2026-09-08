@@ -80,6 +80,8 @@
       .schedule-row select, .schedule-row input { width: auto; }
       .tool-label { font-weight: 600; }
       .schedule-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+      .templates { display: grid; gap: 8px; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); }
+      .template { border: 1px solid rgba(127, 127, 127, 0.35); border-radius: 8px; padding: 10px; }
       input[type="time"], input[type="file"] { background: var(--poppy-surface-0); color: var(--poppy-text); border: 1px solid var(--poppy-border); border-radius: var(--poppy-radius); padding: 6px 8px; font: inherit; font-size: 13px; }
     </style>
   </head>
@@ -185,6 +187,12 @@
           <button id="btn-import-pack" class="ghost" type="button">Bring a Crew Pack in</button>
         </div>
         <div id="pack-status" class="status"></div>
+      </div>
+      <div class="panel" id="templates-panel">
+        <h2>Start from a template</h2>
+        <p class="muted small" style="margin:0 0 8px">The agents the live CrewPoppy app ships — a name, a brief, tools, a cap, sometimes a schedule and files. Add one and edit it like any other; it reads nothing of your memory unless you tick that.</p>
+        <div id="templates" class="templates"></div>
+        <div id="templates-status" class="status"></div>
       </div>
       <div class="panel" id="new-agent-panel">
         <h2 id="new-agent-title">New agent</h2>
