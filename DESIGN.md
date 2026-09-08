@@ -2348,6 +2348,14 @@ AWS edition's React: one screen today, and no build step the host has to trust.
   runner and the trusted dispatcher ported (memory tools through the host); Cloud Run jobs + Cloud
   Scheduler for runs that outlive the app; the Crew Pack; a light-model judge for the requests the
   rules cannot place. The mobile app (§15h) pairs to whichever edition the user runs — later.
+  **G3a proven live, 2026-09-08 09:05–09:10:** "What's on my calendar today?" → *none* — answered
+  from the memory, "no model · no tokens", one receipt `Asked: "What's on my calendar today?"`;
+  "Rewrite this more politely: send me the report by Friday." → *light* — Gemini 2.5 Flash-Lite,
+  160 tokens, "Could you please send me the report by Friday?"; "Plan a three-month strategy for
+  launching MemoryPoppy in Italy, with the trade-offs of each channel." → *deep* — Gemini 2.5 Pro,
+  a month-by-month plan, "at most $0.01" at the ceiling. One wording lesson: the Assistant opened
+  a deep answer with "the memories hold nothing relevant" although none had been consulted — the
+  material now says "not consulted" and the instructions say not to mention them then.
 
 **What G1 is not.** No model, no agents, no tools, no schedules, no mobile. It reads; it does not
 write memory (a Briefer that wrote its briefs back as `note` memories would be a fine G2/G3 idea —

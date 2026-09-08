@@ -211,7 +211,7 @@ describe("the Crew HQ routes", () => {
     expect(light.run.tier).toBe("light");
     expect(light.run.read.purpose).toBe("");
     expect(asked[0]).toMatchObject({ model: "gemini-2.5-flash-lite", max: 400 });
-    expect(asked[0]!.user).toContain("MEMORIES: none relevant.");
+    expect(asked[0]!.user).toContain("MEMORIES: not consulted");
     expect(light.run.model.ceilingUsd).toBeCloseTo((340 / 1_000_000) * 5, 8);
     expect(memory.calls.some((c) => c.path === "search")).toBe(false);
     expect(light.planLine).toBe("Planner: a light task — a rewrite, a summary, a short answer · Gemini 2.5 Flash-Lite on Vertex AI · 340 tokens · at most $0.01.");

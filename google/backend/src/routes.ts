@@ -65,8 +65,9 @@ const ASK_MEMORY_LIMIT = 20;
 const ASK_MEMORY_BUDGET = 6_000;
 
 /** The memories as the model sees them: data, delimited, never instructions. */
-function memoriesAsMaterial(memories: Memory[], timeZone: string): string {
-  if (memories.length === 0) return "MEMORIES: none relevant.";
+function memoriesAsMaterial(memories: Memory[], timeZone: string, consulted = true): string {
+  if (!consulted) return "MEMORIES: not consulted — the request is not about the user's own life. Do not mention them.";
+  if (memories.length === 0) return "MEMORIES: consulted, none relevant — say so in one sentence.";
   const line = (m: Memory): string => {
     const when = m.observedAt ? new Date(m.observedAt).toLocaleString("en-GB", { timeZone, dateStyle: "medium", timeStyle: "short" }) : "";
     const facts = Object.entries(m.attributes ?? {})
@@ -299,7 +300,7 @@ export async function handle(path: string, method: string, body: unknown, deps: 
         note = `The model was not asked: ${allowed.reason}. This is what your memory holds.`;
       } else {
         try {
-          const user = `REQUEST:\n${request}\n\n${memoriesAsMaterial(memories, timeZone())}\n\nAnswer in at most ${tierSpec.maxWords} words.`;
+          const user = `REQUEST:\n${request}\n\n${memoriesAsMaterial(memories, timeZone(), plan.wantsMemory && !!deps.memory)}\n\nAnswer in at most ${tierSpec.maxWords} words.`;
           const reply = await deps.model.generate(ASSISTANT.instructions, user, tierSpec.maxOutputTokens, tierSpec.model);
           answer = reply.text;
           const callUsd = ceilingUsd(reply.promptTokens + reply.outputTokens, tierSpec.ceilingUsdPerMillion);
