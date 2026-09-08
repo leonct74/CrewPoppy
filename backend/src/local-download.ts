@@ -71,6 +71,11 @@ export function contentDisposition(filename: string): string {
   return `attachment; filename="${ascii}"; filename*=UTF-8''${encodeURIComponent(filename)}`;
 }
 
+/** A JSON document as a download — the Crew Pack. */
+export function jsonFile(json: string, filename: string): StagedFile {
+  return { filename, contentType: "application/json; charset=utf-8", bytes: Buffer.from(json, "utf8") };
+}
+
 /** The CSV as the bytes a spreadsheet opens correctly — see {@link csvBytes}. */
 export function csvFile(csv: string, filename: string): StagedFile {
   return { filename, contentType: "text/csv; charset=utf-8", bytes: csvBytes(csv) };

@@ -96,6 +96,21 @@ export const api = {
     invoke({ method: "POST", path: "/crew-csv/export", body: {} }),
 
   /**
+   * The Crew Pack (DESIGN §3b): the whole crew — agents, what they remembered, their files — as
+   * one JSON file, in the format the Google edition reads too. Staged like the spreadsheet: the
+   * backend holds the bytes for a minute and the system browser fetches them.
+   */
+  crewPackExport: (): Promise<{ token: string; filename: string; agents: number; notes: number; files: number; omitted: string[] }> =>
+    invoke({ method: "POST", path: "/crew-pack/export", body: {} }, 120_000),
+
+  /** apply=false → the plan (who is created or updated, what is left out); apply=true → written. */
+  crewPackImport: (
+    pack: unknown,
+    apply: boolean,
+  ): Promise<{ applied: boolean; create: string[]; update: string[]; notes: number; files: number; skipped: string[]; totalMonthlyCapUsd: number }> =>
+    invoke({ method: "POST", path: "/crew-pack", body: { pack, apply } }, 120_000),
+
+  /**
    * Validate an uploaded CSV (apply=false → the plan: counts, combined cap, errors)
    * and, once the owner has SEEN that plan, apply it (apply=true). The backend
    * refuses to apply a plan with errors regardless of what this sends.

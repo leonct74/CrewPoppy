@@ -338,6 +338,7 @@ export function CrewCard(props: {
       </div>
 
       <CrewSpreadsheet empty={agents.length === 0} onChanged={refresh} />
+      <CrewPackCard onChanged={refresh} />
     </div>
   );
 }
@@ -350,6 +351,145 @@ export function CrewCard(props: {
  * spend (§9: the money, before the click) — and only "Yes, do it" writes anything.
  * Rows match agents BY NAME; an import never deletes an agent.
  */
+/**
+ * The Crew Pack (DESIGN §3b): the whole crew — the agents, what they remembered, their files — as
+ * one JSON file the owner holds, in the format the Google edition reads too. Download stages the
+ * bytes for the system browser (the same one-shot token as the spreadsheet); bringing one in shows
+ * the plan first and writes only on the owner's second click.
+ */
+function CrewPackCard(props: { onChanged: () => void | Promise<void> }) {
+  const [err, setErr] = useState<string | null>(null);
+  const [done, setDone] = useState<string | null>(null);
+  const [manualUrl, setManualUrl] = useState<string | null>(null);
+  const [plan, setPlan] = useState<{ pack: unknown; create: string[]; update: string[]; notes: number; files: number; skipped: string[]; totalMonthlyCapUsd: number } | null>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
+
+  const download = async () => {
+    setErr(null);
+    setDone(null);
+    setManualUrl(null);
+    try {
+      const { token, filename, agents, notes, files, omitted } = await api.crewPackExport();
+      const url = downloadUrlFor(token, window.location.href);
+      if (!url) throw new Error("This page isn't being served by AgentsPoppy, so there is no way to hand you the file.");
+      const what = `${agents} agent${agents === 1 ? "" : "s"}, ${notes} memor${notes === 1 ? "y" : "ies"}, ${files} file${files === 1 ? "" : "s"}${omitted.length ? `. Left out: ${omitted.join("; ")}` : ""}`;
+      try {
+        await host.openExternal(url);
+        setDone(`Your browser is downloading “${filename}” — ${what}.`);
+      } catch {
+        setManualUrl(url);
+      }
+    } catch (e) {
+      setErr((e as Error).message);
+    }
+  };
+
+  const picked = async (file: File) => {
+    setErr(null);
+    setDone(null);
+    setPlan(null);
+    try {
+      let pack: unknown;
+      try {
+        pack = JSON.parse(await file.text());
+      } catch {
+        throw new Error("That file is not JSON — a Crew Pack is the .json file CrewPoppy downloaded.");
+      }
+      const r = await api.crewPackImport(pack, false);
+      setPlan({ pack, ...r });
+    } catch (e) {
+      setErr((e as Error).message);
+    }
+  };
+
+  const apply = async () => {
+    if (!plan) return;
+    setErr(null);
+    try {
+      const r = await api.crewPackImport(plan.pack, true);
+      setPlan(null);
+      setDone(`Brought in: ${r.create.length} new, ${r.update.length} updated, ${r.notes} memor${r.notes === 1 ? "y" : "ies"}, ${r.files} file${r.files === 1 ? "" : "s"}.${r.skipped.length ? ` ${r.skipped.join("; ")}.` : ""}`);
+      await props.onChanged();
+    } catch (e) {
+      setErr((e as Error).message);
+    }
+  };
+
+  const count = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
+
+  return (
+    <div className="card" style={{ margin: 0, padding: 12 }}>
+      <strong style={{ fontSize: 13 }}>The whole crew as a Crew Pack</strong>
+      <p className="muted" style={{ margin: "4px 0 8px", fontSize: 12 }}>
+        Everything your crew knows — the agents, what they remembered, their files — as one file you own. Bring it back after a
+        teardown, on another machine, or into the Google edition. Nothing in it is a key or a credential.
+      </p>
+      <div className="row" style={{ gap: 8 }}>
+        <Button className="btn" busyLabel="Packing…" onClick={download}>
+          ⬇ Download the Crew Pack
+        </Button>
+        <button className="btn" onClick={() => fileRef.current?.click()}>
+          ⬆ Bring a Crew Pack in
+        </button>
+        <input
+          ref={fileRef}
+          type="file"
+          accept=".json,application/json"
+          style={{ display: "none" }}
+          onChange={(e) => {
+            const f = e.target.files?.[0];
+            e.target.value = "";
+            if (f) void picked(f);
+          }}
+        />
+      </div>
+      {manualUrl && (
+        <p className="muted" style={{ margin: "8px 0 0", fontSize: 12 }}>
+          The browser didn't open.{" "}
+          <a href={manualUrl} target="_blank" rel="noreferrer">
+            Download it here
+          </a>{" "}
+          — the link works for a minute.
+        </p>
+      )}
+      {plan && (
+        <div className="banner" style={{ marginTop: 8 }}>
+          <p style={{ margin: 0 }}>
+            This pack would create {count(plan.create.length, "agent", "agents")} and update {plan.update.length}, with{" "}
+            {count(plan.notes, "memory", "memories")} and {count(plan.files, "file", "files")} — {money(plan.totalMonthlyCapUsd)} a month in
+            caps together.
+          </p>
+          {plan.skipped.length > 0 && (
+            <ul className="muted" style={{ margin: "6px 0 0", paddingLeft: 18, fontSize: 12 }}>
+              {plan.skipped.map((s, i) => (
+                <li key={i}>{s}</li>
+              ))}
+            </ul>
+          )}
+          <div className="row" style={{ gap: 8, marginTop: 8 }}>
+            <Button className="btn" busyLabel="Bringing in…" onClick={apply}>
+              Bring it in
+            </Button>
+            <button className="btn btn-ghost" onClick={() => setPlan(null)}>
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+      {done && (
+        <div className="banner" style={{ marginTop: 8 }}>
+          {done}
+        </div>
+      )}
+      {err && (
+        <div className="banner err" style={{ marginTop: 8 }}>
+          {err}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function CrewSpreadsheet(props: { empty: boolean; onChanged: () => void | Promise<void> }) {
   const [plan, setPlan] = useState<
     | { csv: string; created: number; updated: number; totalMonthlyCapUsd: number; errors: string[] }

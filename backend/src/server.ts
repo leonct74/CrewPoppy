@@ -21,7 +21,9 @@ import {
   stopRun, withStaleness,
 } from "./agents";
 import { applyImport, crewToCsv, planImport } from "./crew-csv";
-import { contentDisposition, csvFile, stageDownload, takeDownload } from "./local-download";
+import { PACK_FILENAME, PACK_VERSION, applyCrewPack, buildCrewPack, planCrewPack } from "./crew-pack";
+import { readCrewPack } from "../../shared/src/pack";
+import { contentDisposition, csvFile, jsonFile, stageDownload, takeDownload } from "./local-download";
 import { getOwnerEmail, isVerifiedSender, setOwnerEmail } from "./email";
 import { getMobileStatus, pairMobile, revokeMobile } from "./mobile";
 import { CognitoIdentityProviderClient } from "@aws-sdk/client-cognito-identity-provider";
@@ -220,6 +222,28 @@ const server = createServer(async (req, res) => {
     // Neither the frame nor this confined backend can put a file on the owner's disk
     // (see local-download.ts). POST stages the CSV under a one-shot token; the frontend
     // has the host open the matching /ext-dl URL in the system browser, which saves it.
+    // The Crew Pack (DESIGN §3b): the whole crew as one file, in the format the Google edition reads
+    // too. Export stages the bytes for the system browser like the spreadsheet; import shows the
+    // plan first (apply=false) and writes only on the owner's second call (apply=true).
+    if (parts[0] === "crew-pack" && parts[1] === "export" && parts.length === 2 && method === "POST") {
+      const now = new Date().toISOString();
+      const pack = await buildCrewPack(ddb, tableName, s3, workspaceBucketName(ctx.accountId, region), now);
+      return json(res, 200, { ...stageDownload(jsonFile(JSON.stringify(pack, null, 2), PACK_FILENAME)), agents: pack.agents.length, notes: pack.notes.length, files: pack.files.length, omitted: pack.omitted ?? [] });
+    }
+    if (parts[0] === "crew-pack" && parts.length === 1 && method === "POST") {
+      const now = new Date().toISOString();
+      const body = await readJson(req);
+      const read = readCrewPack(body.pack ?? body);
+      if ("error" in read) return json(res, 400, { error: read.error });
+      if (read.pack.version < PACK_VERSION) {
+        return json(res, 400, { error: "This Crew Pack was made by the Google edition before the shared format. Export it again there, then bring it here." });
+      }
+      const zone = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+      if (body.apply === true) {
+        return json(res, 200, await applyCrewPack(ddb, tableName, s3, workspaceBucketName(ctx.accountId, region), read.pack, now, zone));
+      }
+      return json(res, 200, await planCrewPack(ddb, tableName, read.pack, now, zone));
+    }
     if (parts[0] === "crew-csv" && parts[1] === "export" && parts.length === 2 && method === "POST") {
       const now = new Date().toISOString();
       const csv = crewToCsv(await listAgents(ddb, tableName, now));

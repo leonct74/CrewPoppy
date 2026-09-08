@@ -73,17 +73,34 @@ export function scheduleOf(s: RecipeSchedule): TemplateSchedule {
   return { every, at: every === "hour" ? "00:00" : `${TWO(s.hour)}:${TWO(minute)}`, ...(every === "week" ? { weekday: s.weekday } : {}), task: s.task };
 }
 
-function templateOf(r: Recipe): Template {
+/**
+ * The live app's tool names → this edition's, in catalogue order; the abilities this edition lacks
+ * named once each; names neither edition knows listed apart. Notes are read and written as a pair
+ * here, so a crew that keeps a memory reads it back. Used by the templates and by the Crew Pack.
+ */
+export function mapLiveTools(tools: readonly unknown[]): { tools: ToolName[]; notYet: string[]; unknown: string[] } {
   const mapped = new Set<ToolName>();
   const notYet: string[] = [];
-  for (const t of r.tools) {
-    const m = TOOL_MAP[t];
-    if (typeof m === "string") mapped.add(m);
+  const unknown: string[] = [];
+  for (const t of tools) {
+    const m = typeof t === "string" && t in TOOL_MAP ? TOOL_MAP[t as LiveTool] : undefined;
+    if (m === undefined) unknown.push(String(t));
+    else if (typeof m === "string") mapped.add(m);
     else if (!notYet.includes(m.notYet)) notYet.push(m.notYet);
   }
-  // Notes are read and written as a pair here: a recipe that keeps a memory reads it back.
   if (mapped.has("note_write")) mapped.add("note_read");
-  const tools = TOOL_NAMES.filter((t) => t !== "memory_search" && mapped.has(t));
+  return { tools: TOOL_NAMES.filter((t) => t !== "memory_search" && mapped.has(t)), notYet, unknown };
+}
+
+const LIVE_NAME: Partial<Record<ToolName, LiveTool>> = { note_read: "memory_read", note_write: "memory_write", file_list: "workspace_list", file_read: "workspace_read", file_write: "workspace_write", file_append: "workspace_append", ask_user: "ask_user" };
+
+/** This edition's tool name in the live app's terms — for the Crew Pack, which speaks the live app's. */
+export function liveToolNameOf(tool: ToolName): string {
+  return LIVE_NAME[tool] ?? tool;
+}
+
+function templateOf(r: Recipe): Template {
+  const { tools, notYet } = mapLiveTools(r.tools);
   const instructions =
     notYet.length > 0
       ? `${r.instructions.trim()}\n\nNot available in this edition: ${notYet.join(", ")}. When the job calls for one of them, write the result as a file instead and say plainly what you could not do.`

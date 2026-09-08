@@ -3,6 +3,7 @@ import { Feedback } from "./Feedback";
 import { Templates } from "./Templates";
 import { api } from "./api";
 import { Button } from "./Button";
+import { downloadUrlFor } from "./download";
 import { host, type AccessState } from "./host";
 import { CrewCard } from "./CrewCard";
 import { EmailCard } from "./EmailCard";
@@ -32,6 +33,13 @@ export function App() {
   const [recipePick, setRecipePick] = useState<Recipe | null>(null);
   const [models, setModels] = useState<ModelChoice[]>([]);
   const [crewSize, setCrewSize] = useState(0);
+  // The Crew Pack, offered before a teardown (DESIGN §3b): staged by the backend, fetched by the system browser.
+  const savePack = useCallback(async () => {
+    const { token } = await api.crewPackExport();
+    const url = downloadUrlFor(token, window.location.href);
+    if (!url) throw new Error("This page isn't being served by AgentsPoppy, so there is no way to hand you the file.");
+    await host.openExternal(url);
+  }, []);
   const pollRef = useRef<number | null>(null);
 
   /**
@@ -298,6 +306,7 @@ export function App() {
       {status && status.phase !== "none" && (
         <RemovePanel
           disabled={status.inProgress}
+          onSavePack={crewSize > 0 ? savePack : undefined}
           onRemove={async () => {
             await api.teardown();
             await refresh();

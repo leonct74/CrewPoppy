@@ -18,7 +18,12 @@ import { Button } from "./Button";
  */
 const CONFIRM_WORD = "CrewPoppy";
 
-export function RemovePanel(props: { disabled?: boolean; onRemove: () => Promise<void> }) {
+export function RemovePanel(props: {
+  disabled?: boolean;
+  onRemove: () => Promise<void>;
+  /** Present once agents exist: the Crew Pack is offered FIRST (DESIGN §3b), before anything can be erased. */
+  onSavePack?: () => Promise<void>;
+}) {
   const [open, setOpen] = useState(false);
   const [typed, setTyped] = useState("");
   const [busy, setBusy] = useState(false);
@@ -69,6 +74,17 @@ export function RemovePanel(props: { disabled?: boolean; onRemove: () => Promise
             <h3 id="remove-title" style={{ margin: 0 }}>
               Remove CrewPoppy from your AWS account?
             </h3>
+            {props.onSavePack && (
+              <div className="banner">
+                <p style={{ margin: "0 0 6px" }}>
+                  Download your Crew Pack before removing everything? It holds every agent, what they remembered and their files
+                  — and brings the crew back later, here or in the Google edition.
+                </p>
+                <Button className="btn" busyLabel="Packing…" onClick={props.onSavePack}>
+                  ⬇ Download the Crew Pack first
+                </Button>
+              </div>
+            )}
             <p style={{ margin: 0 }}>This deletes, permanently:</p>
             <ul className="muted" style={{ margin: 0, paddingLeft: 18 }}>
               <li>every agent — their instructions, their memory, everything they've learned</li>
