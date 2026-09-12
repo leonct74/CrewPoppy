@@ -25,7 +25,8 @@
     "sync-feedback": "node ${AGENTSPOPPY_REPO:-../agentspoppy}/scripts/sync-feedback-tab.mjs --dest frontend/src/vendor",
     "check-feedback": "node ${AGENTSPOPPY_REPO:-../agentspoppy}/scripts/sync-feedback-tab.mjs --dest frontend/src/vendor --check",
     "check-pairing": "node scripts/check-pairing-safety.mjs",
-    "check:reproducible": "node scripts/check-reproducible.mjs"
+    "check:reproducible": "node scripts/check-reproducible.mjs",
+    "check:release": "node scripts/check-release.mjs"
   },
   "devDependencies": {
     "esbuild": "^0.24.0",
