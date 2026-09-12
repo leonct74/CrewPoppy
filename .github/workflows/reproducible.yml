@@ -1,0 +1,31 @@
+# The guard for a determinism bug that shipped unnoticed: the backend zip embedded in the
+# package took its mtime from HEAD's commit date, so the published sha256 — the one the
+# AgentsPoppy catalogue pins — could not be rebuilt from the release tag.
+#
+# It survived because the obvious check (build twice, same machine, same commit) passes on the
+# broken build. check:reproducible perturbs what actually varied instead: git's reported commit
+# date, source mtimes, the wall clock and TZ. See scripts/check-reproducible.mjs.
+name: reproducible
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      # Full history: the build records HEAD, and a shallow clone changes what git reports.
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run check:reproducible
